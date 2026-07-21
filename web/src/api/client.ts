@@ -1,0 +1,115 @@
+import type { Account, Asset, AssetGroup, AssetRemoteExport, AuthStatus, CanvasDocument, CanvasNodeDTO, ComfyUIDiscovery, ConnectionServerInfo, CurrentUser, Episode, EpisodeScript, GenerationInputReference, GenerationInvocation, GenerationJob, GenerationReferenceUpload, ID, Model, ModelPreset, ModelProvider, ModelSyncResult, OllamaDiscovery, Project, PromptPreset, ProviderCredential, S3Connection, StagedAsset, StagedAssetPage, StagedAssetSummary, VoiceProfile, WorkflowAnalysis, WorkflowCompatibility, WorkflowTemplate } from './types'
+
+interface Envelope<T> { data?: T; error?: { code: string; message: string } }
+export class APIError extends Error {
+  code: string
+  status: number
+  constructor(code: string, message: string, status: number) { super(message); this.code = code; this.status = status }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers)
+  if (init?.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
+  const response = await fetch(`/api${path}`, { ...init, headers, credentials: 'include' })
+  const payload = (await response.json().catch(() => ({}))) as Envelope<T>
+  if (!response.ok || payload.error) throw new APIError(payload.error?.code ?? 'request_failed', payload.error?.message ?? `Request failed (${response.status})`, response.status)
+  return payload.data as T
+}
+const body = (value: unknown) => JSON.stringify(value)
+const query = (values: Record<string, string | number | undefined | null>) => { const params = new URLSearchParams(); Object.entries(values).forEach(([key, value]) => { if (value !== undefined && value !== null && value !== '') params.set(key, String(value)) }); const text = params.toString(); return text ? `?${text}` : '' }
+
+export const api = {
+  authStatus: () => request<AuthStatus>('/auth/status'),
+	setupAccount: (username: string, displayName: string, password: string) => request<Account>('/auth/setup', { method: 'POST', body: body({ username, display_name: displayName, password }) }),
+  login: (username: string, password: string) => request<{ ok: boolean }>('/auth/login', { method: 'POST', body: body({ username, password }) }),
+  logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+  me: () => request<CurrentUser>('/me'),
+	updateProfile: (input: { username: string; display_name: string }) => request<Account>('/me', { method: 'PATCH', body: body(input) }),
+  changePassword: (currentPassword: string, newPassword: string) => request<Account>('/me/password', { method: 'POST', body: body({ current_password: currentPassword, new_password: newPassword }) }),
+	s3Connections: () => request<S3Connection[]>('/s3-connections'),
+	createS3Connection: (input: Record<string, unknown>) => request<S3Connection>('/s3-connections', { method: 'POST', body: body(input) }),
+	updateS3Connection: (id: ID, input: Record<string, unknown>) => request<S3Connection>(`/s3-connections/${id}`, { method: 'PATCH', body: body(input) }),
+	deleteS3Connection: (id: ID) => request<{ deleted: boolean }>(`/s3-connections/${id}`, { method: 'DELETE' }),
+	testS3Connection: (id: ID) => request<{ available: boolean }>(`/s3-connections/${id}/test`, { method: 'POST' }),
+  projects: () => request<Project[]>('/projects'),
+  createProject: (input: { title: string; description?: string }) => request<Project>('/projects', { method: 'POST', body: body(input) }),
+  updateProject: (id: ID, input: { title: string; description?: string }) => request<Project>(`/projects/${id}`, { method: 'PATCH', body: body(input) }),
+  deleteProject: (id: ID) => request(`/projects/${id}`, { method: 'DELETE' }),
+  episodes: (projectID: ID) => request<Episode[]>(`/projects/${projectID}/episodes`),
+  createEpisode: (projectID: ID, input: Partial<Episode> & { title: string; script_body?: string }) => request<Episode>(`/projects/${projectID}/episodes`, { method: 'POST', body: body(input) }),
+  updateEpisode: (id: ID, input: Partial<Episode>) => request<Episode>(`/episodes/${id}`, { method: 'PATCH', body: body(input) }),
+  deleteEpisode: (id: ID) => request(`/episodes/${id}`, { method: 'DELETE' }),
+  scripts: (episodeID: ID) => request<EpisodeScript[]>(`/episodes/${episodeID}/scripts`),
+  createScript: (episodeID: ID, input: { body: string; note?: string; adopt?: boolean }) => request<EpisodeScript>(`/episodes/${episodeID}/scripts`, { method: 'POST', body: body(input) }),
+  adoptScript: (id: ID) => request<EpisodeScript>(`/episode-scripts/${id}/adopt`, { method: 'POST' }),
+  assetGroups: (projectID: ID) => request<AssetGroup[]>(`/projects/${projectID}/asset-groups`),
+  createAssetGroup: (projectID: ID, input: Partial<AssetGroup> & { kind: string; name: string }) => request<AssetGroup>(`/projects/${projectID}/asset-groups`, { method: 'POST', body: body(input) }),
+  updateAssetGroup: (id: ID, input: Partial<AssetGroup>) => request<AssetGroup>(`/asset-groups/${id}`, { method: 'PATCH', body: body(input) }),
+  deleteAssetGroup: (id: ID) => request<{ deleted: boolean; asset_count: number }>(`/asset-groups/${id}`, { method: 'DELETE' }),
+  assets: (projectID: ID, filters: { group_id?: ID; episode_id?: ID; status?: string; media_type?: string } = {}) => request<Asset[]>(`/projects/${projectID}/assets${query(filters)}`),
+  uploadAsset: async (groupID: ID, file: File, values: { name?: string; media_type?: string; episode_id?: ID; status?: string }) => { const form = new FormData(); form.append('file', file); Object.entries(values).forEach(([key, value]) => { if (value) form.append(key, value) }); return request<Asset>(`/asset-groups/${groupID}/assets/upload`, { method: 'POST', body: form }) },
+  updateAsset: (id: ID, input: { name: string }) => request<Asset>(`/assets/${id}`, { method: 'PATCH', body: body(input) }),
+  adoptAsset: (id: ID) => request<Asset>(`/assets/${id}/adopt`, { method: 'POST' }),
+  discardAsset: (id: ID) => request<Asset>(`/assets/${id}/discard`, { method: 'POST' }),
+  deleteAsset: (id: ID) => request<{ deleted: boolean }>(`/assets/${id}`, { method: 'DELETE' }),
+  assetURL: (id: ID) => `/api/assets/${id}/file`,
+  assetProxyURL: (id: ID) => `/api/assets/${id}/file?proxy=1`,
+	assetExports: (id: ID) => request<AssetRemoteExport[]>(`/assets/${id}/exports`),
+	publishAsset: (id: ID, connectionID: ID) => request<AssetRemoteExport>(`/assets/${id}/exports`, { method: 'POST', body: body({ connection_id: connectionID }) }),
+	deleteAssetExport: (id: ID) => request<{ deleted: boolean }>(`/asset-exports/${id}`, { method: 'DELETE' }),
+	assetExportURL: (id: ID) => request<{ url: string; expires_at: string }>(`/asset-exports/${id}/url`),
+  canvas: (episodeID: ID) => request<CanvasDocument>(`/episodes/${episodeID}/canvas`),
+  saveCanvas: (episodeID: ID, document: CanvasDocument) => request<CanvasDocument>(`/episodes/${episodeID}/canvas`, { method: 'PUT', body: body(document) }),
+  selectCanvasVideo: (nodeID: ID, assetID: ID | null) => request<CanvasNodeDTO>(`/canvas-nodes/${nodeID}/selected-video`, { method: 'PATCH', body: body({ asset_id: assetID }) }),
+  providers: () => request<ModelProvider[]>('/model-providers'),
+  createProvider: (input: Partial<ModelProvider>) => request<ModelProvider>('/model-providers', { method: 'POST', body: body(input) }),
+  updateProvider: (id: ID, input: Partial<ModelProvider>) => request<ModelProvider>(`/model-providers/${id}`, { method: 'PATCH', body: body(input) }),
+  deleteProvider: (id: ID) => request<{ deleted: boolean }>(`/model-providers/${id}`, { method: 'DELETE' }),
+  testProvider: (id: ID) => request<ConnectionServerInfo>(`/model-providers/${id}/test`, { method: 'POST' }),
+  discoverProviderModels: (id: ID) => request<OllamaDiscovery | ComfyUIDiscovery>(`/model-providers/${id}/discover`, { method: 'POST' }),
+  syncProviderModels: (id: ID, modelIDs: string[]) => request<ModelSyncResult>(`/model-providers/${id}/sync`, { method: 'POST', body: body({ model_ids: modelIDs }) }),
+  models: (capability?: string, projectID?: ID) => request<Model[]>(`/model-catalog${query({ capability, project_id: projectID })}`),
+  createModel: (input: Partial<Model>) => request<Model>('/model-catalog', { method: 'POST', body: body(input) }),
+  updateModel: (id: ID, input: Partial<Model>) => request<Model>(`/model-catalog/${id}`, { method: 'PATCH', body: body(input) }),
+  presets: (modelID?: ID) => request<ModelPreset[]>(`/model-presets${query({ model_id: modelID })}`),
+  createPreset: (input: Partial<ModelPreset>) => request<ModelPreset>('/model-presets', { method: 'POST', body: body(input) }),
+  updatePreset: (id: ID, input: Partial<ModelPreset>) => request<ModelPreset>(`/model-presets/${id}`, { method: 'PATCH', body: body(input) }),
+  deletePreset: (id: ID) => request<{ deleted: boolean }>(`/model-presets/${id}`, { method: 'DELETE' }),
+  workflows: (capability?: string, projectID?: ID) => request<WorkflowTemplate[]>(`/workflow-templates${query({ capability, project_id: projectID })}`),
+  analyzeWorkflow: (input: { workflow: Record<string, unknown>; provider_id?: ID }) => request<WorkflowAnalysis>('/workflow-templates/analyze', { method: 'POST', body: body(input) }),
+  createWorkflow: (input: Partial<WorkflowTemplate>) => request<WorkflowTemplate>('/workflow-templates', { method: 'POST', body: body(input) }),
+  updateWorkflow: (id: ID, input: Partial<WorkflowTemplate>) => request<WorkflowTemplate>(`/workflow-templates/${id}`, { method: 'PATCH', body: body(input) }),
+  deleteWorkflow: (id: ID) => request<{ deleted: boolean }>(`/workflow-templates/${id}`, { method: 'DELETE' }),
+  workflowCompatibilities: (workflowID?: ID, providerID?: ID) => request<WorkflowCompatibility[]>(`/workflow-compatibilities${query({ workflow_template_id: workflowID, provider_id: providerID })}`),
+  checkWorkflow: (workflowID: ID, providerID: ID) => request<WorkflowCompatibility>(`/workflow-templates/${workflowID}/check`, { method: 'POST', body: body({ provider_id: providerID }) }),
+  voiceProfiles: (projectID: ID) => request<VoiceProfile[]>(`/projects/${projectID}/voice-profiles`),
+  createVoiceProfile: (projectID: ID, form: FormData) => request<VoiceProfile>(`/projects/${projectID}/voice-profiles`, { method: 'POST', body: form }),
+  updateVoiceProfile: (id: ID, input: { name: string; description?: string }) => request<VoiceProfile>(`/voice-profiles/${id}`, { method: 'PATCH', body: body(input) }),
+  deleteVoiceProfile: (id: ID) => request<{ deleted: boolean }>(`/voice-profiles/${id}`, { method: 'DELETE' }),
+  voiceProfileSourceURL: (id: ID) => `/api/voice-profiles/${id}/source`,
+  voiceProfilePreviewURL: (id: ID) => `/api/voice-profiles/${id}/preview`,
+  promptPresets: (projectID: ID, capability?: string) => request<PromptPreset[]>(`/projects/${projectID}/prompt-presets${query({ capability })}`),
+  createPromptPreset: (projectID: ID, input: Partial<PromptPreset>) => request<PromptPreset>(`/projects/${projectID}/prompt-presets`, { method: 'POST', body: body(input) }),
+  updatePromptPreset: (id: ID, input: Partial<PromptPreset>) => request<PromptPreset>(`/prompt-presets/${id}`, { method: 'PATCH', body: body(input) }),
+  deletePromptPreset: (id: ID) => request<{ deleted: boolean }>(`/prompt-presets/${id}`, { method: 'DELETE' }),
+  credentials: (providerID?: ID) => request<ProviderCredential[]>(`/provider-credentials${query({ provider_id: providerID })}`),
+  createCredential: (input: { provider_id: ID; name: string; api_key: string; activate?: boolean }) => request<ProviderCredential>('/provider-credentials', { method: 'POST', body: body(input) }),
+  activateCredential: (id: ID) => request<ProviderCredential>(`/provider-credentials/${id}/activate`, { method: 'POST' }),
+  testCredential: (id: ID) => request<{ available: boolean; message: string }>(`/provider-credentials/${id}/test`, { method: 'POST' }),
+  deleteCredential: (id: ID) => request(`/provider-credentials/${id}`, { method: 'DELETE' }),
+  jobs: (projectID: ID, episodeID?: ID) => request<GenerationJob[]>(`/generation-jobs${query({ project_id: projectID, episode_id: episodeID })}`),
+  job: (id: ID) => request<GenerationJob>(`/generation-jobs/${id}`),
+  generationInvocation: (id: ID) => request<GenerationInvocation>(`/generation-jobs/${id}/invocation`),
+  createJob: (input: { project_id: ID; episode_id?: ID; canvas_node_id?: ID; target_asset_group_id?: ID; prompt_preset_id?: ID; model_preset_id?: ID; target_kind: 'model' | 'workflow'; provider_id?: ID; model_id?: ID; workflow_template_id?: ID; output_name?: string; prompt: string; parameters?: Record<string, unknown>; input_references?: GenerationInputReference[] }) => request<GenerationJob>('/generation-jobs', { method: 'POST', body: body(input) }),
+  uploadGenerationReference: async (projectID: ID, file: File) => { const form = new FormData(); form.append('file', file); return request<GenerationReferenceUpload>(`/projects/${projectID}/generation-reference-uploads`, { method: 'POST', body: form }) },
+  generationReferenceURL: (id: ID) => `/api/generation-reference-uploads/${id}/file`,
+  deleteGenerationReference: (id: ID) => request<{ deleted: boolean }>(`/generation-reference-uploads/${id}`, { method: 'DELETE' }),
+  stagedAssets: (projectID: ID, filters: { source?: string; processed?: string; capability?: string; media_type?: string; name?: string; created_from?: string; created_to?: string; sort?: string; page?: number; page_size?: number } = {}) => request<StagedAssetPage>(`/projects/${projectID}/staged-assets${query(filters)}`),
+  stagedAssetSummary: (projectID: ID) => request<StagedAssetSummary>(`/projects/${projectID}/staged-assets/summary`),
+  uploadStagedAsset: async (projectID: ID, file: File, values: { name?: string; media_type?: string }) => { const form = new FormData(); form.append('file', file); Object.entries(values).forEach(([key, value]) => { if (value) form.append(key, value) }); return request<StagedAsset>(`/projects/${projectID}/staged-assets/upload`, { method: 'POST', body: form }) },
+  stagedAssetURL: (id: ID) => `/api/staged-assets/${id}/file`,
+  stagedAssetProxyURL: (id: ID) => `/api/staged-assets/${id}/file?proxy=1`,
+  updateStagedAsset: (id: ID, input: { name: string }) => request<StagedAsset>(`/staged-assets/${id}`, { method: 'PATCH', body: body(input) }),
+  importStagedAsset: (id: ID, input: { group_id: ID; name?: string }) => request<Asset>(`/staged-assets/${id}/import`, { method: 'POST', body: body(input) }),
+  deleteStagedAsset: (id: ID) => request<{ deleted: boolean }>(`/staged-assets/${id}`, { method: 'DELETE' }),
+}

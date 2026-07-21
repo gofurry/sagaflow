@@ -1,0 +1,17 @@
+name: sagaflow
+
+services:
+  sagaflow:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sagaflow:dev
+    container_name: sagaflow
+    ports:
+      - "8080:8080"
+    volumes:
+      - sagaflow_data:/data
+    restart: unless-stopped
+
+volumes:
+  sagaflow_data:

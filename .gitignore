@@ -1,0 +1,33 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+configs/config.yaml
+
+# Runtime data
+data/
+logs/
+bin/
+tmp/
+
+# Go
+*.exe
+!tools/ffmpeg/windows-x64/ffmpeg.exe
+!tools/ffmpeg/windows-x64/ffprobe.exe
+*.test
+coverage.out
+
+# Frontend
+web/node_modules/
+web/dist/
+web/.vite/
+web/.env
+web/.env.*
+!web/.env.example
+
+# Editors and OS files
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+.DS_Store

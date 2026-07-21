@@ -1,0 +1,19 @@
+# SagaFlow 可以在没有配置文件的情况下直接启动。
+# 模型、凭证、工作流和 S3 连接均在应用内部管理，不属于本文件。
+app:
+  data_dir: ./data
+  log_level: info
+
+server:
+  host: 127.0.0.1
+  port: 8080
+
+auth:
+  session_ttl: 720h
+  cookie_name: sagaflow_session
+  cookie_secure: false
+
+jobs:
+  concurrency: 2
+  poll_interval: 750ms
+  lease: 2h
