@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gofurry/sagaflow/internal/inference"
+	"github.com/gofurry/sagaflow/internal/inference/adapters/openaicompat"
 	"github.com/gofurry/sagaflow/internal/inference/adapterutil"
 )
 
@@ -18,6 +19,7 @@ type Config struct {
 
 type Driver struct {
 	http         *adapterutil.HTTPClient
+	text         *openaicompat.Driver
 	pollInterval time.Duration
 }
 
@@ -26,7 +28,11 @@ func New(config Config) *Driver {
 	if interval <= 0 {
 		interval = 4 * time.Second
 	}
-	return &Driver{http: adapterutil.NewHTTPClient(config.HTTPClient), pollInterval: interval}
+	return &Driver{
+		http:         adapterutil.NewHTTPClient(config.HTTPClient),
+		text:         openaicompat.NewResponses(config.HTTPClient),
+		pollInterval: interval,
+	}
 }
 
 func (d *Driver) Execute(ctx context.Context, request inference.Request, events inference.EventSink) (inference.Result, error) {
@@ -34,12 +40,14 @@ func (d *Driver) Execute(ctx context.Context, request inference.Request, events 
 		return inference.Result{}, inference.NewError(inference.ErrorInvalidRequest, request.Runtime.ProviderCode, "Volcengine adapter only accepts model targets", false, nil)
 	}
 	switch request.Target.Capability {
+	case inference.CapabilityText:
+		return d.text.Execute(ctx, request, events)
 	case inference.CapabilityImage:
 		return d.generateImage(ctx, request, events)
 	case inference.CapabilityVideo:
 		return d.generateVideo(ctx, request, events)
 	default:
-		return inference.Result{}, inference.NewError(inference.ErrorInvalidRequest, request.Runtime.ProviderCode, "driver only supports image and video generation", false, nil)
+		return inference.Result{}, inference.NewError(inference.ErrorInvalidRequest, request.Runtime.ProviderCode, "driver only supports text, image and video generation", false, nil)
 	}
 }
 
@@ -154,20 +162,24 @@ func (d *Driver) generateVideo(ctx context.Context, request inference.Request, e
 		"duration":       adapterutil.NumberParam(p, "duration", 5),
 		"watermark":      adapterutil.BoolParam(p, "watermark", false),
 	}
+	adapterutil.CopyParam(payload, p, "resolution")
 	endpoint := strings.TrimRight(request.Runtime.Endpoint, "/") + "/contents/generations/tasks"
-	if err := inference.Emit(ctx, events, inference.Event{
-		Stage: "provider_request", Progress: .2, Message: "Volcengine video request payload prepared",
-		Details: map[string]any{"method": http.MethodPost, "endpoint": endpoint, "payload": payload},
-	}); err != nil {
-		return inference.Result{}, err
-	}
-	var submitted map[string]any
-	if _, err := d.http.DoJSON(ctx, provider, http.MethodPost, endpoint, request.Runtime.APIKey, payload, &submitted); err != nil {
-		return inference.Result{}, err
-	}
-	externalID := adapterutil.FindString(submitted, "id", "task_id")
+	externalID := strings.TrimSpace(request.ProviderRunID)
 	if externalID == "" {
-		return inference.Result{}, inference.NewError(inference.ErrorInvalidOutput, provider, "video response has no task id", false, nil)
+		if err := inference.Emit(ctx, events, inference.Event{
+			Stage: "provider_request", Progress: .2, Message: "Volcengine video request payload prepared",
+			Details: map[string]any{"method": http.MethodPost, "endpoint": endpoint, "payload": payload},
+		}); err != nil {
+			return inference.Result{}, err
+		}
+		var submitted map[string]any
+		if _, err := d.http.DoJSON(ctx, provider, http.MethodPost, endpoint, request.Runtime.APIKey, payload, &submitted); err != nil {
+			return inference.Result{}, err
+		}
+		externalID = adapterutil.FindString(submitted, "id", "task_id")
+		if externalID == "" {
+			return inference.Result{}, inference.NewError(inference.ErrorInvalidOutput, provider, "video response has no task id", false, nil)
+		}
 	}
 	if err := inference.Emit(ctx, events, inference.Event{Stage: "queued", ProviderRunID: externalID}); err != nil {
 		return inference.Result{}, err
