@@ -2,6 +2,7 @@ package modelcatalog_test
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
@@ -42,10 +43,18 @@ func TestSyncCreatesVersionedBuiltinsIdempotently(t *testing.T) {
 	}
 	var arkModels int
 	var bailianModels int
+	arkThinkingDefaults := make(map[string]string)
 	deepSeekModels := make(map[string]bool)
 	for _, model := range models {
 		if model.ProviderCode == "volcengine" {
 			arkModels++
+			if model.ModelID == "doubao-seed-2-1-pro-260628" || model.ModelID == "doubao-seed-2-1-turbo-260628" {
+				var defaults map[string]any
+				if err := json.Unmarshal(model.DefaultParameters, &defaults); err != nil {
+					t.Fatalf("decode %s defaults: %v", model.ModelID, err)
+				}
+				arkThinkingDefaults[model.ModelID], _ = defaults["thinking"].(string)
+			}
 		}
 		if model.ProviderCode == "deepseek" {
 			deepSeekModels[model.ModelID] = true
@@ -56,6 +65,11 @@ func TestSyncCreatesVersionedBuiltinsIdempotently(t *testing.T) {
 	}
 	if arkModels != 12 {
 		t.Fatalf("expected twelve unified Ark models, got %d", arkModels)
+	}
+	for _, modelID := range []string{"doubao-seed-2-1-pro-260628", "doubao-seed-2-1-turbo-260628"} {
+		if arkThinkingDefaults[modelID] != "disabled" {
+			t.Fatalf("expected %s to use a supported thinking default, got %q", modelID, arkThinkingDefaults[modelID])
+		}
 	}
 	if !deepSeekModels["deepseek-v4-flash"] || !deepSeekModels["deepseek-v4-pro"] {
 		t.Fatalf("expected current DeepSeek V4 catalog, got %#v", deepSeekModels)

@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const manifestVersion = 4
+const manifestVersion = 5
 
 func Builtins() []Definition {
 	return []Definition{
@@ -50,10 +50,10 @@ func Builtins() []Definition {
 			[]string{"text"}, []string{"reasoning", "coding", "agent", "rolling_release"}, arkEvolvingSchema(), values("max_tokens", 4096, "temperature", 0.7),
 			"https://www.volcengine.com/product/doubao"),
 		model("20000000-0000-0000-0000-000000000029", "volcengine", "doubao-seed-2-1-pro-260628", "Doubao Seed 2.1 Pro", "text",
-			[]string{"text", "image"}, []string{"reasoning", "vision", "responses_api", "agent"}, arkTextSchema(), values("max_output_tokens", 4096, "thinking", "auto"),
+			[]string{"text", "image"}, []string{"reasoning", "vision", "responses_api", "agent"}, arkTextSchema(), values("max_output_tokens", 4096, "thinking", "disabled"),
 			"https://www.volcengine.com/product/doubao"),
 		model("20000000-0000-0000-0000-000000000030", "volcengine", "doubao-seed-2-1-turbo-260628", "Doubao Seed 2.1 Turbo", "text",
-			[]string{"text", "image"}, []string{"reasoning", "vision", "responses_api", "fast"}, arkTextSchema(), values("max_output_tokens", 4096, "thinking", "auto"),
+			[]string{"text", "image"}, []string{"reasoning", "vision", "responses_api", "fast"}, arkTextSchema(), values("max_output_tokens", 4096, "thinking", "disabled"),
 			"https://www.volcengine.com/product/doubao"),
 		model("20000000-0000-0000-0000-000000000031", "volcengine", "doubao-seed-character-260628", "Doubao Seed Character", "text",
 			[]string{"text"}, []string{"roleplay", "dialogue", "long_context"}, arkTextSchema(), values("max_output_tokens", 4096, "thinking", "disabled"),
