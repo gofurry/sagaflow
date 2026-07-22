@@ -20,6 +20,7 @@ type Config struct {
 type Driver struct {
 	http         *adapterutil.HTTPClient
 	text         *openaicompat.Driver
+	chat         *openaicompat.Driver
 	pollInterval time.Duration
 }
 
@@ -31,6 +32,7 @@ func New(config Config) *Driver {
 	return &Driver{
 		http:         adapterutil.NewHTTPClient(config.HTTPClient),
 		text:         openaicompat.NewResponses(config.HTTPClient),
+		chat:         openaicompat.NewChat(config.HTTPClient),
 		pollInterval: interval,
 	}
 }
@@ -41,6 +43,9 @@ func (d *Driver) Execute(ctx context.Context, request inference.Request, events 
 	}
 	switch request.Target.Capability {
 	case inference.CapabilityText:
+		if request.Target.ID == "doubao-seed-evolving" {
+			return d.chat.Execute(ctx, request, events)
+		}
 		return d.text.Execute(ctx, request, events)
 	case inference.CapabilityImage:
 		return d.generateImage(ctx, request, events)
@@ -61,7 +66,7 @@ func (d *Driver) generateImage(ctx context.Context, request inference.Request, e
 		p = map[string]any{}
 	}
 	payload := map[string]any{"model": request.Target.ID, "prompt": request.Prompt, "response_format": "url", "stream": false, "sequential_image_generation": "disabled"}
-	for _, key := range []string{"size", "seed", "watermark", "response_format", "sequential_image_generation"} {
+	for _, key := range []string{"size", "seed", "guidance_scale", "watermark", "response_format", "sequential_image_generation"} {
 		adapterutil.CopyParam(payload, p, key)
 	}
 	if maxImages := adapterutil.NumberParam(p, "max_images", 1); adapterutil.StringParam(p, "sequential_image_generation", "disabled") == "auto" {

@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const manifestVersion = 3
+const manifestVersion = 4
 
 func Builtins() []Definition {
 	return []Definition{
@@ -46,14 +46,38 @@ func Builtins() []Definition {
 		model("20000000-0000-0000-0000-000000000014", "volcengine", "doubao-seed-2-0-lite-260215", "Doubao Seed 2.0 Lite", "text",
 			[]string{"text", "image"}, []string{"reasoning", "vision", "responses_api"}, arkTextSchema(), values("max_output_tokens", 4096, "thinking", "disabled"),
 			"https://www.volcengine.com/docs/82379/1795150"),
+		model("20000000-0000-0000-0000-000000000028", "volcengine", "doubao-seed-evolving", "Doubao Seed Evolving", "text",
+			[]string{"text"}, []string{"reasoning", "coding", "agent", "rolling_release"}, arkEvolvingSchema(), values("max_tokens", 4096, "temperature", 0.7),
+			"https://www.volcengine.com/product/doubao"),
+		model("20000000-0000-0000-0000-000000000029", "volcengine", "doubao-seed-2-1-pro-260628", "Doubao Seed 2.1 Pro", "text",
+			[]string{"text", "image"}, []string{"reasoning", "vision", "responses_api", "agent"}, arkTextSchema(), values("max_output_tokens", 4096, "thinking", "auto"),
+			"https://www.volcengine.com/product/doubao"),
+		model("20000000-0000-0000-0000-000000000030", "volcengine", "doubao-seed-2-1-turbo-260628", "Doubao Seed 2.1 Turbo", "text",
+			[]string{"text", "image"}, []string{"reasoning", "vision", "responses_api", "fast"}, arkTextSchema(), values("max_output_tokens", 4096, "thinking", "auto"),
+			"https://www.volcengine.com/product/doubao"),
+		model("20000000-0000-0000-0000-000000000031", "volcengine", "doubao-seed-character-260628", "Doubao Seed Character", "text",
+			[]string{"text"}, []string{"roleplay", "dialogue", "long_context"}, arkTextSchema(), values("max_output_tokens", 4096, "thinking", "disabled"),
+			"https://www.volcengine.com/product/doubao"),
 		model("20000000-0000-0000-0000-000000000002", "volcengine", "doubao-seedream-5-0-260128", "Seedream 5.0", "image",
 			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "sequential_images"}, seedreamSchema(), values("size", "2K", "seed", -1, "max_images", 1, "watermark", false),
 			"https://www.volcengine.com/docs/82379/1795150"),
+		model("20000000-0000-0000-0000-000000000032", "volcengine", "doubao-seedream-5-0-lite-260128", "Seedream 5.0 Lite", "image",
+			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "sequential_images", "knowledge_grounding"}, seedreamSchema(), values("size", "2K", "seed", -1, "max_images", 1, "watermark", false),
+			"https://www.volcengine.com/docs/82379/1829186"),
+		model("20000000-0000-0000-0000-000000000033", "volcengine", "doubao-seedream-4-5-251128", "Seedream 4.5", "image",
+			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "sequential_images", "4k"}, seedreamSchema(), values("size", "2K", "seed", -1, "max_images", 1, "watermark", false),
+			"https://www.volcengine.com/docs/82379/1829186"),
 		model("20000000-0000-0000-0000-000000000015", "volcengine", "doubao-seedream-4-0-250828", "Seedream 4.0", "image",
 			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "sequential_images"}, seedreamSchema(), values("size", "2K", "seed", -1, "max_images", 1, "watermark", false),
 			"https://api.volcengine.com/api-docs/view?action=ImageGenerations&serviceCode=ark&version=2024-01-01"),
 		model("20000000-0000-0000-0000-000000000003", "volcengine", "doubao-seedance-2-0-mini-260615", "Seedance 2.0 Mini", "video",
 			[]string{"text", "image", "video", "audio"}, []string{"video_generation", "multi_reference", "audio_generation"}, seedanceSchema(), values("ratio", "16:9", "duration", 5, "generate_audio", true, "watermark", false),
+			"https://www.volcengine.com/docs/82379/2222480"),
+		model("20000000-0000-0000-0000-000000000034", "volcengine", "doubao-seedance-2-0-260128", "Seedance 2.0", "video",
+			[]string{"text", "image", "video", "audio"}, []string{"video_generation", "multi_reference", "audio_generation", "1080p"}, seedanceSchema(), values("ratio", "16:9", "duration", 5, "resolution", "720p", "generate_audio", true, "watermark", false),
+			"https://www.volcengine.com/docs/82379/2222480"),
+		model("20000000-0000-0000-0000-000000000035", "volcengine", "doubao-seedance-2-0-fast-260128", "Seedance 2.0 Fast", "video",
+			[]string{"text", "image", "video", "audio"}, []string{"video_generation", "multi_reference", "audio_generation", "fast"}, seedanceSchema(), values("ratio", "16:9", "duration", 5, "resolution", "720p", "generate_audio", true, "watermark", false),
 			"https://www.volcengine.com/docs/82379/2222480"),
 
 		model("20000000-0000-0000-0000-000000000016", "aliyun_bailian", "qwen3.7-plus", "Qwen3.7 Plus", "text",

@@ -54,8 +54,8 @@ func TestSyncCreatesVersionedBuiltinsIdempotently(t *testing.T) {
 			bailianModels++
 		}
 	}
-	if arkModels != 4 {
-		t.Fatalf("expected four unified Ark models, got %d", arkModels)
+	if arkModels != 12 {
+		t.Fatalf("expected twelve unified Ark models, got %d", arkModels)
 	}
 	if !deepSeekModels["deepseek-v4-flash"] || !deepSeekModels["deepseek-v4-pro"] {
 		t.Fatalf("expected current DeepSeek V4 catalog, got %#v", deepSeekModels)

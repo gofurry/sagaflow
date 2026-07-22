@@ -28,7 +28,7 @@ func TestDriverForwardsImageReferences(t *testing.T) {
 	result, err := volcengine.New(volcengine.Config{HTTPClient: server.Client()}).Execute(context.Background(), inference.Request{
 		Runtime: inference.Runtime{ProviderCode: "seedream", AdapterCode: "volcengine", Endpoint: server.URL},
 		Target:  inference.Target{Kind: inference.TargetModel, ID: "image-model", Capability: inference.CapabilityImage}, Prompt: "角色设定",
-		Inputs: []inference.Input{{MediaType: "image", URL: "https://assets.example/reference.png"}},
+		Inputs: []inference.Input{{MediaType: "image", URL: "https://assets.example/reference.png"}}, Parameters: map[string]any{"guidance_scale": 4.5},
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -36,11 +36,50 @@ func TestDriverForwardsImageReferences(t *testing.T) {
 	if requestBody["image"] != "https://assets.example/reference.png" {
 		t.Fatalf("reference was not forwarded: %#v", requestBody)
 	}
+	if requestBody["guidance_scale"] != float64(4.5) {
+		t.Fatalf("guidance scale was not forwarded: %#v", requestBody)
+	}
 	reader, _, _ := result.Artifacts[0].Content.Open(context.Background())
 	defer reader.Close()
 	data, _ := io.ReadAll(reader)
 	if string(data) != "png" {
 		t.Fatalf("unexpected image %q", data)
+	}
+}
+
+func TestDriverUsesChatCompletionsForSeedEvolving(t *testing.T) {
+	var requestBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]any{"content": "持续进化的创作建议"}}},
+			"usage":   map[string]any{"total_tokens": 12},
+		})
+	}))
+	defer server.Close()
+
+	result, err := volcengine.New(volcengine.Config{HTTPClient: server.Client()}).Execute(context.Background(), inference.Request{
+		Runtime: inference.Runtime{ProviderCode: "volcengine", AdapterCode: "volcengine", Endpoint: server.URL},
+		Target:  inference.Target{Kind: inference.TargetModel, ID: "doubao-seed-evolving", Capability: inference.CapabilityText},
+		Prompt:  "给出故事结构建议", Parameters: map[string]any{"max_tokens": 1024, "temperature": .3},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requestBody["model"] != "doubao-seed-evolving" || requestBody["max_tokens"] != float64(1024) {
+		t.Fatalf("chat parameters were not forwarded: %#v", requestBody)
+	}
+	reader, _, _ := result.Artifacts[0].Content.Open(context.Background())
+	defer reader.Close()
+	data, _ := io.ReadAll(reader)
+	if string(data) != "持续进化的创作建议" {
+		t.Fatalf("unexpected text %q", data)
 	}
 }
 

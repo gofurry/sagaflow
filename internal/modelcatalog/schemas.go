@@ -112,10 +112,22 @@ func arkTextSchema() json.RawMessage {
 	})
 }
 
+func arkEvolvingSchema() json.RawMessage {
+	return schema(map[string]any{
+		"max_tokens":        integer("最大输出 Token", 1, 32768),
+		"temperature":       number("温度", 0, 2),
+		"top_p":             number("Top P", 0, 1),
+		"frequency_penalty": number("频率惩罚", -2, 2),
+		"presence_penalty":  number("存在惩罚", -2, 2),
+		"response_format":   choice("输出格式", "text", "json_object"),
+	})
+}
+
 func seedreamSchema() json.RawMessage {
 	return schema(map[string]any{
 		"size":                        map[string]any{"type": "string", "title": "图像尺寸"},
 		"seed":                        integer("随机种子", -1, 2147483647),
+		"guidance_scale":              number("Prompt 一致程度", 1, 10),
 		"watermark":                   boolean("添加水印"),
 		"response_format":             choice("返回格式", "url", "b64_json"),
 		"sequential_image_generation": choice("组图生成", "disabled", "auto"),

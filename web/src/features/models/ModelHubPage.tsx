@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ApiOutlined, AudioOutlined, CheckCircleOutlined, CloudServerOutlined, DeleteOutlined, DeploymentUnitOutlined, DownOutlined, EditOutlined, FileTextOutlined, KeyOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SettingOutlined, SyncOutlined } from '@ant-design/icons'
+import { ApiOutlined, AudioOutlined, CheckCircleOutlined, CloudServerOutlined, CopyOutlined, DeleteOutlined, DeploymentUnitOutlined, DownOutlined, EditOutlined, FileTextOutlined, KeyOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SettingOutlined, SyncOutlined } from '@ant-design/icons'
 import { App, Button, Checkbox, Col, Empty, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Switch } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
@@ -15,6 +15,14 @@ type Section = 'models' | 'prompts' | 'voices'
 type ModelView = 'catalog' | 'providers' | 'workflows' | 'credentials'
 const capabilities: Capability[] = ['text', 'image', 'audio', 'video', 'multimodal']
 const promptCapabilities: PromptPreset['capability'][] = ['text', 'image', 'audio', 'video']
+const catalogCapabilities: Capability[] = ['text', 'image', 'audio', 'video']
+const ollamaRecommendations = [
+  { modelID: 'qwen3.5:4b', name: 'Qwen3.5 4B', summary: '3.4 GB · 视觉理解 · 工具调用 · 256K 上下文', fit: '轻量默认，适合日常开发验证' },
+  { modelID: 'qwen3.5:9b', name: 'Qwen3.5 9B', summary: '6.6 GB · 视觉理解 · 工具调用 · 256K 上下文', fit: '质量与显存占用较均衡' },
+  { modelID: 'gemma3:4b', name: 'Gemma 3 4B', summary: '3.3 GB · 视觉理解 · 128K 上下文', fit: '轻量多模态备选' },
+  { modelID: 'deepseek-r1:8b', name: 'DeepSeek R1 8B', summary: '5.2 GB · 推理 · 128K 上下文', fit: '本地推理与长链路 Prompt 验证' },
+  { modelID: 'llama3.2-vision:11b', name: 'Llama 3.2 Vision 11B', summary: '7.8 GB · 视觉理解 · 128K 上下文', fit: '显存允许时的视觉备选' },
+] as const
 
 export function ModelHubPage({ onError }: { onError: (error: unknown) => void }) {
   const queryClient = useQueryClient()
@@ -37,6 +45,10 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
   const [promptSearch, setPromptSearch] = useState('')
   const [promptType, setPromptType] = useState<string>()
   const [promptModelFilter, setPromptModelFilter] = useState<string>()
+  const [catalogSearch, setCatalogSearch] = useState('')
+  const [catalogProvider, setCatalogProvider] = useState<string>()
+  const [catalogCapability, setCatalogCapability] = useState<string>()
+  const [catalogStatus, setCatalogStatus] = useState<string>()
   const [providerHealth, setProviderHealth] = useState<Record<string, 'online' | 'offline'>>({})
   const [providerForm] = Form.useForm()
   const [modelForm] = Form.useForm()
@@ -57,6 +69,22 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
   const credentials = credentialsQuery.data ?? []
   const presets = presetsQuery.data ?? []
   const prompts = useMemo(() => promptsQuery.data ?? [], [promptsQuery.data])
+  const catalogProviderOptions = useMemo(() => providers
+    .filter((provider) => catalogModels.some((model) => model.provider_id === provider.id))
+    .map((provider) => ({
+      value: provider.id,
+      label: `${provider.display_name} · ${catalogModels.filter((model) => model.provider_id === provider.id).length}`,
+    })), [catalogModels, providers])
+  const filteredModels = useMemo(() => catalogModels.filter((model) => {
+    const keyword = catalogSearch.trim().toLocaleLowerCase()
+    if (keyword && !`${model.display_name} ${model.model_id} ${model.provider_name}`.toLocaleLowerCase().includes(keyword)) return false
+    if (catalogProvider && model.provider_id !== catalogProvider) return false
+    if (catalogCapability && model.capability !== catalogCapability) return false
+    if (catalogStatus === 'enabled' && (!model.enabled || !model.available)) return false
+    if (catalogStatus === 'disabled' && model.enabled) return false
+    if (catalogStatus === 'unavailable' && model.available) return false
+    return true
+  }), [catalogCapability, catalogProvider, catalogSearch, catalogStatus, catalogModels])
   const filteredPrompts = useMemo(() => prompts.filter((preset) => {
     const keyword = promptSearch.trim().toLocaleLowerCase()
     if (keyword && !`${preset.name} ${preset.description} ${preset.content}`.toLocaleLowerCase().includes(keyword)) return false
@@ -211,8 +239,16 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
             { value: 'credentials', label: '凭证', icon: <KeyOutlined/> },
           ] as const).map((item) => <button aria-selected={view === item.value} className={view === item.value ? 'active' : ''} key={item.value} onClick={() => setView(item.value)} role="tab" type="button">{item.icon}<span>{item.label}</span></button>)}
         </div>
-        {view === 'catalog' && <div className="model-flat-list">
-          {models.map((item) => {
+        {view === 'catalog' && <div className="model-catalog-section">
+          <div className="model-catalog-filters">
+            <Input allowClear onChange={(event) => setCatalogSearch(event.target.value)} placeholder="搜索名称、Model ID 或服务商" prefix={<SearchOutlined/>} value={catalogSearch}/>
+            <Select allowClear onChange={setCatalogProvider} options={catalogProviderOptions} placeholder="全部服务商" value={catalogProvider}/>
+            <Select allowClear onChange={setCatalogCapability} options={catalogCapabilities.map((value) => ({ value, label: capabilityLabel(value) }))} placeholder="全部类型" value={catalogCapability}/>
+            <Select allowClear onChange={setCatalogStatus} options={[{ value: 'enabled', label: '已启用' }, { value: 'disabled', label: '已停用' }, { value: 'unavailable', label: '不可用' }]} placeholder="全部状态" value={catalogStatus}/>
+            <span>{filteredModels.length} / {models.length} 个模型</span>
+          </div>
+          <div className="model-flat-list">
+          {filteredModels.map((item) => {
             const isExpanded = expandedModelID === item.id
             const modelPresets = presets.filter((preset) => preset.model_id === item.id)
             return <article className={`model-flat-item${isExpanded ? ' expanded' : ''}`} key={item.id}>
@@ -232,7 +268,8 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
               </div>}
             </article>
           })}
-          {!models.length && <Empty description="还没有模型" image={Empty.PRESENTED_IMAGE_SIMPLE}/>}
+          {!filteredModels.length && <Empty description={models.length ? '没有符合条件的模型' : '还没有模型'} image={Empty.PRESENTED_IMAGE_SIMPLE}/>}
+          </div>
         </div>}
 
         {view === 'providers' && <div className="model-flat-list">
@@ -265,6 +302,21 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
                   <Button icon={<CheckCircleOutlined/>} loading={testProvider.isPending && testProvider.variables === provider.id} onClick={() => testProvider.mutate(provider.id)} size="small">测试连接</Button>
                   <Button icon={<SyncOutlined/>} loading={discoverModels.isPending && discoverModels.variables?.provider.id === provider.id} onClick={() => discoverModels.mutate({ provider })} size="small" type="primary">同步模型</Button>
                 </div></div>}
+                {provider.adapter_code === 'ollama' && <div className="ollama-recommendations">
+                  <span>推荐安装</span>
+                  <p>这里只提供经过官方模型库核对的常用标签；安装完成后使用“同步模型”读取真实能力。</p>
+                  <div>{ollamaRecommendations.map((recommendation) => {
+                    const installed = catalogModels.some((model) => model.provider_id === provider.id && model.model_id === recommendation.modelID)
+                    return <article key={recommendation.modelID}>
+                      <div><strong>{recommendation.name}</strong><code>{recommendation.modelID}</code></div>
+                      <span>{recommendation.summary}</span>
+                      <small>{recommendation.fit}</small>
+                      {installed
+                        ? <em><CheckCircleOutlined/> 已安装</em>
+                        : <Button icon={<CopyOutlined/>} onClick={() => void copyText(`ollama pull ${recommendation.modelID}`).then(() => message.success('拉取命令已复制'))} size="small">复制命令</Button>}
+                    </article>
+                  })}</div>
+                </div>}
                 {provider.adapter_code === 'comfyui' && <div className="provider-connection-actions"><span>ComfyUI 工作流服务</span><div>
                   <em className={`provider-health ${providerHealth[provider.id] ?? 'unknown'}`}>{providerHealth[provider.id] === 'online' ? '已连接' : providerHealth[provider.id] === 'offline' ? '未检测到服务' : '尚未检测'}</em>
                   <Button icon={<CheckCircleOutlined/>} loading={testProvider.isPending && testProvider.variables === provider.id} onClick={() => testProvider.mutate(provider.id)} size="small" type="primary">测试连接</Button>
@@ -375,7 +427,13 @@ function parameterEntries(parameters: Record<string, unknown>): Array<[string, s
 function schemaEntries(properties: NonNullable<Model['parameter_schema']['properties']>): Array<[string, string]> { return Object.entries(properties).map(([key, schema]) => [schema.title || key, key]) }
 function capabilityLabel(value: string) { return ({ text: '文本', image: '图像', audio: '音频', video: '视频', multimodal: '多模态' } as Record<string, string>)[value] ?? value }
 function mediaTypeLabel(value: string) { return ({ text: '文本', image: '图像', audio: '音频', video: '视频', file: '文件' } as Record<string, string>)[value] ?? value }
-function modelFeatureLabel(value: string) { return ({ thinking: '深度思考', tools: '工具调用（待接入）', vision: '视觉理解', completion: '基础生成' } as Record<string, string>)[value] ?? value }
+function modelFeatureLabel(value: string) { return ({
+  thinking: '深度思考', reasoning: '推理', tools: '工具调用（待接入）', vision: '视觉理解', completion: '基础生成',
+  coding: '代码能力', agent: 'Agent 任务', rolling_release: '持续更新', responses_api: 'Responses API', roleplay: '角色扮演',
+  dialogue: '对白生成', long_context: '长上下文', fast: '高速生成', image_generation: '图像生成', image_edit: '图像编辑',
+  multi_reference: '多参考', sequential_images: '组图生成', knowledge_grounding: '知识增强', video_generation: '视频生成',
+  audio_generation: '同步声音', speech_generation: '语音生成', voice_clone: '音色克隆',
+} as Record<string, string>)[value] ?? value }
 function isLocalAdapter(value?: string) { return value === 'ollama' || value === 'comfyui' }
 function providerMaxConcurrency(provider: ModelProvider) {
   const value = Number(provider.metadata.max_concurrency)
@@ -385,4 +443,7 @@ function modelDetailSummary(model: OllamaDiscovery['models'][number]) {
   const details = model.details as { parameter_size?: string; quantization_level?: string }
   const parts = [details.parameter_size, details.quantization_level, model.context_length ? `${model.context_length.toLocaleString()} 上下文` : undefined]
   return parts.filter(Boolean).join(' · ') || `${(model.size / 1024 / 1024 / 1024).toFixed(1)} GB`
+}
+async function copyText(value: string) {
+  await navigator.clipboard.writeText(value)
 }
