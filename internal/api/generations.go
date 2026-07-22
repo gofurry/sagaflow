@@ -125,8 +125,8 @@ func (s *Server) createGenerationJob(c fiber.Ctx) error {
 		if presetErr != nil {
 			return presetErr
 		}
-		if preset.ProjectID != req.ProjectID || preset.Capability != target.Capability {
-			return fmt.Errorf("%w: prompt preset must belong to the project and match the model capability", service.ErrInvalidInput)
+		if preset.Capability != target.Capability {
+			return fmt.Errorf("%w: prompt preset must match the model capability", service.ErrInvalidInput)
 		}
 	}
 	references, err := s.validateGenerationReferences(c, req.ProjectID, target.InputModalities, target.Capability, target.AdapterCode, req.InputReferences)

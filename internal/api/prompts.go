@@ -20,11 +20,7 @@ type promptPresetRequest struct {
 }
 
 func (s *Server) listPromptPresets(c fiber.Ctx) error {
-	projectID, err := idParam(c, "id")
-	if err != nil {
-		return err
-	}
-	items, err := s.store.ListPromptPresets(c.Context(), projectID, c.Query("capability"))
+	items, err := s.store.ListPromptPresets(c.Context(), c.Query("capability"))
 	if err != nil {
 		return err
 	}
@@ -32,18 +28,14 @@ func (s *Server) listPromptPresets(c fiber.Ctx) error {
 }
 
 func (s *Server) createPromptPreset(c fiber.Ctx) error {
-	projectID, err := idParam(c, "id")
-	if err != nil {
-		return err
-	}
 	var req promptPresetRequest
 	if err := c.Bind().JSON(&req); err != nil {
 		return fiber.NewError(400, "invalid JSON body")
 	}
-	if err := s.validatePromptPreset(c, projectID, req); err != nil {
+	if err := s.validatePromptPreset(c, req); err != nil {
 		return err
 	}
-	item, err := s.store.CreatePromptPreset(c.Context(), db.PromptPreset{ProjectID: projectID, ModelID: req.ModelID, ModelPresetID: req.ModelPresetID, Name: req.Name, Description: req.Description, Capability: req.Capability, Content: req.Content})
+	item, err := s.store.CreatePromptPreset(c.Context(), db.PromptPreset{ModelID: req.ModelID, ModelPresetID: req.ModelPresetID, Name: req.Name, Description: req.Description, Capability: req.Capability, Content: req.Content})
 	if err != nil {
 		return err
 	}
@@ -63,7 +55,7 @@ func (s *Server) updatePromptPreset(c fiber.Ctx) error {
 	if err := c.Bind().JSON(&req); err != nil {
 		return fiber.NewError(400, "invalid JSON body")
 	}
-	if err := s.validatePromptPreset(c, current.ProjectID, req); err != nil {
+	if err := s.validatePromptPreset(c, req); err != nil {
 		return err
 	}
 	current.ModelID = req.ModelID
@@ -90,7 +82,7 @@ func (s *Server) deletePromptPreset(c fiber.Ctx) error {
 	return writeOK(c, fiber.Map{"deleted": true})
 }
 
-func (s *Server) validatePromptPreset(c fiber.Ctx, projectID uuid.UUID, req promptPresetRequest) error {
+func (s *Server) validatePromptPreset(c fiber.Ctx, req promptPresetRequest) error {
 	if strings.TrimSpace(req.Name) == "" {
 		return fmt.Errorf("%w: name is required", service.ErrInvalidInput)
 	}
@@ -98,9 +90,6 @@ func (s *Server) validatePromptPreset(c fiber.Ctx, projectID uuid.UUID, req prom
 	case "text", "image", "audio", "video":
 	default:
 		return fmt.Errorf("%w: invalid capability", service.ErrInvalidInput)
-	}
-	if _, err := s.store.GetProject(c.Context(), projectID); err != nil {
-		return err
 	}
 	if req.ModelID == nil {
 		if req.ModelPresetID != nil {

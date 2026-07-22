@@ -4,10 +4,10 @@ import { Alert, App, Button, Empty, Form, Input, Modal, Popconfirm, Select, Swit
 import type { UploadFile } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
-import type { Model, Project, VoiceProfile } from '../../api/types'
+import type { Model, VoiceProfile } from '../../api/types'
 import { FloatingToolbar } from '../../components/FloatingToolbar'
 
-export function VoiceProfileManager({ models, onError, project }: { models: Model[]; onError: (error: unknown) => void; project: Project }) {
+export function VoiceProfileManager({ models, onError }: { models: Model[]; onError: (error: unknown) => void }) {
   const queryClient = useQueryClient()
   const { message } = App.useApp()
   const [form] = Form.useForm()
@@ -17,9 +17,9 @@ export function VoiceProfileManager({ models, onError, project }: { models: Mode
   const [preview, setPreview] = useState<VoiceProfile | null>(null)
   const [sourceFile, setSourceFile] = useState<File | null>(null)
   const [promptFile, setPromptFile] = useState<File | null>(null)
-  const voicesQuery = useQuery({ queryKey: ['voice-profiles', project.id], queryFn: () => api.voiceProfiles(project.id) })
+  const voicesQuery = useQuery({ queryKey: ['voice-profiles'], queryFn: api.voiceProfiles })
   const audioModels = models.filter((model) => model.enabled && model.capability === 'audio' && model.provider_code === 'minimax')
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ['voice-profiles', project.id] })
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['voice-profiles'] })
   const closeCreate = () => {
     setCreateOpen(false)
     setSourceFile(null)
@@ -34,7 +34,7 @@ export function VoiceProfileManager({ models, onError, project }: { models: Mode
       Object.entries(values).forEach(([key, value]) => {
         if (value !== undefined && value !== null && value !== '') data.append(key, String(value))
       })
-      return api.createVoiceProfile(project.id, data)
+      return api.createVoiceProfile(data)
     },
     onSuccess: async () => {
       await refresh()
@@ -91,7 +91,7 @@ export function VoiceProfileManager({ models, onError, project }: { models: Mode
             <div className="model-row-actions">
               <Button disabled={!item.preview_file_size_bytes} icon={<SoundOutlined/>} onClick={() => setPreview(item)} size="small">试听</Button>
               <Button icon={<EditOutlined/>} onClick={() => openEdit(item)} size="small">编辑</Button>
-              <Popconfirm cancelText="取消" description="会同时删除 MiniMax 远端音色和项目内保存的样本与试听文件。" okButtonProps={{ danger: true }} okText="永久删除" onConfirm={() => remove.mutate(item.id)} title="删除这个克隆音色？"><Button danger icon={<DeleteOutlined/>} size="small" type="text"/></Popconfirm>
+              <Popconfirm cancelText="取消" description="会同时删除 MiniMax 远端音色和本机保存的样本与试听文件。" okButtonProps={{ danger: true }} okText="永久删除" onConfirm={() => remove.mutate(item.id)} title="删除这个克隆音色？"><Button danger icon={<DeleteOutlined/>} size="small" type="text"/></Popconfirm>
             </div>
           </div>
         </article>

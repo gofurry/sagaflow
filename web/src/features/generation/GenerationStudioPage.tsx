@@ -60,11 +60,11 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
 	const workflowsQuery = useQuery({ queryKey: ['workflows', project.id], queryFn: () => api.workflows(undefined, project.id) })
   const compatibilityQuery = useQuery({ queryKey: ['workflow-compatibilities'], queryFn: () => api.workflowCompatibilities() })
   const presetsQuery = useQuery({ queryKey: ['presets'], queryFn: () => api.presets() })
-  const promptsQuery = useQuery({ queryKey: ['prompt-presets', project.id], queryFn: () => api.promptPresets(project.id) })
+  const promptsQuery = useQuery({ queryKey: ['prompt-presets'], queryFn: () => api.promptPresets() })
   const assetsQuery = useQuery({ queryKey: ['assets', project.id], queryFn: () => api.assets(project.id) })
   const groupsQuery = useQuery({ queryKey: ['asset-groups', project.id], queryFn: () => api.assetGroups(project.id) })
   const stagedSummaryQuery = useQuery({ queryKey: ['staged-summary', project.id], queryFn: () => api.stagedAssetSummary(project.id) })
-  const voicesQuery = useQuery({ queryKey: ['voice-profiles', project.id], queryFn: () => api.voiceProfiles(project.id) })
+  const voicesQuery = useQuery({ queryKey: ['voice-profiles'], queryFn: api.voiceProfiles })
   const canvasQuery = useQuery({ queryKey: ['canvas', episode?.id], queryFn: () => api.canvas(episode!.id), enabled: !!episode })
   const jobsQuery = useQuery({
     queryKey: ['jobs', project.id],
@@ -105,7 +105,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
     queryClient.invalidateQueries({ queryKey: ['jobs', project.id] }),
     queryClient.invalidateQueries({ queryKey: ['staged-assets', project.id] }),
     queryClient.invalidateQueries({ queryKey: ['staged-summary', project.id] }),
-    queryClient.invalidateQueries({ queryKey: ['prompt-presets', project.id] }),
+    queryClient.invalidateQueries({ queryKey: ['prompt-presets'] }),
     queryClient.invalidateQueries({ queryKey: ['presets'] }),
     queryClient.invalidateQueries({ queryKey: ['workflows'] }),
     queryClient.invalidateQueries({ queryKey: ['workflow-compatibilities'] }),

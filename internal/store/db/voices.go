@@ -13,8 +13,8 @@ const voiceProfileSelect = `
 	JOIN model_providers p ON p.id=v.provider_id
 	JOIN model_catalog m ON m.id=v.model_id`
 
-func (s *Store) ListVoiceProfiles(ctx context.Context, projectID uuid.UUID) ([]VoiceProfile, error) {
-	return collectRows[VoiceProfile](s.pool.Query(ctx, voiceProfileSelect+` WHERE v.project_id=$1 ORDER BY v.created_at DESC`, projectID))
+func (s *Store) ListVoiceProfiles(ctx context.Context) ([]VoiceProfile, error) {
+	return collectRows[VoiceProfile](s.pool.Query(ctx, voiceProfileSelect+` ORDER BY v.created_at DESC`))
 }
 
 func (s *Store) GetVoiceProfile(ctx context.Context, id uuid.UUID) (VoiceProfile, error) {
@@ -30,15 +30,15 @@ func (s *Store) CreateVoiceProfile(ctx context.Context, profile VoiceProfile) (V
 	}
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO voice_profiles (
-			id,project_id,provider_id,model_id,name,description,voice_id,status,
+			id,provider_id,model_id,name,description,voice_id,status,
 			source_name,source_mime_type,source_file_size_bytes,prompt_text,
 			preview_mime_type,preview_file_size_bytes,
 			source_object_id,prompt_object_id,preview_object_id,provider_file_id,provider_prompt_file_id,activated_at,metadata
 		)
 		VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20
 		)`,
-		profile.ID, profile.ProjectID, profile.ProviderID, profile.ModelID, strings.TrimSpace(profile.Name),
+		profile.ID, profile.ProviderID, profile.ModelID, strings.TrimSpace(profile.Name),
 		strings.TrimSpace(profile.Description), strings.TrimSpace(profile.VoiceID), profile.Status,
 		profile.SourceName, profile.SourceMimeType, profile.SourceFileSizeBytes, profile.PromptText,
 		profile.PreviewMimeType, profile.PreviewFileSizeBytes, profile.SourceObjectID, profile.PromptObjectID, profile.PreviewObjectID,

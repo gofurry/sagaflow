@@ -175,7 +175,6 @@ CREATE TABLE workflow_compatibilities (
 
 CREATE TABLE prompt_presets (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   model_id TEXT REFERENCES model_catalog(id) ON DELETE SET NULL,
   model_preset_id TEXT REFERENCES model_presets(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
@@ -184,7 +183,7 @@ CREATE TABLE prompt_presets (
   content TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  UNIQUE(project_id, capability, name)
+  UNIQUE(capability, name)
 );
 
 CREATE TABLE canvas_nodes (
@@ -383,7 +382,6 @@ CREATE INDEX assets_group_idx ON assets(group_id, created_at DESC);
 
 CREATE TABLE voice_profiles (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   provider_id TEXT NOT NULL REFERENCES model_providers(id) ON DELETE CASCADE,
   model_id TEXT NOT NULL REFERENCES model_catalog(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
@@ -443,7 +441,9 @@ INSERT INTO model_providers (id, code, adapter_code, display_name, base_url, aut
   ('10000000-0000-0000-0000-000000000001','deepseek','deepseek','DeepSeek','https://api.deepseek.com','api_key','["text"]',2),
   ('10000000-0000-0000-0000-000000000002','seedream','volcengine','Seedream','https://ark.cn-beijing.volces.com/api/v3','api_key','["image"]',1),
   ('10000000-0000-0000-0000-000000000003','seedance','volcengine','Seedance','https://ark.cn-beijing.volces.com/api/v3','api_key','["video"]',1),
-  ('10000000-0000-0000-0000-000000000004','minimax','minimax','MiniMax','https://api.minimaxi.com','api_key','["audio"]',1);
+  ('10000000-0000-0000-0000-000000000004','minimax','minimax','MiniMax','https://api.minimaxi.com','api_key','["audio"]',1),
+  ('10000000-0000-0000-0000-000000000005','ollama-local','ollama','本机 Ollama','http://127.0.0.1:11434','none','["text"]',1),
+  ('10000000-0000-0000-0000-000000000006','comfyui-local','comfyui','本机 ComfyUI','http://127.0.0.1:8188','none','["image","audio","video","multimodal"]',1);
 
 INSERT INTO model_catalog (id, provider_id, model_id, display_name, capability, input_modalities, features, parameter_schema, default_parameters) VALUES
   ('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','deepseek-v4-flash','DeepSeek V4 Flash','text','["text"]','["thinking","tools"]','{"type":"object","properties":{"thinking":{"type":"string","enum":["enabled","disabled"]},"max_tokens":{"type":"integer","minimum":1,"maximum":32768},"temperature":{"type":"number","minimum":0,"maximum":2},"top_p":{"type":"number","minimum":0,"maximum":1}}}','{"thinking":"enabled","max_tokens":4096,"temperature":1,"top_p":1}'),

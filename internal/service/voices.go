@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime"
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
@@ -39,7 +38,6 @@ type VoiceFile struct {
 }
 
 type CreateVoiceProfileInput struct {
-	ProjectID               uuid.UUID
 	ModelID                 uuid.UUID
 	Name                    string
 	Description             string
@@ -63,8 +61,8 @@ func NewVoiceService(store *db.Store, credentials *CredentialService, objectStor
 }
 
 func (s *VoiceService) Create(ctx context.Context, input CreateVoiceProfileInput) (db.VoiceProfile, error) {
-	if input.ProjectID == uuid.Nil || input.ModelID == uuid.Nil {
-		return db.VoiceProfile{}, fmt.Errorf("%w: project_id and model_id are required", ErrInvalidInput)
+	if input.ModelID == uuid.Nil {
+		return db.VoiceProfile{}, fmt.Errorf("%w: model_id is required", ErrInvalidInput)
 	}
 	if strings.TrimSpace(input.Name) == "" || !voiceIDPattern.MatchString(strings.TrimSpace(input.VoiceID)) {
 		return db.VoiceProfile{}, fmt.Errorf("%w: name and a valid 8-256 character voice_id are required", ErrInvalidInput)
@@ -141,13 +139,13 @@ func (s *VoiceService) Create(ctx context.Context, input CreateVoiceProfileInput
 		return db.VoiceProfile{}, fmt.Errorf("activate cloned voice: %w", err)
 	}
 	profileID := uuid.New()
-	sourceObject, err := s.storage.UploadManaged(ctx, storage.ManagedUploadInput{ProjectID: &input.ProjectID, Purpose: "voices/source", OriginalName: input.Source.Name, UploadInput: storage.UploadInput{Data: input.Source.Data, ContentType: input.Source.MIMEType}})
+	sourceObject, err := s.storage.UploadManaged(ctx, storage.ManagedUploadInput{Purpose: "voices/source", OriginalName: input.Source.Name, UploadInput: storage.UploadInput{Data: input.Source.Data, ContentType: input.Source.MIMEType}})
 	if err != nil {
 		return db.VoiceProfile{}, err
 	}
 	var promptObject *storage.ManagedObject
 	if input.Prompt != nil {
-		created, uploadErr := s.storage.UploadManaged(ctx, storage.ManagedUploadInput{ProjectID: &input.ProjectID, Purpose: "voices/prompt", OriginalName: input.Prompt.Name, UploadInput: storage.UploadInput{Data: input.Prompt.Data, ContentType: input.Prompt.MIMEType}})
+		created, uploadErr := s.storage.UploadManaged(ctx, storage.ManagedUploadInput{Purpose: "voices/prompt", OriginalName: input.Prompt.Name, UploadInput: storage.UploadInput{Data: input.Prompt.Data, ContentType: input.Prompt.MIMEType}})
 		err = uploadErr
 		promptObject = &created
 		if err != nil {
@@ -155,7 +153,7 @@ func (s *VoiceService) Create(ctx context.Context, input CreateVoiceProfileInput
 			return db.VoiceProfile{}, err
 		}
 	}
-	previewObject, err := s.storage.UploadManaged(ctx, storage.ManagedUploadInput{ProjectID: &input.ProjectID, Purpose: "voices/preview", OriginalName: "preview.mp3", UploadInput: storage.UploadInput{Data: previewData, ContentType: "audio/mpeg"}})
+	previewObject, err := s.storage.UploadManaged(ctx, storage.ManagedUploadInput{Purpose: "voices/preview", OriginalName: "preview.mp3", UploadInput: storage.UploadInput{Data: previewData, ContentType: "audio/mpeg"}})
 	if err != nil {
 		_ = s.storage.DeleteManaged(ctx, sourceObject.Record.ID)
 		if promptObject != nil {
@@ -165,7 +163,7 @@ func (s *VoiceService) Create(ctx context.Context, input CreateVoiceProfileInput
 	}
 	now := time.Now()
 	profile := db.VoiceProfile{
-		ID: profileID, ProjectID: input.ProjectID, ProviderID: model.ProviderID, ModelID: model.ID,
+		ID: profileID, ProviderID: model.ProviderID, ModelID: model.ID,
 		Name: input.Name, Description: input.Description, VoiceID: input.VoiceID, Status: "ready",
 		SourceName: input.Source.Name, SourceMimeType: input.Source.MIMEType, SourceFileSizeBytes: int64(len(input.Source.Data)),
 		SourceObjectID:  sourceObject.Record.ID,
@@ -355,19 +353,6 @@ func (s *VoiceService) doJSON(ctx context.Context, method, url, key string, payl
 type miniMaxBaseResponse struct {
 	StatusCode int64  `json:"status_code"`
 	StatusMsg  string `json:"status_msg"`
-}
-
-func voiceObjectKey(projectID, profileID uuid.UUID, role, name, mimeType string) string {
-	ext := filepath.Ext(name)
-	if ext == "" {
-		if exts, _ := mime.ExtensionsByType(strings.Split(mimeType, ";")[0]); len(exts) > 0 {
-			ext = exts[0]
-		}
-	}
-	if ext == "" {
-		ext = ".bin"
-	}
-	return filepath.ToSlash(filepath.Join("voice-profiles", projectID.String(), profileID.String(), role+ext))
 }
 
 func supportedCloneAudio(mimeType, name string) bool {

@@ -28,4 +28,37 @@ func TestOpenMigratesCleanDatabaseAndEnforcesSingleAccount(t *testing.T) {
 	if mode != "wal" {
 		t.Fatalf("expected WAL mode, got %q", mode)
 	}
+
+	var localProviders int
+	if err := database.QueryRow(`
+		SELECT COUNT(*) FROM model_providers
+		WHERE (adapter_code='ollama' AND base_url='http://127.0.0.1:11434' AND auth_type='none')
+		   OR (adapter_code='comfyui' AND base_url='http://127.0.0.1:8188' AND auth_type='none')`).Scan(&localProviders); err != nil {
+		t.Fatal(err)
+	}
+	if localProviders != 2 {
+		t.Fatalf("expected two built-in local model connections, got %d", localProviders)
+	}
+	for _, table := range []string{"prompt_presets", "voice_profiles"} {
+		rows, err := database.Query(`PRAGMA table_info(` + table + `)`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var cid, notNull, primaryKey int
+			var name, columnType string
+			var defaultValue any
+			if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+				rows.Close()
+				t.Fatal(err)
+			}
+			if name == "project_id" {
+				rows.Close()
+				t.Fatalf("%s must be globally scoped", table)
+			}
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
 }

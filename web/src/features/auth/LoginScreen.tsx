@@ -5,11 +5,12 @@ import type { AuthStatus } from '../../api/types'
 interface Props { status: AuthStatus; loading: boolean; error?: string; onLogin: (username: string, password: string) => void; onSetup: (username: string, displayName: string, password: string) => void }
 export function LoginScreen({ status, loading, error, onLogin, onSetup }: Props) {
   return <div className="login-shell">
-    <div className="login-orb login-orb-a"/><div className="login-orb login-orb-b"/>
     <Card className="login-card" variant="borderless">
       <Space orientation="vertical" size={22} style={{ width: '100%' }}>
-        <div className="brand-mark large">SF</div>
-        <div><Typography.Title level={2} style={{ margin: 0 }}>SagaFlow</Typography.Title><Typography.Text type="secondary">AI 漫剧资产生产与画布编排</Typography.Text></div>
+        <div className="login-heading">
+          <Typography.Title level={2} style={{ margin: 0 }}>SagaFlow</Typography.Title>
+          <Typography.Text type="secondary">AI 漫剧资产生产与画布编排</Typography.Text>
+        </div>
         {error && <Alert type="error" showIcon message={error}/>}
 		{!status.initialized ? <Form initialValues={{ username: 'admin', display_name: 'Creator' }} layout="vertical" onFinish={(values) => onSetup(values.username, values.display_name, values.password)} requiredMark={false}>
 		  <Form.Item name="display_name" label="显示名称" rules={[{ required: true }]}><Input autoFocus size="large" prefix={<UserOutlined/>}/></Form.Item>
@@ -29,5 +30,5 @@ export function LoginScreen({ status, loading, error, onLogin, onSetup }: Props)
 }
 
 export function PasswordChangeScreen({ loading, error, onSubmit }: { loading: boolean; error?: string; onSubmit: (currentPassword: string,newPassword: string)=>void }) {
-	return <div className="login-shell"><Card className="login-card" variant="borderless"><Space orientation="vertical" size={22} style={{width:'100%'}}><div className="brand-mark large">SF</div><div><Typography.Title level={2} style={{margin:0}}>设置新密码</Typography.Title><Typography.Text type="secondary">当前使用的是临时密码，修改后才能进入工作台。</Typography.Text></div>{error&&<Alert type="error" showIcon message={error}/>}<Form layout="vertical" onFinish={(values)=>onSubmit(values.current_password,values.new_password)}><Form.Item label="当前密码" name="current_password" rules={[{required:true}]}><Input.Password prefix={<LockOutlined/>}/></Form.Item><Form.Item label="新密码" name="new_password" rules={[{required:true,min:6}]}><Input.Password prefix={<LockOutlined/>}/></Form.Item><Button block htmlType="submit" loading={loading} size="large" type="primary">保存新密码</Button></Form></Space></Card></div>
+	return <div className="login-shell"><Card className="login-card" variant="borderless"><Space orientation="vertical" size={22} style={{width:'100%'}}><div className="login-heading"><Typography.Title level={2} style={{margin:0}}>设置新密码</Typography.Title><Typography.Text type="secondary">当前使用的是临时密码，修改后才能进入工作台。</Typography.Text></div>{error&&<Alert type="error" showIcon message={error}/>}<Form layout="vertical" onFinish={(values)=>onSubmit(values.current_password,values.new_password)}><Form.Item label="当前密码" name="current_password" rules={[{required:true}]}><Input.Password prefix={<LockOutlined/>}/></Form.Item><Form.Item label="新密码" name="new_password" rules={[{required:true,min:6}]}><Input.Password prefix={<LockOutlined/>}/></Form.Item><Button block htmlType="submit" loading={loading} size="large" type="primary">保存新密码</Button></Form></Space></Card></div>
 }

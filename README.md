@@ -8,7 +8,7 @@ SagaFlow 个人版是一套本地优先的 AI 漫剧生产工作台。项目、�
 - Go 单进程同时提供 API、SQLite 持久任务队列和内嵌的 React 工作台。
 - SQLite 是唯一数据库，不需要 PostgreSQL、Redis 或独立 worker。
 - 本地文件是唯一主副本；S3 是可选的手动发布目标，不会自动同步或替代本地文件。
-- 模型服务、模型目录、凭证、ComfyUI 工作流、Prompt 预设和 S3 连接都在工作台内维护，不写入运行配置。
+- 模型服务、模型目录、凭证、ComfyUI 工作流、全局 Prompt 预设、全局音色和 S3 连接都在工作台内维护，不写入运行配置。
 - 个人版使用独立的干净数据结构，不兼容团队版数据库，也不会尝试迁移团队版数据。
 
 ## 技术栈
@@ -30,7 +30,7 @@ go run ./cmd/sagaflow account init \
 go run ./cmd/sagaflow serve
 ```
 
-打开 `http://127.0.0.1:8080`。默认数据目录遵循操作系统惯例；也可以仅为当前命令指定：
+打开 `http://127.0.0.1:8080`。正式二进制默认使用与自身同目录的 `data/`，便于整套移动和备份；`go run` 开发时使用当前仓库下的 `data/`。也可以仅为当前命令覆盖：
 
 ```bash
 SAGAFLOW_DATA_DIR=./data go run ./cmd/sagaflow account init --password "change-this-password"
@@ -83,9 +83,10 @@ docker compose up -d
 
 登录后在“模型”页完成以下管理：
 
-- 添加或编辑 DeepSeek、Seedream、Seedance、MiniMax、Ollama、ComfyUI 等服务连接；
+- Ollama（`http://127.0.0.1:11434`）和 ComfyUI（`http://127.0.0.1:8188`）连接已预置，启动本地服务后可直接检测、同步模型或导入工作流；
+- 添加或编辑 DeepSeek、Seedream、Seedance、MiniMax 等云端服务连接；
 - 保存本机加密的服务凭证；
-- 同步 Ollama 模型、导入 ComfyUI API 工作流、维护模型参数和 Prompt 预设。
+- 同步 Ollama 模型、导入 ComfyUI API 工作流、维护模型参数、全局 Prompt 预设和全局音色。
 
 所有素材会先写入本地内容寻址对象目录。Ollama 与 ComfyUI 使用本地内容流，不需要公网 URL。云端模型需要参考素材时，先在“设置 → S3 发布”添加兼容连接，再从资产操作中手动发布所需文件；生成任务保存的是该资产对应的具体远端副本，不会后台自动上传。
 

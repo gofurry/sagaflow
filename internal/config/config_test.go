@@ -47,3 +47,21 @@ func TestLoadRejectsProviderAndStorageSecrets(t *testing.T) {
 		t.Fatal("expected legacy storage config to be rejected")
 	}
 }
+
+func TestPortableDataDirUsesReleasedExecutableDirectory(t *testing.T) {
+	executable := filepath.Join("opt", "sagaflow", "sagaflow")
+	want := filepath.Join("opt", "sagaflow", "data")
+	if got := portableDataDir(executable, filepath.Join("work", "repo"), filepath.Join("tmp")); got != want {
+		t.Fatalf("expected %s, got %s", want, got)
+	}
+}
+
+func TestPortableDataDirUsesWorkingDirectoryForGoRun(t *testing.T) {
+	tempDir := filepath.Join("tmp")
+	executable := filepath.Join(tempDir, "go-build123", "b001", "exe", "sagaflow")
+	cwd := filepath.Join("work", "repo")
+	want := filepath.Join(cwd, "data")
+	if got := portableDataDir(executable, cwd, tempDir); got != want {
+		t.Fatalf("expected %s, got %s", want, got)
+	}
+}

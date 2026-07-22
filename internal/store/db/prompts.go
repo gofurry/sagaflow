@@ -7,11 +7,11 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *Store) ListPromptPresets(ctx context.Context, projectID uuid.UUID, capability string) ([]PromptPreset, error) {
+func (s *Store) ListPromptPresets(ctx context.Context, capability string) ([]PromptPreset, error) {
 	return collectRows[PromptPreset](s.pool.Query(ctx, `
 		SELECT * FROM prompt_presets
-		WHERE project_id=$1 AND ($2='' OR capability=$2)
-		ORDER BY capability,name`, projectID, capability))
+		WHERE ($1='' OR capability=$1)
+		ORDER BY capability,name`, capability))
 }
 
 func (s *Store) GetPromptPreset(ctx context.Context, id uuid.UUID) (PromptPreset, error) {
@@ -20,9 +20,9 @@ func (s *Store) GetPromptPreset(ctx context.Context, id uuid.UUID) (PromptPreset
 
 func (s *Store) CreatePromptPreset(ctx context.Context, preset PromptPreset) (PromptPreset, error) {
 	return one[PromptPreset](s.pool.Query(ctx, `
-		INSERT INTO prompt_presets (id,project_id,model_id,model_preset_id,name,description,capability,content)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-		uuid.New(), preset.ProjectID, preset.ModelID, preset.ModelPresetID, strings.TrimSpace(preset.Name), strings.TrimSpace(preset.Description), preset.Capability, preset.Content))
+		INSERT INTO prompt_presets (id,model_id,model_preset_id,name,description,capability,content)
+		VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+		uuid.New(), preset.ModelID, preset.ModelPresetID, strings.TrimSpace(preset.Name), strings.TrimSpace(preset.Description), preset.Capability, preset.Content))
 }
 
 func (s *Store) UpdatePromptPreset(ctx context.Context, preset PromptPreset) (PromptPreset, error) {

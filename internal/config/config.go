@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -250,21 +249,29 @@ func defaultDataDir() string {
 	if configured := strings.TrimSpace(os.Getenv("SAGAFLOW_DATA_DIR")); configured != "" {
 		return configured
 	}
-	home, _ := os.UserHomeDir()
-	switch runtime.GOOS {
-	case "windows":
-		if value := os.Getenv("LOCALAPPDATA"); value != "" {
-			return filepath.Join(value, "SagaFlow")
-		}
-	case "darwin":
-		return filepath.Join(home, "Library", "Application Support", "SagaFlow")
-	default:
-		if value := os.Getenv("XDG_DATA_HOME"); value != "" {
-			return filepath.Join(value, "sagaflow")
-		}
-		return filepath.Join(home, ".local", "share", "sagaflow")
+	executable, _ := os.Executable()
+	cwd, _ := os.Getwd()
+	return portableDataDir(executable, cwd, os.TempDir())
+}
+
+func portableDataDir(executable, cwd, tempDir string) string {
+	// A released binary owns a sibling data directory so the whole SagaFlow
+	// installation can be moved or backed up as one folder. `go run` builds in
+	// an ephemeral go-build directory, so development falls back to the current
+	// checkout instead of writing beside the temporary executable.
+	if executable = strings.TrimSpace(executable); executable != "" && !isGoRunExecutable(executable, tempDir) {
+		return filepath.Join(filepath.Dir(executable), "data")
 	}
-	return filepath.Join(home, ".sagaflow")
+	if cwd = strings.TrimSpace(cwd); cwd != "" {
+		return filepath.Join(cwd, "data")
+	}
+	return "data"
+}
+
+func isGoRunExecutable(executable, tempDir string) bool {
+	executable = strings.ToLower(filepath.ToSlash(filepath.Clean(executable)))
+	tempDir = strings.ToLower(strings.TrimSuffix(filepath.ToSlash(filepath.Clean(tempDir)), "/"))
+	return tempDir != "" && strings.HasPrefix(executable, tempDir+"/") && strings.Contains(executable, "/go-build")
 }
 
 func setString(target *string, key string) {

@@ -23,6 +23,8 @@ API 与任务执行位于同一进程，但任务状态不是内存状态。任�
 
 ## 数据目录
 
+正式二进制默认把数据写入自身同目录的 `data/`；`go run` 会退回当前工作目录，避免把数据写进 Go 的临时构建目录。Docker 和 systemd 部署分别显式使用 `/data` 与 `/var/lib/sagaflow`，也始终可以用 `SAGAFLOW_DATA_DIR` 或运行配置覆盖。
+
 ```text
 data-dir/
 ├─ sagaflow.db       # SQLite 元数据、内部配置、任务与调用记录
@@ -49,6 +51,8 @@ data-dir/
 ## 模型边界
 
 推理网关只接受统一的请求、输入流、参数与产物，不依赖 Fiber、SQLite 或项目领域。服务连接、模型目录、参数 schema、凭证和工作流模板存储在 SQLite，新增 Ollama 模型通常由发现结果自动生成通用 schema；ComfyUI 使用导入助手分析 API 工作流并生成绑定与输出选择器。
+
+Prompt 预设和克隆音色属于整个本地工作台，不跟随单个项目创建或删除。新数据库会预置本机 Ollama 与 ComfyUI 的标准连接地址；离线只表示当前未检测到服务，不影响工作台其他功能。
 
 本地 Adapter 直接消费本地对象流：
 

@@ -31,3 +31,5 @@ web/.env.*
 *.swp
 Thumbs.db
 .DS_Store
+
+design-qa.md

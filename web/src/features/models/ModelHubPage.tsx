@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ApiOutlined, AudioOutlined, CheckCircleOutlined, CloudServerOutlined, DeleteOutlined, DeploymentUnitOutlined, DownOutlined, EditOutlined, FileTextOutlined, KeyOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SettingOutlined, SyncOutlined } from '@ant-design/icons'
 import { App, Button, Checkbox, Col, Empty, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Switch } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
-import type { Capability, Model, ModelProvider, OllamaDiscovery, Project, PromptPreset } from '../../api/types'
+import type { Capability, Model, ModelProvider, OllamaDiscovery, PromptPreset } from '../../api/types'
 import { FloatingToolbar } from '../../components/FloatingToolbar'
 import { JSONCodeEditor } from '../../components/JSONCodeEditor'
 import { MarkdownEditor, MarkdownPreview } from '../../components/Markdown'
@@ -16,7 +16,7 @@ type ModelView = 'catalog' | 'providers' | 'workflows' | 'credentials'
 const capabilities: Capability[] = ['text', 'image', 'audio', 'video', 'multimodal']
 const promptCapabilities: PromptPreset['capability'][] = ['text', 'image', 'audio', 'video']
 
-export function ModelHubPage({ onError, project }: { onError: (error: unknown) => void; project?: Project }) {
+export function ModelHubPage({ onError }: { onError: (error: unknown) => void }) {
   const queryClient = useQueryClient()
   const { message } = App.useApp()
   const [section, setSection] = useState<Section>('models')
@@ -37,6 +37,7 @@ export function ModelHubPage({ onError, project }: { onError: (error: unknown) =
   const [promptSearch, setPromptSearch] = useState('')
   const [promptType, setPromptType] = useState<string>()
   const [promptModelFilter, setPromptModelFilter] = useState<string>()
+  const [providerHealth, setProviderHealth] = useState<Record<string, 'online' | 'offline'>>({})
   const [providerForm] = Form.useForm()
   const [modelForm] = Form.useForm()
   const [credentialForm] = Form.useForm()
@@ -44,18 +45,15 @@ export function ModelHubPage({ onError, project }: { onError: (error: unknown) =
   const promptCapability = Form.useWatch('capability', promptForm) as PromptPreset['capability'] | undefined
   const promptModelID = Form.useWatch('model_id', promptForm) as string | undefined
   const providerAdapter = Form.useWatch('adapter_code', providerForm) as string | undefined
-  const projectID = project?.id
   const providersQuery = useQuery({ queryKey: ['providers'], queryFn: api.providers })
   const modelsQuery = useQuery({ queryKey: ['models', 'catalog'], queryFn: () => api.models() })
-  const projectModelsQuery = useQuery({ queryKey: ['models', projectID], queryFn: () => api.models(undefined, projectID!), enabled: Boolean(projectID) })
   const credentialsQuery = useQuery({ queryKey: ['credentials'], queryFn: () => api.credentials() })
   const presetsQuery = useQuery({ queryKey: ['presets'], queryFn: () => api.presets() })
-  const promptsQuery = useQuery({ queryKey: ['prompt-presets', projectID], queryFn: () => api.promptPresets(projectID!), enabled: Boolean(projectID) })
-  const voicesQuery = useQuery({ queryKey: ['voice-profiles', projectID], queryFn: () => api.voiceProfiles(projectID!), enabled: Boolean(projectID) })
+  const promptsQuery = useQuery({ queryKey: ['prompt-presets'], queryFn: () => api.promptPresets() })
+  const voicesQuery = useQuery({ queryKey: ['voice-profiles'], queryFn: api.voiceProfiles })
   const providers = providersQuery.data ?? []
   const catalogModels = modelsQuery.data ?? []
-  const projectModels = projectModelsQuery.data ?? []
-  const models = section === 'models' ? catalogModels : projectModels
+  const models = catalogModels
   const credentials = credentialsQuery.data ?? []
   const presets = presetsQuery.data ?? []
   const prompts = useMemo(() => promptsQuery.data ?? [], [promptsQuery.data])
@@ -65,7 +63,6 @@ export function ModelHubPage({ onError, project }: { onError: (error: unknown) =
     if (promptType && preset.capability !== promptType) return false
     return !promptModelFilter || preset.model_id === promptModelFilter
   }), [promptModelFilter, promptSearch, promptType, prompts])
-  useEffect(() => { if (!projectID && section !== 'models') setSection('models') }, [projectID, section])
   const refresh = (...keys: string[][]) => Promise.all(keys.map((key) => queryClient.invalidateQueries({ queryKey: key })))
 
   const saveProvider = useMutation({
@@ -100,7 +97,17 @@ export function ModelHubPage({ onError, project }: { onError: (error: unknown) =
   const activate = useMutation({ mutationFn: api.activateCredential, onSuccess: () => refresh(['credentials']), onError })
   const test = useMutation({ mutationFn: api.testCredential, onSuccess: (result) => message.success(result.message), onError })
   const removeCredential = useMutation({ mutationFn: api.deleteCredential, onSuccess: () => refresh(['credentials']), onError })
-  const testProvider = useMutation({ mutationFn: api.testProvider, onSuccess: (server) => message.success('node_count' in server ? `连接正常 · ComfyUI ${server.version}` : `连接正常 · Ollama ${server.version} · ${server.model_count} 个模型`), onError })
+  const testProvider = useMutation({
+    mutationFn: api.testProvider,
+    onSuccess: (server, providerID) => {
+      setProviderHealth((current) => ({ ...current, [providerID]: 'online' }))
+      message.success('node_count' in server ? `连接正常 · ComfyUI ${server.version}` : `连接正常 · Ollama ${server.version} · ${server.model_count} 个模型`)
+    },
+    onError: (error, providerID) => {
+      setProviderHealth((current) => ({ ...current, [providerID]: 'offline' }))
+      onError(error)
+    },
+  })
   const discoverModels = useMutation({
     mutationFn: ({ provider }: { provider: ModelProvider }) => api.discoverProviderModels(provider.id),
     onSuccess: (result, { provider }) => {
@@ -111,7 +118,10 @@ export function ModelHubPage({ onError, project }: { onError: (error: unknown) =
       const imported = new Set(models.filter((model) => model.provider_id === provider.id).map((model) => model.model_id))
       setSelectedRemoteModels(ollamaResult.models.filter((model) => model.supports_text_output && !imported.has(model.name)).map((model) => model.name))
     },
-    onError,
+    onError: (error, { provider }) => {
+      setProviderHealth((current) => ({ ...current, [provider.id]: 'offline' }))
+      onError(error)
+    },
   })
   const syncModels = useMutation({
     mutationFn: ({ providerID, modelIDs }: { providerID: string; modelIDs: string[] }) => api.syncProviderModels(providerID, modelIDs),
@@ -126,10 +136,10 @@ export function ModelHubPage({ onError, project }: { onError: (error: unknown) =
   const savePrompt = useMutation({
     mutationFn: (values: { name: string; description?: string; capability: PromptPreset['capability']; model_id?: string; model_preset_id?: string; content: string }) => {
       const input = { ...values, model_id: values.model_id || null, model_preset_id: values.model_preset_id || null }
-      return editingPrompt ? api.updatePromptPreset(editingPrompt.id, input) : api.createPromptPreset(projectID!, input)
+      return editingPrompt ? api.updatePromptPreset(editingPrompt.id, input) : api.createPromptPreset(input)
     },
     onSuccess: async () => {
-      await refresh(['prompt-presets', projectID!])
+      await refresh(['prompt-presets'])
       setPromptOpen(false)
       setEditingPrompt(null)
       promptForm.resetFields()
@@ -137,7 +147,7 @@ export function ModelHubPage({ onError, project }: { onError: (error: unknown) =
     },
     onError,
   })
-  const deletePrompt = useMutation({ mutationFn: api.deletePromptPreset, onSuccess: async () => { await refresh(['prompt-presets', projectID!]); message.success('Prompt 预设已删除') }, onError })
+  const deletePrompt = useMutation({ mutationFn: api.deletePromptPreset, onSuccess: async () => { await refresh(['prompt-presets']); message.success('Prompt 预设已删除') }, onError })
 
   const openPrompt = (preset?: PromptPreset) => {
     setEditingPrompt(preset ?? null)
@@ -165,7 +175,7 @@ export function ModelHubPage({ onError, project }: { onError: (error: unknown) =
   }
   const refreshing = providersQuery.isFetching || modelsQuery.isFetching || credentialsQuery.isFetching || presetsQuery.isFetching || promptsQuery.isFetching
   const refreshCurrent = () => {
-    if (section === 'prompts') return refresh(['prompt-presets', projectID!], ['models'], ['presets'])
+    if (section === 'prompts') return refresh(['prompt-presets'], ['models'], ['presets'])
     if (view === 'providers') return refresh(['providers'], ['models'], ['credentials'])
     if (view === 'workflows') return refresh(['workflows'], ['workflow-compatibilities'], ['providers'])
     if (view === 'credentials') return refresh(['credentials'], ['providers'])
@@ -178,7 +188,7 @@ export function ModelHubPage({ onError, project }: { onError: (error: unknown) =
     setModelOpen(true)
   }
   const createLabel = section === 'prompts' ? '新建 Prompt 预设' : view === 'providers' ? '添加服务连接' : view === 'credentials' ? '添加凭证' : '添加模型'
-  const canCreateCurrent = (section === 'prompts' && Boolean(projectID)) || section === 'models'
+  const canCreateCurrent = section === 'prompts' || section === 'models'
 
   return <div className="page page-models">
     {section !== 'voices' && !(section === 'models' && view === 'workflows') && <FloatingToolbar ariaLabel="模型页工具栏" items={[
@@ -188,8 +198,8 @@ export function ModelHubPage({ onError, project }: { onError: (error: unknown) =
     <section className="model-page-content">
       <div aria-label="模型功能" className="model-hub-tabs" role="tablist">
         <button aria-selected={section === 'models'} className={section === 'models' ? 'active' : ''} onClick={() => setSection('models')} role="tab" type="button"><ApiOutlined/><span>模型</span><em>{models.length}</em></button>
-        <button aria-selected={section === 'prompts'} className={section === 'prompts' ? 'active' : ''} disabled={!projectID} onClick={() => setSection('prompts')} role="tab" type="button"><FileTextOutlined/><span>Prompt 预设</span><em>{prompts.length}</em></button>
-        <button aria-selected={section === 'voices'} className={section === 'voices' ? 'active' : ''} disabled={!projectID} onClick={() => setSection('voices')} role="tab" type="button"><AudioOutlined/><span>音色</span><em>{voicesQuery.data?.length ?? 0}</em></button>
+        <button aria-selected={section === 'prompts'} className={section === 'prompts' ? 'active' : ''} onClick={() => setSection('prompts')} role="tab" type="button"><FileTextOutlined/><span>Prompt 预设</span><em>{prompts.length}</em></button>
+        <button aria-selected={section === 'voices'} className={section === 'voices' ? 'active' : ''} onClick={() => setSection('voices')} role="tab" type="button"><AudioOutlined/><span>音色</span><em>{voicesQuery.data?.length ?? 0}</em></button>
       </div>
 
       {section === 'models' ? <>
@@ -201,8 +211,6 @@ export function ModelHubPage({ onError, project }: { onError: (error: unknown) =
             { value: 'credentials', label: '凭证', icon: <KeyOutlined/> },
           ] as const).map((item) => <button aria-selected={view === item.value} className={view === item.value ? 'active' : ''} key={item.value} onClick={() => setView(item.value)} role="tab" type="button">{item.icon}<span>{item.label}</span></button>)}
         </div>
-		{!projectID && <div className="model-scope-notice"><strong>模型与运行时</strong><span>模型、服务连接、工作流和凭证保存在本机数据库中；选择项目后可以继续管理该项目的 Prompt 与音色。</span></div>}
-
         {view === 'catalog' && <div className="model-flat-list">
           {models.map((item) => {
             const isExpanded = expandedModelID === item.id
@@ -253,10 +261,12 @@ export function ModelHubPage({ onError, project }: { onError: (error: unknown) =
                   value={providerMaxConcurrency(provider)}
                 /></div>}
                 {provider.adapter_code === 'ollama' && <div className="provider-connection-actions"><span>Ollama 服务</span><div>
+                  <em className={`provider-health ${providerHealth[provider.id] ?? 'unknown'}`}>{providerHealth[provider.id] === 'online' ? '已连接' : providerHealth[provider.id] === 'offline' ? '未检测到服务' : '尚未检测'}</em>
                   <Button icon={<CheckCircleOutlined/>} loading={testProvider.isPending && testProvider.variables === provider.id} onClick={() => testProvider.mutate(provider.id)} size="small">测试连接</Button>
                   <Button icon={<SyncOutlined/>} loading={discoverModels.isPending && discoverModels.variables?.provider.id === provider.id} onClick={() => discoverModels.mutate({ provider })} size="small" type="primary">同步模型</Button>
                 </div></div>}
                 {provider.adapter_code === 'comfyui' && <div className="provider-connection-actions"><span>ComfyUI 工作流服务</span><div>
+                  <em className={`provider-health ${providerHealth[provider.id] ?? 'unknown'}`}>{providerHealth[provider.id] === 'online' ? '已连接' : providerHealth[provider.id] === 'offline' ? '未检测到服务' : '尚未检测'}</em>
                   <Button icon={<CheckCircleOutlined/>} loading={testProvider.isPending && testProvider.variables === provider.id} onClick={() => testProvider.mutate(provider.id)} size="small" type="primary">测试连接</Button>
                 </div></div>}
               </div>}
@@ -309,7 +319,7 @@ export function ModelHubPage({ onError, project }: { onError: (error: unknown) =
           })}
           {!filteredPrompts.length && <Empty description={prompts.length ? '没有符合条件的 Prompt 预设' : '还没有 Prompt 预设'} image={Empty.PRESENTED_IMAGE_SIMPLE}/>}
         </div>
-      </div> : project ? <VoiceProfileManager models={models} onError={onError} project={project}/> : <Empty description="选择项目后管理音色" image={Empty.PRESENTED_IMAGE_SIMPLE}/>}
+      </div> : <VoiceProfileManager models={models} onError={onError}/>}
     </section>
 
     <Modal title={editingProvider ? '编辑模型服务连接' : '添加模型服务连接'} open={providerOpen} onCancel={closeProviderEditor} onOk={() => providerForm.submit()} confirmLoading={saveProvider.isPending} width={680}><Form form={providerForm} layout="vertical" onFinish={(values) => saveProvider.mutate(values)} requiredMark={false}><Row gutter={12}><Col span={12}><Form.Item label="连接代码" name="code" rules={[{ required: true }]}><Input placeholder="例如 comfyui-official-local"/></Form.Item></Col><Col span={12}><Form.Item label="显示名称" name="display_name" rules={[{ required: true }]}><Input placeholder="例如 本机官方 ComfyUI"/></Form.Item></Col></Row><Row gutter={12}><Col span={12}><Form.Item label="Adapter" name="adapter_code" rules={[{ required: true }]}><Select onChange={(value) => providerForm.setFieldsValue(value === 'comfyui' ? { base_url: 'http://127.0.0.1:8188', capabilities: ['image', 'video'], max_concurrency: 1 } : value === 'ollama' ? { base_url: 'http://127.0.0.1:11434', capabilities: ['text'], max_concurrency: 1 } : {})} options={['ollama', 'comfyui', 'deepseek', 'seedream', 'seedance', 'minimax'].map((value) => ({ value, label: value }))}/></Form.Item></Col><Col span={12}><Form.Item label="认证方式" name="auth_type" rules={[{ required: true }]}><Select options={[{ value: 'none', label: '无需认证' }, { value: 'api_key', label: 'API Key' }, { value: 'bearer', label: 'Bearer Token' }]}/></Form.Item></Col></Row><Row gutter={12}><Col span={isLocalAdapter(providerAdapter) ? 16 : 24}><Form.Item label="Base URL" name="base_url" rules={[{ required: true }, { type: 'url' }]}><Input placeholder="http://127.0.0.1:8188"/></Form.Item></Col>{isLocalAdapter(providerAdapter) && <Col span={8}><Form.Item label="最大并发" name="max_concurrency" rules={[{ required: true }]}><InputNumber min={1} max={8} precision={0} style={{ width: '100%' }}/></Form.Item></Col>}</Row><Form.Item label="输出能力" name="capabilities" rules={[{ required: true }]}><Select mode="multiple" options={capabilities.map((value) => ({ value, label: capabilityLabel(value) }))}/></Form.Item></Form></Modal>

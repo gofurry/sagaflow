@@ -67,11 +67,11 @@ function Workspace({ onError, sessionUser }: { onError: (error: unknown) => void
       <Layout.Header className="app-header">
         <div className="header-left">
           <div className="header-title"><strong>{moduleMeta[active].label}</strong></div>
-          {active !== 'home' && <Space size={10} className="header-project">
+          {active !== 'home' && <div className="header-project">
             <Select className="project-select" options={projectOptions} placeholder="选择项目" value={projectID || undefined} onChange={setProjectID} popupMatchSelectWidth={300}/>
             <Button className="header-create" icon={<PlusOutlined/>} onClick={() => setProjectModal(true)}>新建项目</Button>
             {project && <Typography.Text type="secondary" className="project-description">{project.description || '暂无项目说明'}</Typography.Text>}
-          </Space>}
+          </div>}
         </div>
         <Space className="header-actions">
           {active !== 'home' && episodes.length > 0 && (
@@ -100,7 +100,7 @@ function Workspace({ onError, sessionUser }: { onError: (error: unknown) => void
           : active === 'settings'
           ? <SettingsPage onError={onError} project={project ?? undefined}/>
           : active === 'models'
-          ? <ModelHubPage onError={onError} project={project ?? undefined}/>
+          ? <ModelHubPage onError={onError}/>
           : !project
           ? <EmptyState actionLabel="创建第一个项目" description="项目用于组织剧情分集、资产和生成画布。" onAction={() => setProjectModal(true)} title="开始一部新漫剧"/>
           : <ModuleContent active={active} episode={episode} episodes={episodes} onEpisodeChange={setEpisodeID} onError={onError} project={project}/>
@@ -119,5 +119,5 @@ function ModuleContent({ active, project, episode, episodes, onEpisodeChange, on
   if (active === 'assets') return <AssetLibraryPage episode={episode} onError={onError} project={project}/>
   if (active === 'generation') return <GenerationStudioPage episode={episode} onError={onError} project={project}/>
   if (active === 'canvas') return episode ? <CanvasComposer episode={episode} onError={onError} project={project}/> : <EmptyState description="Composer 需要关联一个分集。" title="请先创建分集"/>
-  return <ModelHubPage onError={onError} project={project}/>
+  return <ModelHubPage onError={onError}/>
 }

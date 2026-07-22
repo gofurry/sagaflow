@@ -237,7 +237,6 @@ type WorkflowCompatibility struct {
 
 type PromptPreset struct {
 	ID            uuid.UUID  `db:"id" json:"id"`
-	ProjectID     uuid.UUID  `db:"project_id" json:"project_id"`
 	ModelID       *uuid.UUID `db:"model_id" json:"model_id"`
 	ModelPresetID *uuid.UUID `db:"model_preset_id" json:"model_preset_id"`
 	Name          string     `db:"name" json:"name"`
@@ -250,7 +249,6 @@ type PromptPreset struct {
 
 type VoiceProfile struct {
 	ID                   uuid.UUID       `db:"id" json:"id"`
-	ProjectID            uuid.UUID       `db:"project_id" json:"project_id"`
 	ProviderID           uuid.UUID       `db:"provider_id" json:"provider_id"`
 	ModelID              uuid.UUID       `db:"model_id" json:"model_id"`
 	ProviderCode         string          `db:"provider_code" json:"provider_code,omitempty"`

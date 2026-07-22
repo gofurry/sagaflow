@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,17 +9,11 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofurry/sagaflow/internal/service"
-	"github.com/gofurry/sagaflow/internal/store/db"
 	"github.com/google/uuid"
-	"go.uber.org/zap"
 )
 
 func (s *Server) listVoiceProfiles(c fiber.Ctx) error {
-	projectID, err := idParam(c, "id")
-	if err != nil {
-		return err
-	}
-	items, err := s.store.ListVoiceProfiles(c.Context(), projectID)
+	items, err := s.store.ListVoiceProfiles(c.Context())
 	if err != nil {
 		return err
 	}
@@ -30,13 +23,6 @@ func (s *Server) listVoiceProfiles(c fiber.Ctx) error {
 func (s *Server) createVoiceProfile(c fiber.Ctx) error {
 	if s.voices == nil {
 		return fmt.Errorf("%w: voice service is unavailable", service.ErrInvalidInput)
-	}
-	projectID, err := idParam(c, "id")
-	if err != nil {
-		return err
-	}
-	if _, err := s.store.GetProject(c.Context(), projectID); err != nil {
-		return err
 	}
 	modelID, err := parseOptionalUUID(c.FormValue("model_id"))
 	if err != nil || modelID == nil {
@@ -51,7 +37,7 @@ func (s *Server) createVoiceProfile(c fiber.Ctx) error {
 		return err
 	}
 	item, err := s.voices.Create(c.Context(), service.CreateVoiceProfileInput{
-		ProjectID: projectID, ModelID: *modelID, Name: c.FormValue("name"), Description: c.FormValue("description"),
+		ModelID: *modelID, Name: c.FormValue("name"), Description: c.FormValue("description"),
 		VoiceID: c.FormValue("voice_id"), Source: *source, Prompt: prompt, PromptText: c.FormValue("prompt_text"),
 		PreviewText:             c.FormValue("preview_text"),
 		NeedNoiseReduction:      parseFormBool(c.FormValue("need_noise_reduction")),
@@ -158,19 +144,4 @@ func readVoiceFormFile(c fiber.Ctx, field string, required bool) (*service.Voice
 func parseFormBool(value string) bool {
 	parsed, _ := strconv.ParseBool(strings.TrimSpace(value))
 	return parsed
-}
-
-func (s *Server) deleteVoiceProfileObjects(ctx context.Context, profiles []db.VoiceProfile) {
-	for _, profile := range profiles {
-		for _, objectID := range []uuid.UUID{profile.SourceObjectID, profile.PreviewObjectID} {
-			if err := s.storage.DeleteManaged(ctx, objectID); err != nil {
-				s.log.Warn("delete managed voice profile object", zap.String("voice_profile_id", profile.ID.String()), zap.Error(err))
-			}
-		}
-		if profile.PromptObjectID != nil {
-			if err := s.storage.DeleteManaged(ctx, *profile.PromptObjectID); err != nil {
-				s.log.Warn("delete managed voice prompt object", zap.String("voice_profile_id", profile.ID.String()), zap.Error(err))
-			}
-		}
-	}
 }

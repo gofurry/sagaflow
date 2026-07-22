@@ -99,17 +99,12 @@ func (s *Server) deleteProject(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	voiceProfiles, err := s.store.ListVoiceProfiles(c.Context(), id)
-	if err != nil {
-		return err
-	}
 	if err := s.store.DeleteProject(c.Context(), id); err != nil {
 		return err
 	}
 	s.deleteAssetObjects(c.Context(), assets)
 	s.deleteStagedAssetObjects(c.Context(), stagedAssets)
 	s.deleteGenerationReferenceObjects(c.Context(), references)
-	s.deleteVoiceProfileObjects(c.Context(), voiceProfiles)
 	return writeOK(c, fiber.Map{"deleted": true})
 }
 
