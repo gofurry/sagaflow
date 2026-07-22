@@ -6,7 +6,7 @@ INSERT INTO model_providers (
   'comfyui-aki-local',
   'comfyui',
   '本机秋叶 ComfyUI',
-  'http://127.0.0.1:8189',
+  'http://127.0.0.1:8188',
   'none',
   '["image","audio","video","multimodal"]',
   1
