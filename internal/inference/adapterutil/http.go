@@ -31,6 +31,10 @@ func NewHTTPClient(client *http.Client) *HTTPClient {
 }
 
 func (c *HTTPClient) DoJSON(ctx context.Context, provider, method, endpoint, key string, payload, out any) (json.RawMessage, error) {
+	return c.DoJSONWithHeaders(ctx, provider, method, endpoint, key, nil, payload, out)
+}
+
+func (c *HTTPClient) DoJSONWithHeaders(ctx context.Context, provider, method, endpoint, key string, headers map[string]string, payload, out any) (json.RawMessage, error) {
 	var body io.Reader
 	if payload != nil {
 		data, err := json.Marshal(payload)
@@ -45,6 +49,11 @@ func (c *HTTPClient) DoJSON(ctx context.Context, provider, method, endpoint, key
 	}
 	if strings.TrimSpace(key) != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	for name, value := range headers {
+		if strings.TrimSpace(name) != "" {
+			req.Header.Set(name, value)
+		}
 	}
 	req.Header.Set("Accept", "application/json")
 	if payload != nil {

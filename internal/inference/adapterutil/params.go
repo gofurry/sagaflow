@@ -2,8 +2,14 @@ package adapterutil
 
 import (
 	"encoding/json"
+	"path"
 	"strings"
 )
+
+func JoinURL(baseURL, urlPath string) string {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	return baseURL + "/" + strings.TrimLeft(path.Clean("/"+urlPath), "/")
+}
 
 func CopyParam(dst, src map[string]any, key string) {
 	if value, ok := src[key]; ok {
