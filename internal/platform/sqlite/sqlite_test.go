@@ -39,6 +39,23 @@ func TestOpenMigratesCleanDatabaseAndEnforcesSingleAccount(t *testing.T) {
 	if localProviders != 2 {
 		t.Fatalf("expected two built-in local model connections, got %d", localProviders)
 	}
+	if _, err := database.Exec(`
+		INSERT INTO workflow_templates (
+			id,code,name,capability,input_modalities,workflow,parameter_schema,
+			default_parameters,bindings,outputs,requirements,checksum
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		uuid.NewString(), "local-image", "Local image", "image", "[]", `{}`, `{}`, `{}`, `{}`, `[]`, `{}`, "checksum"); err != nil {
+		t.Fatal(err)
+	}
+	var workflowID string
+	if err := database.QueryRow(`SELECT id FROM workflow_templates WHERE code='local-image'`).Scan(&workflowID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO workflow_compatibilities (workflow_template_id,provider_id,status,report)
+		VALUES (?,?,?,?)`, workflowID, "10000000-0000-0000-0000-000000000006", "ready", `{}`); err != nil {
+		t.Fatalf("expected the current workflow compatibility status to be accepted: %v", err)
+	}
 	for _, table := range []string{"prompt_presets", "voice_profiles"} {
 		rows, err := database.Query(`PRAGMA table_info(` + table + `)`)
 		if err != nil {
