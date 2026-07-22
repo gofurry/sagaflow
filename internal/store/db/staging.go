@@ -48,6 +48,7 @@ const stagedAssetSelect = `
 	       a.id AS asset_id,
 	       a.group_id AS asset_group_id,
 	       COALESCE(a.name, '') AS asset_name,
+	       j.target_asset_group_id AS target_asset_group_id,
 	       COALESCE(j.status, '') AS job_status,
 	       COALESCE(j.capability, '') AS capability,
 	       COALESCE(j.prompt, '') AS prompt,

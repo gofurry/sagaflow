@@ -98,7 +98,7 @@ export function StagedAssetGallery({
   })
   const openImport = (item: StagedAsset) => {
     setSelected(item)
-    setGroupID(undefined)
+    setGroupID(item.target_asset_group_id ?? undefined)
     setName(item.asset_name || item.name)
   }
   const openRename = (item: StagedAsset) => {

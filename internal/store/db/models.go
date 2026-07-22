@@ -394,6 +394,7 @@ type StagedAsset struct {
 	AssetID            *uuid.UUID      `db:"asset_id" json:"asset_id"`
 	AssetGroupID       *uuid.UUID      `db:"asset_group_id" json:"asset_group_id"`
 	AssetName          string          `db:"asset_name" json:"asset_name"`
+	TargetAssetGroupID *uuid.UUID      `db:"target_asset_group_id" json:"target_asset_group_id"`
 	JobStatus          string          `db:"job_status" json:"job_status"`
 	Capability         string          `db:"capability" json:"capability"`
 	Prompt             string          `db:"prompt" json:"prompt"`

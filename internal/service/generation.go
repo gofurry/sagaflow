@@ -167,12 +167,6 @@ func (s *GenerationService) Execute(ctx context.Context, jobID uuid.UUID) (err e
 				return importErr
 			}
 			assetIDs = append(assetIDs, asset.ID)
-		} else if job.TargetAssetGroupID != nil {
-			asset, importErr := s.store.ImportStagedAsset(ctx, staged.ID, *job.TargetAssetGroupID, staged.Name)
-			if importErr != nil {
-				return importErr
-			}
-			assetIDs = append(assetIDs, asset.ID)
 		}
 		progress := .85 + (.1 * float64(index+1) / float64(len(result.Artifacts)))
 		if err := trace.event(ctx, inference.Event{Stage: "storing", Progress: progress, Message: fmt.Sprintf("artifact %d/%d stored", index+1, len(result.Artifacts))}); err != nil {
