@@ -33,11 +33,11 @@ func TestOpenMigratesCleanDatabaseAndEnforcesSingleAccount(t *testing.T) {
 	if err := database.QueryRow(`
 		SELECT COUNT(*) FROM model_providers
 		WHERE (adapter_code='ollama' AND base_url='http://127.0.0.1:11434' AND auth_type='none')
-		   OR (adapter_code='comfyui' AND base_url='http://127.0.0.1:8188' AND auth_type='none')`).Scan(&localProviders); err != nil {
+		   OR (adapter_code='comfyui' AND base_url IN ('http://127.0.0.1:8188','http://127.0.0.1:8189') AND auth_type='none')`).Scan(&localProviders); err != nil {
 		t.Fatal(err)
 	}
-	if localProviders != 2 {
-		t.Fatalf("expected two built-in local model connections, got %d", localProviders)
+	if localProviders != 3 {
+		t.Fatalf("expected Ollama and two built-in ComfyUI connections, got %d", localProviders)
 	}
 	if _, err := database.Exec(`
 		INSERT INTO workflow_templates (
