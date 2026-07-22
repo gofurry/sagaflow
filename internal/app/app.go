@@ -9,6 +9,7 @@ import (
 	"github.com/gofurry/sagaflow/internal/api"
 	"github.com/gofurry/sagaflow/internal/config"
 	"github.com/gofurry/sagaflow/internal/inference"
+	"github.com/gofurry/sagaflow/internal/inference/adapters/bailian"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/comfyui"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/deepseek"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/minimax"
@@ -67,6 +68,7 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		service.ProviderDeepSeek:        deepseek.New(httpClient),
 		service.ProviderVolcengine:      volcDriver,
 		service.ProviderMiniMax:         minimax.New(httpClient),
+		service.ProviderAliyunBailian:   bailian.New(bailian.Config{HTTPClient: httpClient}),
 		service.ProviderOllama:          ollama.New(httpClient),
 		service.ProviderComfyUI:         comfyDriver,
 		service.ProviderOpenAIChat:      openAIChatDriver,

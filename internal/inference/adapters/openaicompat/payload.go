@@ -46,7 +46,7 @@ func copyChatParameters(payload, parameters map[string]any) {
 	for _, key := range []string{
 		"max_tokens", "max_completion_tokens", "temperature", "top_p", "stop", "seed",
 		"frequency_penalty", "presence_penalty", "logprobs", "top_logprobs", "n", "user",
-		"reasoning_effort", "reasoning_split",
+		"reasoning_effort", "reasoning_split", "enable_thinking", "thinking_budget",
 	} {
 		adapterutil.CopyParam(payload, parameters, key)
 	}

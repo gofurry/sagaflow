@@ -39,6 +39,16 @@ func TestOpenMigratesCleanDatabaseAndEnforcesSingleAccount(t *testing.T) {
 	if localProviders != 3 {
 		t.Fatalf("expected Ollama and two built-in ComfyUI connections, got %d", localProviders)
 	}
+	var bailianProviders int
+	if err := database.QueryRow(`
+		SELECT COUNT(*) FROM model_providers
+		WHERE code='aliyun_bailian' AND adapter_code='aliyun_bailian'
+		  AND base_url='https://dashscope.aliyuncs.com' AND auth_type='api_key'`).Scan(&bailianProviders); err != nil {
+		t.Fatal(err)
+	}
+	if bailianProviders != 1 {
+		t.Fatalf("expected built-in Bailian connection, got %d", bailianProviders)
+	}
 	if _, err := database.Exec(`
 		INSERT INTO workflow_templates (
 			id,code,name,capability,input_modalities,workflow,parameter_schema,

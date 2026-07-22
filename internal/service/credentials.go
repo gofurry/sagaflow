@@ -18,6 +18,7 @@ const (
 	ProviderDeepSeek        = "deepseek"
 	ProviderVolcengine      = "volcengine"
 	ProviderMiniMax         = "minimax"
+	ProviderAliyunBailian   = "aliyun_bailian"
 	ProviderOllama          = "ollama"
 	ProviderComfyUI         = "comfyui"
 	ProviderOpenAIChat      = "openai_chat"

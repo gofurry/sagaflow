@@ -132,3 +132,57 @@ func seedanceSchema() json.RawMessage {
 		"watermark":      boolean("添加水印"),
 	})
 }
+
+func bailianTextSchema() json.RawMessage {
+	return schema(map[string]any{
+		"max_tokens":        integer("最大输出 Token", 1, 65536),
+		"temperature":       number("温度", 0, 2),
+		"top_p":             number("Top P", 0, 1),
+		"enable_thinking":   boolean("深度思考"),
+		"thinking_budget":   integer("思考 Token 上限", 0, 65536),
+		"frequency_penalty": number("频率惩罚", -2, 2),
+		"presence_penalty":  number("存在惩罚", -2, 2),
+		"response_format":   choice("输出格式", "text", "json_object"),
+		"seed":              integer("随机种子", 0, 2147483647),
+	})
+}
+
+func bailianImageSchema() json.RawMessage {
+	return schema(map[string]any{
+		"size":            choice("图像尺寸", "1K", "2K", "4K"),
+		"n":               integer("生成数量", 1, 4),
+		"seed":            integer("随机种子", 0, 2147483647),
+		"watermark":       boolean("添加水印"),
+		"thinking_mode":   boolean("智能构图"),
+		"prompt_extend":   boolean("Prompt 优化"),
+		"negative_prompt": map[string]any{"type": "string", "title": "负面 Prompt"},
+	})
+}
+
+func bailianSpeechSchema() json.RawMessage {
+	return schema(map[string]any{
+		"voice":       map[string]any{"type": "string", "title": "音色 ID"},
+		"instruction": map[string]any{"type": "string", "title": "语气指令"},
+		"format":      choice("音频格式", "mp3", "wav", "pcm", "opus"),
+		"sample_rate": integerChoice("采样率", 8000, 16000, 22050, 24000, 44100, 48000),
+		"volume":      number("音量", 0, 100),
+		"rate":        number("语速", .5, 2),
+		"pitch":       number("音高", .5, 2),
+	})
+}
+
+func bailianSpeechDefaults(voice string) json.RawMessage {
+	return values("voice", voice, "format", "mp3", "sample_rate", 24000, "volume", 50, "rate", 1, "pitch", 1)
+}
+
+func bailianVideoSchema() json.RawMessage {
+	return schema(map[string]any{
+		"resolution":      choice("分辨率", "720P", "1080P"),
+		"ratio":           choice("画面比例", "16:9", "9:16", "1:1", "4:3", "3:4"),
+		"duration":        integer("时长（秒）", 3, 15),
+		"seed":            integer("随机种子", 0, 2147483647),
+		"watermark":       boolean("添加水印"),
+		"prompt_extend":   boolean("Prompt 优化"),
+		"negative_prompt": map[string]any{"type": "string", "title": "负面 Prompt"},
+	})
+}

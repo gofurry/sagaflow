@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const manifestVersion = 2
+const manifestVersion = 3
 
 func Builtins() []Definition {
 	return []Definition{
@@ -55,6 +55,43 @@ func Builtins() []Definition {
 		model("20000000-0000-0000-0000-000000000003", "volcengine", "doubao-seedance-2-0-mini-260615", "Seedance 2.0 Mini", "video",
 			[]string{"text", "image", "video", "audio"}, []string{"video_generation", "multi_reference", "audio_generation"}, seedanceSchema(), values("ratio", "16:9", "duration", 5, "generate_audio", true, "watermark", false),
 			"https://www.volcengine.com/docs/82379/2222480"),
+
+		model("20000000-0000-0000-0000-000000000016", "aliyun_bailian", "qwen3.7-plus", "Qwen3.7 Plus", "text",
+			[]string{"text", "image"}, []string{"reasoning", "vision", "tools", "structured_output", "1m_context"}, bailianTextSchema(), values("max_tokens", 8192, "enable_thinking", true, "temperature", 0.7),
+			"https://help.aliyun.com/zh/model-studio/models"),
+		model("20000000-0000-0000-0000-000000000017", "aliyun_bailian", "qwen3.6-flash", "Qwen3.6 Flash", "text",
+			[]string{"text", "image"}, []string{"reasoning", "vision", "fast"}, bailianTextSchema(), values("max_tokens", 4096, "enable_thinking", false, "temperature", 0.7),
+			"https://help.aliyun.com/zh/model-studio/models"),
+		model("20000000-0000-0000-0000-000000000018", "aliyun_bailian", "qwen3.7-max", "Qwen3.7 Max", "text",
+			[]string{"text", "image"}, []string{"reasoning", "vision", "tools", "structured_output"}, bailianTextSchema(), values("max_tokens", 8192, "enable_thinking", true, "temperature", 0.7),
+			"https://help.aliyun.com/zh/model-studio/models"),
+		model("20000000-0000-0000-0000-000000000019", "aliyun_bailian", "wan2.7-image-pro", "Wan 2.7 Image Pro", "image",
+			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "4k"}, bailianImageSchema(), values("size", "2K", "n", 1, "watermark", false, "thinking_mode", true),
+			"https://help.aliyun.com/zh/model-studio/wan-image-generation-api-reference"),
+		model("20000000-0000-0000-0000-000000000020", "aliyun_bailian", "wan2.7-image", "Wan 2.7 Image", "image",
+			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "fast"}, bailianImageSchema(), values("size", "2K", "n", 1, "watermark", false, "thinking_mode", true),
+			"https://help.aliyun.com/zh/model-studio/wan-image-generation-api-reference"),
+		model("20000000-0000-0000-0000-000000000021", "aliyun_bailian", "qwen-audio-3.0-tts-plus", "Qwen Audio 3.0 TTS Plus", "audio",
+			[]string{"text", "audio"}, []string{"speech_generation", "instruction_control", "multilingual"}, bailianSpeechSchema(), bailianSpeechDefaults("longanhuan_v3.6"),
+			"https://help.aliyun.com/zh/model-studio/qwen-tts-api"),
+		model("20000000-0000-0000-0000-000000000022", "aliyun_bailian", "cosyvoice-v3.5-plus", "CosyVoice 3.5 Plus", "audio",
+			[]string{"text", "audio"}, []string{"speech_generation", "multilingual"}, bailianSpeechSchema(), bailianSpeechDefaults("longxiaochun_v2"),
+			"https://help.aliyun.com/zh/model-studio/cosyvoice-api"),
+		model("20000000-0000-0000-0000-000000000023", "aliyun_bailian", "happyhorse-1.1-t2v", "HappyHorse 1.1 Text to Video", "video",
+			[]string{"text"}, []string{"video_generation", "text_to_video", "native_audio"}, bailianVideoSchema(), values("resolution", "720P", "ratio", "16:9", "duration", 5, "watermark", false, "prompt_extend", true),
+			"https://help.aliyun.com/zh/model-studio/happyhorse-api"),
+		model("20000000-0000-0000-0000-000000000024", "aliyun_bailian", "happyhorse-1.1-i2v", "HappyHorse 1.1 Image to Video", "video",
+			[]string{"text", "image"}, []string{"video_generation", "first_frame", "native_audio"}, bailianVideoSchema(), values("resolution", "720P", "ratio", "16:9", "duration", 5, "watermark", false, "prompt_extend", true),
+			"https://help.aliyun.com/zh/model-studio/happyhorse-api"),
+		model("20000000-0000-0000-0000-000000000025", "aliyun_bailian", "happyhorse-1.1-r2v", "HappyHorse 1.1 Reference to Video", "video",
+			[]string{"text", "image"}, []string{"video_generation", "multi_reference", "native_audio"}, bailianVideoSchema(), values("resolution", "720P", "ratio", "16:9", "duration", 5, "watermark", false, "prompt_extend", true),
+			"https://help.aliyun.com/zh/model-studio/happyhorse-api"),
+		model("20000000-0000-0000-0000-000000000026", "aliyun_bailian", "wan2.7-i2v-2026-04-25", "Wan 2.7 Image to Video", "video",
+			[]string{"text", "image", "video", "audio"}, []string{"video_generation", "first_last_frame", "video_continuation", "audio_driven"}, bailianVideoSchema(), values("resolution", "720P", "ratio", "16:9", "duration", 5, "watermark", false, "prompt_extend", true),
+			"https://help.aliyun.com/zh/model-studio/wan-video-generation-api-reference"),
+		model("20000000-0000-0000-0000-000000000027", "aliyun_bailian", "wan2.7-r2v-2026-06-12", "Wan 2.7 Reference to Video", "video",
+			[]string{"text", "image", "video", "audio"}, []string{"video_generation", "multi_reference", "audio_driven"}, bailianVideoSchema(), values("resolution", "720P", "ratio", "16:9", "duration", 5, "watermark", false, "prompt_extend", true),
+			"https://help.aliyun.com/zh/model-studio/wan-video-generation-api-reference"),
 	}
 }
 

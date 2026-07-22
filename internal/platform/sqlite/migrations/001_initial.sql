@@ -441,6 +441,7 @@ INSERT INTO model_providers (id, code, adapter_code, display_name, base_url, aut
   ('10000000-0000-0000-0000-000000000001','deepseek','deepseek','DeepSeek','https://api.deepseek.com','api_key','["text"]',2),
   ('10000000-0000-0000-0000-000000000002','volcengine','volcengine','火山方舟','https://ark.cn-beijing.volces.com/api/v3','api_key','["text","image","video","multimodal"]',1),
   ('10000000-0000-0000-0000-000000000004','minimax','minimax','MiniMax','https://api.minimaxi.com','api_key','["text","image","audio","video"]',1),
+	('10000000-0000-0000-0000-000000000008','aliyun_bailian','aliyun_bailian','阿里云百炼','https://dashscope.aliyuncs.com','api_key','["text","image","audio","video","multimodal"]',2),
   ('10000000-0000-0000-0000-000000000005','ollama-local','ollama','本机 Ollama','http://127.0.0.1:11434','none','["text"]',1),
   ('10000000-0000-0000-0000-000000000006','comfyui-local','comfyui','本机 ComfyUI','http://127.0.0.1:8188','none','["image","audio","video","multimodal"]',1);
 
