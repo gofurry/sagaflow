@@ -31,8 +31,10 @@ func TestDriverGeneratesText(t *testing.T) {
 	var requestEvent inference.Event
 	result, err := deepseek.New(server.Client()).Execute(context.Background(), inference.Request{
 		Runtime: inference.Runtime{ProviderCode: "deepseek", AdapterCode: "deepseek", Endpoint: server.URL, APIKey: "secret"},
-		Target:  inference.Target{Kind: inference.TargetModel, ID: "deepseek-model", Capability: inference.CapabilityText},
-		Prompt:  "创作正文", Parameters: map[string]any{"temperature": .7},
+		Target:  inference.Target{Kind: inference.TargetModel, ID: "deepseek-v4-flash", Capability: inference.CapabilityText},
+		Prompt:  "创作正文", Parameters: map[string]any{
+			"temperature": .7, "thinking": "disabled", "reasoning_effort": "high",
+		},
 	}, func(_ context.Context, event inference.Event) error {
 		if event.Stage == "provider_request" {
 			requestEvent = event
@@ -42,11 +44,15 @@ func TestDriverGeneratesText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if requestBody["model"] != "deepseek-model" || requestBody["temperature"] != .7 {
+	if requestBody["model"] != "deepseek-v4-flash" || requestBody["temperature"] != .7 || requestBody["reasoning_effort"] != "high" {
 		t.Fatalf("unexpected payload: %#v", requestBody)
 	}
+	thinking, ok := requestBody["thinking"].(map[string]any)
+	if !ok || thinking["type"] != "disabled" {
+		t.Fatalf("thinking parameter was not normalized: %#v", requestBody)
+	}
 	payload, ok := requestEvent.Details["payload"].(map[string]any)
-	if !ok || payload["model"] != "deepseek-model" || payload["temperature"] != .7 {
+	if !ok || payload["model"] != "deepseek-v4-flash" || payload["temperature"] != .7 {
 		t.Fatalf("provider request event is incomplete: %#v", requestEvent)
 	}
 	reader, _, err := result.Artifacts[0].Content.Open(context.Background())

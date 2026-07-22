@@ -7,16 +7,16 @@ import (
 	"github.com/google/uuid"
 )
 
-const manifestVersion = 1
+const manifestVersion = 2
 
 func Builtins() []Definition {
 	return []Definition{
-		model("20000000-0000-0000-0000-000000000005", "deepseek", "deepseek-chat", "DeepSeek Chat", "text",
-			[]string{"text"}, []string{"chat", "json_output"}, deepSeekChatSchema(), values("max_tokens", 4096, "temperature", 1, "top_p", 1),
-			"https://api-docs.deepseek.com/zh-cn/quick_start/pricing-details-cny"),
-		model("20000000-0000-0000-0000-000000000006", "deepseek", "deepseek-reasoner", "DeepSeek Reasoner", "text",
-			[]string{"text"}, []string{"reasoning"}, deepSeekReasonerSchema(), values("max_tokens", 8192),
-			"https://api-docs.deepseek.com/zh-cn/quick_start/pricing-details-cny"),
+		model("20000000-0000-0000-0000-000000000001", "deepseek", "deepseek-v4-flash", "DeepSeek V4 Flash", "text",
+			[]string{"text"}, []string{"thinking", "json_output", "1m_context", "fast"}, deepSeekV4Schema(), values("max_tokens", 8192, "thinking", "disabled", "reasoning_effort", "high"),
+			"https://api-docs.deepseek.com/quick_start/pricing/"),
+		model("20000000-0000-0000-0000-000000000005", "deepseek", "deepseek-v4-pro", "DeepSeek V4 Pro", "text",
+			[]string{"text"}, []string{"thinking", "json_output", "1m_context"}, deepSeekV4Schema(), values("max_tokens", 8192, "thinking", "enabled", "reasoning_effort", "high"),
+			"https://api-docs.deepseek.com/quick_start/pricing/"),
 
 		model("20000000-0000-0000-0000-000000000007", "minimax", "MiniMax-M2.7", "MiniMax M2.7", "text",
 			[]string{"text"}, []string{"reasoning", "chat"}, openAITextSchema(204800), values("max_tokens", 4096, "temperature", 1),

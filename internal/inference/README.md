@@ -28,7 +28,7 @@ result, err := gateway.Execute(ctx, inference.Request{
     },
     Target: inference.Target{
         Kind:       inference.TargetModel,
-        ID:         "deepseek-chat",
+        ID:         "deepseek-v4-flash",
         Capability: inference.CapabilityText,
     },
     Prompt: "Write a scene outline.",

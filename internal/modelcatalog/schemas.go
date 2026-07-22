@@ -30,22 +30,17 @@ func boolean(title string) map[string]any {
 	return map[string]any{"type": "boolean", "title": title}
 }
 
-func deepSeekChatSchema() json.RawMessage {
+func deepSeekV4Schema() json.RawMessage {
 	return schema(map[string]any{
-		"max_tokens":        integer("最大输出 Token", 1, 8192),
+		"max_tokens":        integer("最大输出 Token", 1, 393216),
+		"thinking":          choice("思考模式", "enabled", "disabled"),
+		"reasoning_effort":  choice("思考强度", "high", "max"),
 		"temperature":       number("温度", 0, 2),
 		"top_p":             number("Top P", 0, 1),
 		"frequency_penalty": number("频率惩罚", -2, 2),
 		"presence_penalty":  number("存在惩罚", -2, 2),
 		"response_format":   choice("输出格式", "text", "json_object"),
 		"stop":              map[string]any{"type": "array", "title": "停止序列", "items": map[string]any{"type": "string"}},
-	})
-}
-
-func deepSeekReasonerSchema() json.RawMessage {
-	return schema(map[string]any{
-		"max_tokens":      integer("最大输出 Token", 1, 8192),
-		"response_format": choice("输出格式", "text", "json_object"),
 	})
 }
 

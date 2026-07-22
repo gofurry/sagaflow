@@ -41,12 +41,19 @@ func TestSyncCreatesVersionedBuiltinsIdempotently(t *testing.T) {
 		t.Fatalf("expected %d catalog models, got %d", len(modelcatalog.Builtins()), len(models))
 	}
 	var arkModels int
+	deepSeekModels := make(map[string]bool)
 	for _, model := range models {
 		if model.ProviderCode == "volcengine" {
 			arkModels++
 		}
+		if model.ProviderCode == "deepseek" {
+			deepSeekModels[model.ModelID] = true
+		}
 	}
 	if arkModels != 4 {
 		t.Fatalf("expected four unified Ark models, got %d", arkModels)
+	}
+	if !deepSeekModels["deepseek-v4-flash"] || !deepSeekModels["deepseek-v4-pro"] {
+		t.Fatalf("expected current DeepSeek V4 catalog, got %#v", deepSeekModels)
 	}
 }
