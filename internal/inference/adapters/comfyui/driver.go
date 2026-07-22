@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/gofurry/sagaflow/internal/inference"
 	"github.com/gofurry/sagaflow/internal/inference/adapterutil"
+	"github.com/gofurry/sagaflow/internal/media"
 	"github.com/google/uuid"
 )
 
@@ -301,11 +301,7 @@ func safeFilename(name, id, mimeType string) string {
 		name = strings.TrimSpace(id)
 	}
 	if filepath.Ext(name) == "" {
-		if extensions, _ := mime.ExtensionsByType(strings.Split(mimeType, ";")[0]); len(extensions) > 0 {
-			name += extensions[0]
-		} else {
-			name += ".png"
-		}
+		name += media.ExtensionForMIME(mimeType)
 	}
 	return name
 }

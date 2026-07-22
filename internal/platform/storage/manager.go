@@ -6,11 +6,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"mime"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/gofurry/sagaflow/internal/media"
 	"github.com/gofurry/sagaflow/internal/store/db"
 	"github.com/google/uuid"
 )
@@ -203,9 +203,7 @@ func safeObjectName(name, mimeType string) string {
 		return r
 	}, name)
 	if filepath.Ext(name) == "" {
-		if exts, _ := mime.ExtensionsByType(strings.Split(mimeType, ";")[0]); len(exts) > 0 {
-			name += exts[0]
-		}
+		name += media.ExtensionForMIME(mimeType)
 	}
 	return name
 }

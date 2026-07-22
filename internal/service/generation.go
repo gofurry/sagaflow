@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gofurry/sagaflow/internal/inference"
+	"github.com/gofurry/sagaflow/internal/media"
 	"github.com/gofurry/sagaflow/internal/platform/storage"
 	"github.com/gofurry/sagaflow/internal/store/db"
 	"github.com/google/uuid"
@@ -436,11 +436,7 @@ func mapInferenceError(err error) error {
 }
 
 func generationObjectKey(jobID uuid.UUID, index int, mimeType string) string {
-	ext, _ := mime.ExtensionsByType(strings.Split(mimeType, ";")[0])
-	suffix := ".bin"
-	if len(ext) > 0 {
-		suffix = ext[0]
-	}
+	suffix := media.ExtensionForMIME(mimeType)
 	return filepath.ToSlash(filepath.Join("generated", jobID.String(), fmt.Sprintf("%02d%s", index+1, suffix)))
 }
 
