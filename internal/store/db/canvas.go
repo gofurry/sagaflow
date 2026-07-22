@@ -78,8 +78,23 @@ func (s *Store) SelectCanvasVideoAsset(ctx context.Context, videoNodeID uuid.UUI
 			if err := tx.QueryRow(ctx, `SELECT episode_id,canvas_node_id,media_type FROM assets WHERE id=$1`, *assetID).Scan(&episodeID, &canvasNodeID, &mediaType); err != nil {
 				return err
 			}
-			if mediaType != "video" || episodeID == nil || *episodeID != node.EpisodeID || canvasNodeID == nil || *canvasNodeID != node.ID {
-				return fmt.Errorf("video asset does not belong to the selected storyboard shot")
+			if mediaType != "video" || episodeID == nil || *episodeID != node.EpisodeID {
+				return fmt.Errorf("%w: video asset and storyboard shot must belong to the same episode", ErrConflict)
+			}
+			if canvasNodeID != nil && *canvasNodeID != node.ID {
+				return fmt.Errorf("%w: video asset already belongs to another storyboard shot", ErrConflict)
+			}
+			if canvasNodeID == nil {
+				result, err := tx.Exec(ctx, `
+					UPDATE assets
+					SET canvas_node_id=$2,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+					WHERE id=$1 AND canvas_node_id IS NULL`, *assetID, node.ID)
+				if err != nil {
+					return err
+				}
+				if changed, _ := result.RowsAffected(); changed != 1 {
+					return fmt.Errorf("%w: video asset was bound by another storyboard shot", ErrConflict)
+				}
 			}
 		}
 		updated, err = one[CanvasNode](tx.Query(ctx, `UPDATE canvas_nodes SET selected_video_asset_id=$2,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$1 RETURNING *`, videoNodeID, assetID))
