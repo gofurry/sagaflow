@@ -58,14 +58,15 @@ type canvasAnnotationRequest struct {
 		X float64 `json:"x"`
 		Y float64 `json:"y"`
 	} `json:"position"`
-	Width       float64 `json:"width"`
-	Height      float64 `json:"height"`
-	StrokeColor string  `json:"stroke_color"`
-	StrokeWidth float64 `json:"stroke_width"`
-	LineStyle   string  `json:"line_style"`
-	Opacity     float64 `json:"opacity"`
-	Label       string  `json:"label"`
-	ZIndex      int32   `json:"z_index"`
+	Width         float64 `json:"width"`
+	Height        float64 `json:"height"`
+	StrokeColor   string  `json:"stroke_color"`
+	StrokeWidth   float64 `json:"stroke_width"`
+	LineStyle     string  `json:"line_style"`
+	Opacity       float64 `json:"opacity"`
+	Label         string  `json:"label"`
+	LabelPosition string  `json:"label_position"`
+	ZIndex        int32   `json:"z_index"`
 }
 
 type canvasResponse struct {
@@ -133,7 +134,7 @@ func (s *Server) saveCanvas(c fiber.Ctx) error {
 			ID: annotation.ID, EpisodeID: id, AnnotationType: annotation.Type,
 			PositionX: annotation.Position.X, PositionY: annotation.Position.Y, Width: annotation.Width, Height: annotation.Height,
 			StrokeColor: annotation.StrokeColor, StrokeWidth: annotation.StrokeWidth, LineStyle: annotation.LineStyle,
-			Opacity: annotation.Opacity, Label: annotation.Label, ZIndex: annotation.ZIndex,
+			Opacity: annotation.Opacity, Label: annotation.Label, LabelPosition: annotation.LabelPosition, ZIndex: annotation.ZIndex,
 		})
 	}
 	if err := s.store.SaveCanvas(c.Context(), id, canvas); err != nil {
@@ -200,7 +201,7 @@ func mapCanvas(canvas db.Canvas) canvasResponse {
 			"position": map[string]float64{"x": annotation.PositionX, "y": annotation.PositionY},
 			"width":    annotation.Width, "height": annotation.Height, "stroke_color": annotation.StrokeColor,
 			"stroke_width": annotation.StrokeWidth, "line_style": annotation.LineStyle,
-			"opacity": annotation.Opacity, "label": annotation.Label, "z_index": annotation.ZIndex,
+			"opacity": annotation.Opacity, "label": annotation.Label, "label_position": annotation.LabelPosition, "z_index": annotation.ZIndex,
 		})
 	}
 	return out

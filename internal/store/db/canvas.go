@@ -301,15 +301,23 @@ func (s *Store) SaveCanvas(ctx context.Context, episodeID uuid.UUID, canvas Canv
 			if len([]rune(annotation.Label)) > 300 {
 				return fmt.Errorf("canvas annotation label is too long")
 			}
+			if annotation.LabelPosition == "" {
+				annotation.LabelPosition = "center"
+			}
+			switch annotation.LabelPosition {
+			case "top-left", "top-center", "top-right", "middle-left", "center", "middle-right", "bottom-left", "bottom-center", "bottom-right":
+			default:
+				return fmt.Errorf("canvas annotation label position is invalid")
+			}
 		}
 		for _, annotation := range canvas.Annotations {
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO canvas_annotations (
-					id,episode_id,annotation_type,position_x,position_y,width,height,stroke_color,stroke_width,line_style,opacity,label,z_index
-				) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+					id,episode_id,annotation_type,position_x,position_y,width,height,stroke_color,stroke_width,line_style,opacity,label,label_position,z_index
+				) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
 				annotation.ID, episodeID, annotation.AnnotationType, annotation.PositionX, annotation.PositionY,
 				annotation.Width, annotation.Height, annotation.StrokeColor, annotation.StrokeWidth,
-				annotation.LineStyle, annotation.Opacity, annotation.Label, annotation.ZIndex); err != nil {
+				annotation.LineStyle, annotation.Opacity, annotation.Label, annotation.LabelPosition, annotation.ZIndex); err != nil {
 				return err
 			}
 		}

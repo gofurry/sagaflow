@@ -28,7 +28,7 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import { api } from '../../api/client'
-import type { Asset, AssetGroup, CanvasAnnotationDTO, CanvasAnnotationKind, CanvasDocument, CanvasEdgeData, CanvasEdgeKind, CanvasEdgeRouting, CanvasNodeData, Episode, Project } from '../../api/types'
+import type { Asset, AssetGroup, CanvasAnnotationDTO, CanvasAnnotationKind, CanvasAnnotationLabelPosition, CanvasDocument, CanvasEdgeData, CanvasEdgeKind, CanvasEdgeRouting, CanvasNodeData, Episode, Project } from '../../api/types'
 import { FloatingToolbar } from '../../components/FloatingToolbar'
 import { MarkdownEditor } from '../../components/Markdown'
 import { MaterialViewerModal } from '../../components/MaterialViewerModal'
@@ -257,7 +257,7 @@ function CanvasInner({ project, episode, onError }: { project: Project; episode:
     const position = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY })
     setAnnotationDraft({
       id: createCanvasID(), type: annotationTool, position, width: 0, height: 0,
-      stroke_color: '#c8753f', stroke_width: 2, line_style: 'solid', opacity: 1, label: '', z_index: 0,
+      stroke_color: '#c8753f', stroke_width: 2, line_style: 'solid', opacity: 1, label: '', label_position: 'center', z_index: 0,
     })
     setSelectedAnnotationID('')
     setMenu(null)
@@ -479,6 +479,18 @@ const annotationColors = [
   { label: '砖红', value: '#b45e52' },
 ]
 
+const annotationLabelPositions: Array<{ value: CanvasAnnotationLabelPosition; label: string }> = [
+  { value: 'top-left', label: '左上' },
+  { value: 'top-center', label: '中上' },
+  { value: 'top-right', label: '右上' },
+  { value: 'middle-left', label: '左中' },
+  { value: 'center', label: '居中' },
+  { value: 'middle-right', label: '右中' },
+  { value: 'bottom-left', label: '左下' },
+  { value: 'bottom-center', label: '中下' },
+  { value: 'bottom-right', label: '右下' },
+]
+
 function CanvasAnnotationToolbar({ activeTool, onChange }: { activeTool: CanvasAnnotationTool; onChange: (tool: CanvasAnnotationTool) => void }) {
   return <div aria-label="画布标注工具" className="canvas-annotation-toolbar" role="toolbar">
     {annotationTools.map((tool, index) => <span className={index === 1 ? 'with-divider' : ''} key={tool.key}>
@@ -521,6 +533,20 @@ function CanvasAnnotationModal({ annotation, onChange, onClose, onDelete }: {
   >
     <div className="canvas-modal-form">
       <label><span>说明文字</span><Input.TextArea autoFocus maxLength={300} onChange={(event) => onChange(annotation.id, { label: event.target.value })} placeholder="可选，说明这个箭头、线条或框选区域的含义。" rows={5} showCount value={annotation.label}/></label>
+      {(annotation.type === 'rectangle' || annotation.type === 'ellipse') && <div className="canvas-label-position-field">
+        <span>说明文字位置</span>
+        <div aria-label="说明文字位置" className="canvas-label-position-grid" role="group">
+          {annotationLabelPositions.map((position) => <button
+            aria-label={position.label}
+            aria-pressed={(annotation.label_position ?? 'center') === position.value}
+            className={(annotation.label_position ?? 'center') === position.value ? 'active' : ''}
+            key={position.value}
+            onClick={() => onChange(annotation.id, { label_position: position.value })}
+            title={position.label}
+            type="button"
+          ><span/></button>)}
+        </div>
+      </div>}
       <small>标注只用于画布表达，不会进入模型 Prompt、资产关系或视频参考。</small>
     </div>
   </Modal>
@@ -574,9 +600,16 @@ function CanvasAnnotation({ annotation, selected = false, draft = false, onSelec
         ? <rect fill="none" height={annotation.height} pointerEvents="none" rx="10" stroke="currentColor" strokeDasharray={dash} strokeWidth={annotation.stroke_width} vectorEffect="non-scaling-stroke" width={annotation.width} x="9" y="9"/>
         : <ellipse cx={annotation.width / 2 + 9} cy={annotation.height / 2 + 9} fill="none" pointerEvents="none" rx={annotation.width / 2} ry={annotation.height / 2} stroke="currentColor" strokeDasharray={dash} strokeWidth={annotation.stroke_width} vectorEffect="non-scaling-stroke"/>}
     </svg>
-    {annotation.label && <button className="canvas-annotation-label shape-label" onClick={select} onDoubleClick={open} onPointerDown={(event) => onGestureStart?.(annotation.id, 'move', event)} style={{ left: annotation.width / 2 + 9, top: annotation.height / 2 + 9 }} title="双击编辑说明" type="button">{annotation.label}</button>}
+    {annotation.label && <button className={`canvas-annotation-label shape-label position-${annotation.label_position ?? 'center'}`} onClick={select} onDoubleClick={open} onPointerDown={(event) => onGestureStart?.(annotation.id, 'move', event)} style={shapeLabelPosition(annotation.label_position ?? 'center', annotation.width, annotation.height)} title="双击编辑说明" type="button">{annotation.label}</button>}
     {selected && <button aria-label="调整大小" className="canvas-annotation-point resize" onPointerDown={(event) => onGestureStart?.(annotation.id, 'resize-box', event)} style={{ left: annotation.width + 9, top: annotation.height + 9 }} type="button"/>}
   </div>
+}
+
+function shapeLabelPosition(position: CanvasAnnotationLabelPosition, width: number, height: number): CSSProperties {
+  const inset = 8
+  const left = position.endsWith('left') ? 9 + inset : position.endsWith('right') ? 9 + width - inset : 9 + width / 2
+  const top = position.startsWith('top') ? 9 + inset : position.startsWith('bottom') ? 9 + height - inset : 9 + height / 2
+  return { left, top }
 }
 
 function constrainedAnnotationDelta(start: { x: number; y: number }, end: { x: number; y: number }, type: CanvasAnnotationKind, constrain: boolean) {

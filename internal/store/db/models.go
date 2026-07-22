@@ -139,6 +139,7 @@ type CanvasAnnotation struct {
 	LineStyle      string    `db:"line_style" json:"line_style"`
 	Opacity        float64   `db:"opacity" json:"opacity"`
 	Label          string    `db:"label" json:"label"`
+	LabelPosition  string    `db:"label_position" json:"label_position"`
 	ZIndex         int32     `db:"z_index" json:"z_index"`
 	CreatedAt      time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt      time.Time `db:"updated_at" json:"updated_at"`

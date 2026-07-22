@@ -64,3 +64,46 @@ func TestSelectCanvasVideoAssetBindsUnassignedVideo(t *testing.T) {
 		t.Fatalf("expected conflict when rebinding video, got %v", err)
 	}
 }
+
+func TestSaveCanvasPersistsAnnotationLabelPosition(t *testing.T) {
+	ctx := context.Background()
+	database, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "sagaflow.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	projectID := uuid.New()
+	episodeID := uuid.New()
+	if _, err := database.ExecContext(ctx, `INSERT INTO projects (id,title) VALUES ($1,'雾海归灯')`, projectID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, `INSERT INTO episodes (id,project_id,episode_number,title) VALUES ($1,$2,1,'雾港孤灯')`, episodeID, projectID); err != nil {
+		t.Fatal(err)
+	}
+
+	store := db.New(database)
+	annotationID := uuid.New()
+	canvas := db.Canvas{Annotations: []db.CanvasAnnotation{{
+		ID: annotationID, EpisodeID: episodeID, AnnotationType: "rectangle",
+		PositionX: 20, PositionY: 30, Width: 320, Height: 180,
+		StrokeColor: "#c8753f", StrokeWidth: 2, LineStyle: "solid", Opacity: 1,
+		Label: "第一集分镜区", LabelPosition: "top-left",
+	}}}
+	if err := store.SaveCanvas(ctx, episodeID, canvas); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := store.GetCanvas(ctx, episodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.Annotations) != 1 || stored.Annotations[0].LabelPosition != "top-left" {
+		t.Fatalf("expected top-left label position, got %#v", stored.Annotations)
+	}
+
+	canvas.Annotations[0].LabelPosition = "outside"
+	if err := store.SaveCanvas(ctx, episodeID, canvas); err == nil {
+		t.Fatal("expected invalid label position to be rejected")
+	}
+}

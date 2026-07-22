@@ -15,13 +15,14 @@ export interface AssetGroup { id: ID; project_id: ID; parent_id: ID | null; kind
 export interface Asset { id: ID; project_id: ID; group_id: ID | null; staged_asset_id: ID | null; episode_id: ID | null; canvas_node_id: ID | null; name: string; media_type: MediaType; source: 'upload' | 'generated'; status: AssetStatus; mime_type: string; file_size_bytes: number; storage_backend: string; original_url: string; provider_code: string; model_identifier: string; metadata: Record<string, unknown>; created_at: string; updated_at: string }
 export interface CanvasNodeDTO { id: ID; type: string; position: { x: number; y: number }; width?: number; height?: number; z_index?: number; data: CanvasNodeData }
 export interface CanvasEdgeDTO { id: ID; source: ID; target: ID; source_handle?: string | null; target_handle?: string | null; type: CanvasEdgeKind; data?: CanvasEdgeData }
-export interface CanvasAnnotationDTO { id: ID; type: CanvasAnnotationKind; position: { x: number; y: number }; width: number; height: number; stroke_color: string; stroke_width: number; line_style: CanvasAnnotationLineStyle; opacity: number; label: string; z_index?: number }
+export interface CanvasAnnotationDTO { id: ID; type: CanvasAnnotationKind; position: { x: number; y: number }; width: number; height: number; stroke_color: string; stroke_width: number; line_style: CanvasAnnotationLineStyle; opacity: number; label: string; label_position: CanvasAnnotationLabelPosition; z_index?: number }
 export interface CanvasDocument { nodes: CanvasNodeDTO[]; edges: CanvasEdgeDTO[]; annotations: CanvasAnnotationDTO[] }
 export type CanvasNodeKind = 'asset' | 'video' | 'note'
 export type CanvasEdgeKind = 'reference' | 'annotation' | 'relation'
 export type CanvasEdgeRouting = 'curve' | 'step'
 export type CanvasAnnotationKind = 'arrow' | 'line' | 'rectangle' | 'ellipse'
 export type CanvasAnnotationLineStyle = 'solid' | 'dashed'
+export type CanvasAnnotationLabelPosition = 'top-left' | 'top-center' | 'top-right' | 'middle-left' | 'center' | 'middle-right' | 'bottom-left' | 'bottom-center' | 'bottom-right'
 export interface CanvasEdgeData extends Record<string, unknown> { relation: CanvasEdgeKind; routing?: CanvasEdgeRouting; note?: string }
 export interface CanvasNodeData extends Record<string, unknown> { kind: CanvasNodeKind; title: string; body?: string; asset_id?: ID; asset_status?: AssetStatus; media_type?: MediaType; group_id?: ID | null; group_path?: string; shot_number?: number; target_duration_seconds?: number; selected_video_asset_id?: ID; color?: string }
 export type Capability = 'text' | 'image' | 'audio' | 'video' | 'multimodal'
