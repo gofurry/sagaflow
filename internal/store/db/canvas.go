@@ -189,18 +189,62 @@ func (s *Store) SaveCanvas(ctx context.Context, episodeID uuid.UUID, canvas Canv
 		if _, err := tx.Exec(ctx, `DELETE FROM canvas_annotations WHERE episode_id=$1`, episodeID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `DELETE FROM canvas_nodes WHERE episode_id=$1`, episodeID); err != nil {
+		rows, err := tx.Query(ctx, `SELECT id FROM canvas_nodes WHERE episode_id=$1`, episodeID)
+		if err != nil {
+			return err
+		}
+		existingNodeIDs := make([]uuid.UUID, 0)
+		for rows.Next() {
+			var existingNodeID uuid.UUID
+			if err := rows.Scan(&existingNodeID); err != nil {
+				rows.Close()
+				return err
+			}
+			existingNodeIDs = append(existingNodeIDs, existingNodeID)
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if err := rows.Err(); err != nil {
 			return err
 		}
 		for _, node := range canvas.Nodes {
-			_, err := tx.Exec(ctx, `
+			result, err := tx.Exec(ctx, `
 				INSERT INTO canvas_nodes (
 					id,episode_id,node_type,position_x,position_y,width,height,z_index,data,
 					asset_id,title,body,shot_number,target_duration_seconds,selected_video_asset_id,color
-				) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+				) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+				ON CONFLICT(id) DO UPDATE SET
+					node_type=excluded.node_type,
+					position_x=excluded.position_x,
+					position_y=excluded.position_y,
+					width=excluded.width,
+					height=excluded.height,
+					z_index=excluded.z_index,
+					data=excluded.data,
+					asset_id=excluded.asset_id,
+					title=excluded.title,
+					body=excluded.body,
+					shot_number=excluded.shot_number,
+					target_duration_seconds=excluded.target_duration_seconds,
+					selected_video_asset_id=excluded.selected_video_asset_id,
+					color=excluded.color,
+					updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+				WHERE canvas_nodes.episode_id=excluded.episode_id`,
 				node.ID, episodeID, node.NodeType, node.PositionX, node.PositionY, node.Width, node.Height, node.ZIndex, validJSON(node.Data),
 				node.AssetID, strings.TrimSpace(node.Title), node.Body, node.ShotNumber, node.TargetDurationSeconds, node.SelectedVideoAssetID, node.Color)
 			if err != nil {
+				return err
+			}
+			if changed, _ := result.RowsAffected(); changed != 1 {
+				return fmt.Errorf("canvas node %s belongs to another episode", node.ID)
+			}
+		}
+		for _, existingNodeID := range existingNodeIDs {
+			if _, retained := nodeTypes[existingNodeID]; retained {
+				continue
+			}
+			if _, err := tx.Exec(ctx, `DELETE FROM canvas_nodes WHERE id=$1 AND episode_id=$2`, existingNodeID, episodeID); err != nil {
 				return err
 			}
 		}

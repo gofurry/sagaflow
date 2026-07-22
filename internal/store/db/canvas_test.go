@@ -65,6 +65,54 @@ func TestSelectCanvasVideoAssetBindsUnassignedVideo(t *testing.T) {
 	}
 }
 
+func TestSaveCanvasPreservesVideoAssetStoryboardBinding(t *testing.T) {
+	ctx := context.Background()
+	database, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "sagaflow.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	projectID := uuid.New()
+	episodeID := uuid.New()
+	videoNodeID := uuid.New()
+	objectID := uuid.New()
+	assetID := uuid.New()
+	statements := []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO projects (id,title) VALUES ($1,'潮汐遗迹的来信')`, []any{projectID}},
+		{`INSERT INTO episodes (id,project_id,episode_number,title) VALUES ($1,$2,1,'退潮之门')`, []any{episodeID, projectID}},
+		{`INSERT INTO canvas_nodes (id,episode_id,node_type,position_x,position_y,title,shot_number) VALUES ($1,$2,'video',0,0,'退潮古城显现',1)`, []any{videoNodeID, episodeID}},
+		{`INSERT INTO local_objects (id,project_id,object_key,original_name,purpose,mime_type,state) VALUES ($1,$2,'videos/shot.mp4','shot.mp4','asset','video/mp4','ready')`, []any{objectID, projectID}},
+		{`INSERT INTO assets (id,project_id,episode_id,canvas_node_id,object_id,name,media_type,status,mime_type) VALUES ($1,$2,$3,$4,$5,'退潮古城显现','video','candidate','video/mp4')`, []any{assetID, projectID, episodeID, videoNodeID, objectID}},
+	}
+	for _, statement := range statements {
+		if _, err := database.ExecContext(ctx, statement.query, statement.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	shotNumber := int32(1)
+	duration := int32(3)
+	store := db.New(database)
+	if err := store.SaveCanvas(ctx, episodeID, db.Canvas{Nodes: []db.CanvasNode{{
+		ID: videoNodeID, EpisodeID: episodeID, NodeType: "video", PositionX: 120, PositionY: 80,
+		Title: "退潮古城显现", Body: "镜头平稳向前推进", ShotNumber: &shotNumber, TargetDurationSeconds: &duration,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	var boundNodeID string
+	if err := database.QueryRowContext(ctx, `SELECT COALESCE(canvas_node_id,'') FROM assets WHERE id=$1`, assetID).Scan(&boundNodeID); err != nil {
+		t.Fatal(err)
+	}
+	if boundNodeID != videoNodeID.String() {
+		t.Fatalf("expected canvas save to preserve binding %s, got %q", videoNodeID, boundNodeID)
+	}
+}
+
 func TestSaveCanvasPersistsAnnotationLabelPosition(t *testing.T) {
 	ctx := context.Background()
 	database, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "sagaflow.db"))
