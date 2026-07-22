@@ -172,7 +172,11 @@ func bailianSpeechSchema() json.RawMessage {
 }
 
 func bailianSpeechDefaults(voice string) json.RawMessage {
-	return values("voice", voice, "format", "mp3", "sample_rate", 24000, "volume", 50, "rate", 1, "pitch", 1)
+	defaults := map[string]any{"format": "mp3", "sample_rate": 24000, "volume": 50, "rate": 1, "pitch": 1}
+	if voice != "" {
+		defaults["voice"] = voice
+	}
+	return db.JSON(defaults)
 }
 
 func bailianVideoSchema() json.RawMessage {

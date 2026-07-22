@@ -23,9 +23,16 @@ func (d *Driver) generateAudio(ctx context.Context, request inference.Request, e
 		p = map[string]any{}
 	}
 	format := adapterutil.StringParam(p, "format", "mp3")
+	voice := adapterutil.StringParam(p, "voice", "")
+	if voice == "" {
+		if strings.HasPrefix(strings.ToLower(request.Target.ID), "cosyvoice-") {
+			return inference.Result{}, inference.NewError(inference.ErrorInvalidRequest, provider, "CosyVoice 3.5 requires a cloned or designed voice ID", false, nil)
+		}
+		voice = "longanlingxin"
+	}
 	input := map[string]any{
 		"text":        request.Prompt,
-		"voice":       adapterutil.StringParam(p, "voice", "longanhuan_v3.6"),
+		"voice":       voice,
 		"format":      format,
 		"sample_rate": int(adapterutil.NumberParam(p, "sample_rate", 24000)),
 		"volume":      adapterutil.NumberParam(p, "volume", 50),

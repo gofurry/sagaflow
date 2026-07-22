@@ -99,6 +99,17 @@ func TestAudioDownloadsResult(t *testing.T) {
 	assertArtifactBytes(t, result.Artifacts[0], "mp3")
 }
 
+func TestCosyVoiceRequiresCustomVoice(t *testing.T) {
+	t.Parallel()
+	_, err := bailian.New(bailian.Config{}).Execute(context.Background(), inference.Request{
+		Runtime: inference.Runtime{ProviderCode: "aliyun_bailian", Endpoint: "https://example.test", APIKey: "secret"},
+		Target:  inference.Target{Kind: inference.TargetModel, ID: "cosyvoice-v3.5-plus", Capability: inference.CapabilityAudio}, Prompt: "你好",
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "requires a cloned or designed voice ID") {
+		t.Fatalf("expected custom voice validation, got %v", err)
+	}
+}
+
 func TestVideoResumesExistingTaskWithoutSubmitting(t *testing.T) {
 	t.Parallel()
 	var server *httptest.Server
