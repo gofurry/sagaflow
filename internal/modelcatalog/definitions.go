@@ -1,0 +1,82 @@
+package modelcatalog
+
+import (
+	"encoding/json"
+
+	"github.com/gofurry/sagaflow/internal/store/db"
+	"github.com/google/uuid"
+)
+
+const manifestVersion = 1
+
+func Builtins() []Definition {
+	return []Definition{
+		model("20000000-0000-0000-0000-000000000005", "deepseek", "deepseek-chat", "DeepSeek Chat", "text",
+			[]string{"text"}, []string{"chat", "json_output"}, deepSeekChatSchema(), values("max_tokens", 4096, "temperature", 1, "top_p", 1),
+			"https://api-docs.deepseek.com/zh-cn/quick_start/pricing-details-cny"),
+		model("20000000-0000-0000-0000-000000000006", "deepseek", "deepseek-reasoner", "DeepSeek Reasoner", "text",
+			[]string{"text"}, []string{"reasoning"}, deepSeekReasonerSchema(), values("max_tokens", 8192),
+			"https://api-docs.deepseek.com/zh-cn/quick_start/pricing-details-cny"),
+
+		model("20000000-0000-0000-0000-000000000007", "minimax", "MiniMax-M2.7", "MiniMax M2.7", "text",
+			[]string{"text"}, []string{"reasoning", "chat"}, openAITextSchema(204800), values("max_tokens", 4096, "temperature", 1),
+			"https://platform.minimaxi.com/docs/api-reference/text-openai-api"),
+		model("20000000-0000-0000-0000-000000000008", "minimax", "MiniMax-M2.7-highspeed", "MiniMax M2.7 Highspeed", "text",
+			[]string{"text"}, []string{"reasoning", "chat", "fast"}, openAITextSchema(204800), values("max_tokens", 4096, "temperature", 1),
+			"https://platform.minimaxi.com/docs/api-reference/text-openai-api"),
+		model("20000000-0000-0000-0000-000000000004", "minimax", "speech-2.8-hd", "MiniMax Speech 2.8 HD", "audio",
+			[]string{"text", "audio"}, []string{"speech_generation", "voice_clone"}, miniMaxSpeechSchema(), miniMaxSpeechDefaults(),
+			"https://platform.minimaxi.com/docs/api-reference/api-overview"),
+		model("20000000-0000-0000-0000-000000000009", "minimax", "speech-2.8-turbo", "MiniMax Speech 2.8 Turbo", "audio",
+			[]string{"text", "audio"}, []string{"speech_generation", "voice_clone", "fast"}, miniMaxSpeechSchema(), miniMaxSpeechDefaults(),
+			"https://platform.minimaxi.com/docs/api-reference/api-overview"),
+		model("20000000-0000-0000-0000-000000000010", "minimax", "image-01", "MiniMax Image 01", "image",
+			[]string{"text", "image"}, []string{"image_generation", "character_reference"}, miniMaxImageSchema(false), values("aspect_ratio", "16:9", "response_format", "url", "n", 1),
+			"https://platform.minimaxi.com/docs/guides/image-generation"),
+		model("20000000-0000-0000-0000-000000000011", "minimax", "image-01-live", "MiniMax Image 01 Live", "image",
+			[]string{"text", "image"}, []string{"image_generation", "character_reference", "illustration_styles"}, miniMaxImageSchema(true), values("aspect_ratio", "16:9", "response_format", "url", "n", 1),
+			"https://platform.minimaxi.com/docs/guides/image-generation"),
+		model("20000000-0000-0000-0000-000000000012", "minimax", "MiniMax-Hailuo-2.3", "MiniMax Hailuo 2.3", "video",
+			[]string{"text", "image"}, []string{"video_generation", "first_last_frame", "subject_reference"}, miniMaxVideoSchema(), values("duration", 6, "resolution", "1080P", "reference_mode", "first_frame"),
+			"https://platform.minimaxi.com/docs/guides/video-generation"),
+		model("20000000-0000-0000-0000-000000000013", "minimax", "MiniMax-Hailuo-2.3-Fast", "MiniMax Hailuo 2.3 Fast", "video",
+			[]string{"text", "image"}, []string{"video_generation", "image_to_video", "fast"}, miniMaxVideoSchema(), values("duration", 6, "resolution", "768P", "reference_mode", "first_frame"),
+			"https://platform.minimaxi.com/docs/guides/video-generation"),
+
+		model("20000000-0000-0000-0000-000000000014", "volcengine", "doubao-seed-2-0-lite-260215", "Doubao Seed 2.0 Lite", "text",
+			[]string{"text", "image"}, []string{"reasoning", "vision", "responses_api"}, arkTextSchema(), values("max_output_tokens", 4096, "thinking", "disabled"),
+			"https://www.volcengine.com/docs/82379/1795150"),
+		model("20000000-0000-0000-0000-000000000002", "volcengine", "doubao-seedream-5-0-260128", "Seedream 5.0", "image",
+			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "sequential_images"}, seedreamSchema(), values("size", "2K", "seed", -1, "max_images", 1, "watermark", false),
+			"https://www.volcengine.com/docs/82379/1795150"),
+		model("20000000-0000-0000-0000-000000000015", "volcengine", "doubao-seedream-4-0-250828", "Seedream 4.0", "image",
+			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "sequential_images"}, seedreamSchema(), values("size", "2K", "seed", -1, "max_images", 1, "watermark", false),
+			"https://api.volcengine.com/api-docs/view?action=ImageGenerations&serviceCode=ark&version=2024-01-01"),
+		model("20000000-0000-0000-0000-000000000003", "volcengine", "doubao-seedance-2-0-mini-260615", "Seedance 2.0 Mini", "video",
+			[]string{"text", "image", "video", "audio"}, []string{"video_generation", "multi_reference", "audio_generation"}, seedanceSchema(), values("ratio", "16:9", "duration", 5, "generate_audio", true, "watermark", false),
+			"https://www.volcengine.com/docs/82379/2222480"),
+	}
+}
+
+func model(id, provider, modelID, displayName, capability string, inputs, features []string, schema, defaults json.RawMessage, docs string) Definition {
+	return Definition{
+		ProviderCode: provider,
+		Model: db.Model{
+			ID: uuid.MustParse(id), ModelID: modelID, DisplayName: displayName, Capability: capability,
+			InputModalities: inputs, Features: features, ParameterSchema: schema, DefaultParameters: defaults,
+			Enabled: true, Available: true,
+			Metadata: db.JSON(map[string]any{
+				"source": "builtin", "support_status": "verified", "manifest_version": manifestVersion, "documentation_url": docs,
+			}),
+		},
+	}
+}
+
+func values(pairs ...any) json.RawMessage {
+	value := make(map[string]any, len(pairs)/2)
+	for index := 0; index+1 < len(pairs); index += 2 {
+		key, _ := pairs[index].(string)
+		value[key] = pairs[index+1]
+	}
+	return db.JSON(value)
+}

@@ -439,17 +439,10 @@ CREATE TABLE asset_remote_exports (
 
 INSERT INTO model_providers (id, code, adapter_code, display_name, base_url, auth_type, capabilities, max_concurrency) VALUES
   ('10000000-0000-0000-0000-000000000001','deepseek','deepseek','DeepSeek','https://api.deepseek.com','api_key','["text"]',2),
-  ('10000000-0000-0000-0000-000000000002','seedream','volcengine','Seedream','https://ark.cn-beijing.volces.com/api/v3','api_key','["image"]',1),
-  ('10000000-0000-0000-0000-000000000003','seedance','volcengine','Seedance','https://ark.cn-beijing.volces.com/api/v3','api_key','["video"]',1),
-  ('10000000-0000-0000-0000-000000000004','minimax','minimax','MiniMax','https://api.minimaxi.com','api_key','["audio"]',1),
+  ('10000000-0000-0000-0000-000000000002','volcengine','volcengine','火山方舟','https://ark.cn-beijing.volces.com/api/v3','api_key','["text","image","video","multimodal"]',1),
+  ('10000000-0000-0000-0000-000000000004','minimax','minimax','MiniMax','https://api.minimaxi.com','api_key','["text","image","audio","video"]',1),
   ('10000000-0000-0000-0000-000000000005','ollama-local','ollama','本机 Ollama','http://127.0.0.1:11434','none','["text"]',1),
   ('10000000-0000-0000-0000-000000000006','comfyui-local','comfyui','本机 ComfyUI','http://127.0.0.1:8188','none','["image","audio","video","multimodal"]',1);
-
-INSERT INTO model_catalog (id, provider_id, model_id, display_name, capability, input_modalities, features, parameter_schema, default_parameters) VALUES
-  ('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','deepseek-v4-flash','DeepSeek V4 Flash','text','["text"]','["thinking","tools"]','{"type":"object","properties":{"thinking":{"type":"string","enum":["enabled","disabled"]},"max_tokens":{"type":"integer","minimum":1,"maximum":32768},"temperature":{"type":"number","minimum":0,"maximum":2},"top_p":{"type":"number","minimum":0,"maximum":1}}}','{"thinking":"enabled","max_tokens":4096,"temperature":1,"top_p":1}'),
-  ('20000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000002','doubao-seedream-5-0-260128','Seedream 5.0','image','["text","image"]','["image_generation"]','{"type":"object","properties":{"size":{"type":"string"},"seed":{"type":"integer"},"max_images":{"type":"integer","minimum":1,"maximum":15},"watermark":{"type":"boolean"}}}','{"size":"2K","seed":-1,"max_images":1,"watermark":false}'),
-  ('20000000-0000-0000-0000-000000000003','10000000-0000-0000-0000-000000000003','doubao-seedance-2-0-mini-260615','Seedance 2.0 Mini','video','["text","image","video"]','["video_generation"]','{"type":"object","properties":{"ratio":{"type":"string","enum":["16:9","9:16","1:1"]},"duration":{"type":"integer"},"generate_audio":{"type":"boolean"},"watermark":{"type":"boolean"}}}','{"ratio":"16:9","duration":5,"generate_audio":true,"watermark":false}'),
-  ('20000000-0000-0000-0000-000000000004','10000000-0000-0000-0000-000000000004','speech-2.8-hd','MiniMax Speech 2.8 HD','audio','["text","audio"]','["speech_generation","voice_clone"]','{"type":"object","properties":{"voice_id":{"type":"string"},"speed":{"type":"number"},"volume":{"type":"number"},"pitch":{"type":"integer"},"format":{"type":"string"}}}','{"voice_id":"Chinese (Mandarin)_Lyrical_Voice","speed":1,"volume":1,"pitch":0,"format":"mp3"}');
 
 -- +goose Down
 DROP TABLE IF EXISTS asset_remote_exports;

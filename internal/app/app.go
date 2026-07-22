@@ -13,7 +13,9 @@ import (
 	"github.com/gofurry/sagaflow/internal/inference/adapters/deepseek"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/minimax"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/ollama"
+	"github.com/gofurry/sagaflow/internal/inference/adapters/openaicompat"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/volcengine"
+	"github.com/gofurry/sagaflow/internal/modelcatalog"
 	"github.com/gofurry/sagaflow/internal/platform/sqlite"
 	"github.com/gofurry/sagaflow/internal/platform/storage"
 	"github.com/gofurry/sagaflow/internal/queue"
@@ -33,6 +35,9 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	}
 	defer database.Close()
 	store := db.New(database)
+	if _, err := modelcatalog.Sync(ctx, store); err != nil {
+		return fmt.Errorf("synchronize built-in model catalog: %w", err)
+	}
 	auth, err := service.NewAuthService(store, cfg.Auth)
 	if err != nil {
 		return err
@@ -56,13 +61,16 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	httpClient := &http.Client{Timeout: 5 * time.Minute}
 	comfyDriver := comfyui.New(comfyui.Config{HTTPClient: httpClient})
 	volcDriver := volcengine.New(volcengine.Config{HTTPClient: httpClient})
+	openAIChatDriver := openaicompat.NewChat(httpClient)
+	openAIResponsesDriver := openaicompat.NewResponses(httpClient)
 	gateway, err := inference.NewGateway(map[string]inference.Driver{
-		service.ProviderDeepSeek: deepseek.New(httpClient),
-		service.ProviderSeedream: volcDriver,
-		service.ProviderSeedance: volcDriver,
-		service.ProviderMiniMax:  minimax.New(httpClient),
-		service.ProviderOllama:   ollama.New(httpClient),
-		service.ProviderComfyUI:  comfyDriver,
+		service.ProviderDeepSeek:        deepseek.New(httpClient),
+		service.ProviderVolcengine:      volcDriver,
+		service.ProviderMiniMax:         minimax.New(httpClient),
+		service.ProviderOllama:          ollama.New(httpClient),
+		service.ProviderComfyUI:         comfyDriver,
+		service.ProviderOpenAIChat:      openAIChatDriver,
+		service.ProviderOpenAIResponses: openAIResponsesDriver,
 	})
 	if err != nil {
 		return err

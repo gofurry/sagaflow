@@ -15,12 +15,13 @@ import (
 )
 
 const (
-	ProviderDeepSeek = "deepseek"
-	ProviderSeedream = "seedream"
-	ProviderSeedance = "seedance"
-	ProviderMiniMax  = "minimax"
-	ProviderOllama   = "ollama"
-	ProviderComfyUI  = "comfyui"
+	ProviderDeepSeek        = "deepseek"
+	ProviderVolcengine      = "volcengine"
+	ProviderMiniMax         = "minimax"
+	ProviderOllama          = "ollama"
+	ProviderComfyUI         = "comfyui"
+	ProviderOpenAIChat      = "openai_chat"
+	ProviderOpenAIResponses = "openai_responses"
 )
 
 type CredentialService struct {

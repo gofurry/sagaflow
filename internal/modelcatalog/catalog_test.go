@@ -1,0 +1,52 @@
+package modelcatalog_test
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+
+	"github.com/gofurry/sagaflow/internal/modelcatalog"
+	"github.com/gofurry/sagaflow/internal/platform/sqlite"
+	"github.com/gofurry/sagaflow/internal/store/db"
+)
+
+func TestSyncCreatesVersionedBuiltinsIdempotently(t *testing.T) {
+	ctx := context.Background()
+	database, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "sagaflow.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	store := db.New(database)
+
+	first, err := modelcatalog.Sync(ctx, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Created != len(modelcatalog.Builtins()) {
+		t.Fatalf("expected %d built-ins, got %#v", len(modelcatalog.Builtins()), first)
+	}
+	second, err := modelcatalog.Sync(ctx, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Created != 0 || second.Updated != 0 || second.Skipped != 0 {
+		t.Fatalf("expected idempotent sync, got %#v", second)
+	}
+	models, err := store.ListModels(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != len(modelcatalog.Builtins()) {
+		t.Fatalf("expected %d catalog models, got %d", len(modelcatalog.Builtins()), len(models))
+	}
+	var arkModels int
+	for _, model := range models {
+		if model.ProviderCode == "volcengine" {
+			arkModels++
+		}
+	}
+	if arkModels != 4 {
+		t.Fatalf("expected four unified Ark models, got %d", arkModels)
+	}
+}
