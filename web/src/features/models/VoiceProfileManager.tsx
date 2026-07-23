@@ -17,8 +17,11 @@ export function VoiceProfileManager({ models, onError }: { models: Model[]; onEr
   const [preview, setPreview] = useState<VoiceProfile | null>(null)
   const [sourceFile, setSourceFile] = useState<File | null>(null)
   const [promptFile, setPromptFile] = useState<File | null>(null)
+  const selectedModelID = Form.useWatch('model_id', form) as string | undefined
   const voicesQuery = useQuery({ queryKey: ['voice-profiles'], queryFn: api.voiceProfiles })
-  const audioModels = models.filter((model) => model.enabled && model.capability === 'audio' && model.provider_code === 'minimax')
+  const audioModels = models.filter((model) => model.enabled && model.capability === 'audio' && model.features.includes('voice_clone') && (model.provider_code === 'minimax' || model.provider_code === 'siliconflow'))
+  const selectedModel = audioModels.find((model) => model.id === selectedModelID)
+  const isSiliconFlow = selectedModel?.provider_code === 'siliconflow'
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['voice-profiles'] })
   const closeCreate = () => {
     setCreateOpen(false)
@@ -78,7 +81,7 @@ export function VoiceProfileManager({ models, onError }: { models: Model[]; onEr
   }
   return <div className="voice-profile-section">
     <FloatingToolbar ariaLabel="音色工具栏" items={[
-      { key: 'create', label: audioModels.length ? '克隆新音色' : '需要先启用 MiniMax 音频模型', icon: <PlusOutlined/>, active: true, disabled: audioModels.length === 0, onClick: openCreate },
+      { key: 'create', label: audioModels.length ? '克隆新音色' : '需要先启用支持音色克隆的模型', icon: <PlusOutlined/>, active: true, disabled: audioModels.length === 0, onClick: openCreate },
       { key: 'refresh', label: '刷新音色列表', icon: <ReloadOutlined/>, loading: voicesQuery.isFetching, onClick: () => void refresh() },
     ]}/>
     <div className="model-flat-list voice-flat-list">
@@ -91,7 +94,7 @@ export function VoiceProfileManager({ models, onError }: { models: Model[]; onEr
             <div className="model-row-actions">
               <Button disabled={!item.preview_file_size_bytes} icon={<SoundOutlined/>} onClick={() => setPreview(item)} size="small">试听</Button>
               <Button icon={<EditOutlined/>} onClick={() => openEdit(item)} size="small">编辑</Button>
-              <Popconfirm cancelText="取消" description="会同时删除 MiniMax 远端音色和本机保存的样本与试听文件。" okButtonProps={{ danger: true }} okText="永久删除" onConfirm={() => remove.mutate(item.id)} title="删除这个克隆音色？"><Button danger icon={<DeleteOutlined/>} size="small" type="text"/></Popconfirm>
+              <Popconfirm cancelText="取消" description="会同时删除模型服务中的远端音色和本机保存的样本与试听文件。" okButtonProps={{ danger: true }} okText="永久删除" onConfirm={() => remove.mutate(item.id)} title="删除这个克隆音色？"><Button danger icon={<DeleteOutlined/>} size="small" type="text"/></Popconfirm>
             </div>
           </div>
         </article>
@@ -100,31 +103,31 @@ export function VoiceProfileManager({ models, onError }: { models: Model[]; onEr
       {voicesQuery.isLoading && <div className="model-list-loading">正在读取音色…</div>}
     </div>
 
-    <Modal cancelText="取消" confirmLoading={create.isPending} okButtonProps={{ disabled: !sourceFile }} okText="克隆并激活" onCancel={closeCreate} onOk={() => form.submit()} open={createOpen} title="克隆 MiniMax 音色" width={820}>
-      <Alert message="创建后会立即使用该音色合成一次正式试听，使音色完成激活；MiniMax 会在首次正式合成时收取音色复刻费用。" showIcon type="info"/>
+    <Modal cancelText="取消" confirmLoading={create.isPending} okButtonProps={{ disabled: !sourceFile }} okText="克隆并激活" onCancel={closeCreate} onOk={() => form.submit()} open={createOpen} title={selectedModel ? `克隆 ${selectedModel.provider_name} 音色` : '克隆音色'} width={820}>
+      <Alert message={isSiliconFlow ? '参考音频与对应文本会上传到硅基流动创建预置音色，随后立即合成一次试听并保存到本机。' : '创建后会立即使用该音色合成一次正式试听，使音色完成激活；MiniMax 会在首次正式合成时收取音色复刻费用。'} showIcon type="info"/>
       <Form form={form} layout="vertical" onFinish={(values) => create.mutate(values)} requiredMark={false} style={{ marginTop: 18 }}>
         <div className="voice-form-grid">
           <Form.Item label="音色名称" name="name" rules={[{ required: true, whitespace: true }]}><Input autoFocus placeholder="例如：林默 · 冷静青年"/></Form.Item>
           <Form.Item label="Voice ID" name="voice_id" rules={[{ required: true }, { pattern: /^[A-Za-z][A-Za-z0-9_-]{6,254}[A-Za-z0-9]$/, message: '8-256 位，以字母开头，只能使用字母、数字、-、_' }]}><Input placeholder="例如 LinMoVoice01"/></Form.Item>
         </div>
-        <Form.Item label="语音模型" name="model_id" rules={[{ required: true }]}><Select options={audioModels.map((model) => ({ value: model.id, label: `${model.provider_name} · ${model.display_name}` }))}/></Form.Item>
+        <Form.Item label="语音模型" name="model_id" rules={[{ required: true }]}><Select onChange={() => setPromptFile(null)} options={audioModels.map((model) => ({ value: model.id, label: `${model.provider_name} · ${model.display_name}` }))}/></Form.Item>
         <Form.Item label="说明" name="description"><Input placeholder="记录角色、年龄、情绪和适用场景"/></Form.Item>
-        <Form.Item extra="mp3、m4a 或 wav；10 秒至 5 分钟；不超过 20 MB。" label="待克隆音频" required>
+        <Form.Item extra={isSiliconFlow ? 'mp3、m4a 或 wav；建议小于 30 秒；不超过 20 MB。' : 'mp3、m4a 或 wav；10 秒至 5 分钟；不超过 20 MB。'} label="待克隆音频" required>
           <Upload.Dragger accept=".mp3,.m4a,.wav,audio/*" beforeUpload={(file) => { setSourceFile(file); return false }} fileList={sourceList} maxCount={1} onRemove={() => { setSourceFile(null); return true }}>
             <p className="ant-upload-drag-icon"><AudioOutlined/></p><p>拖入或点击选择清晰、单人说话的音频</p>
           </Upload.Dragger>
         </Form.Item>
-        <Form.Item extra="可选，小于 8 秒；同时填写下方示例音频对应文本，可提高稳定性。" label="示例音频">
+        {!isSiliconFlow && <Form.Item extra="可选，小于 8 秒；同时填写下方示例音频对应文本，可提高稳定性。" label="示例音频">
           <Upload.Dragger accept=".mp3,.m4a,.wav,audio/*" beforeUpload={(file) => { setPromptFile(file); return false }} fileList={promptList} maxCount={1} onRemove={() => { setPromptFile(null); return true }}>
             <p>选择一小段示例音频</p>
           </Upload.Dragger>
-        </Form.Item>
-        {promptFile && <Form.Item label="示例音频文本" name="prompt_text" rules={[{ required: true, whitespace: true }]}><Input.TextArea rows={2}/></Form.Item>}
+        </Form.Item>}
+        {(isSiliconFlow || promptFile) && <Form.Item label={isSiliconFlow ? '参考音频对应文本' : '示例音频文本'} name="prompt_text" rules={[{ required: true, whitespace: true }]}><Input.TextArea placeholder={isSiliconFlow ? '逐字填写待克隆音频中的说话内容' : undefined} rows={2}/></Form.Item>}
         <Form.Item label="正式试听文本" name="preview_text" rules={[{ required: true, whitespace: true }]}><Input.TextArea maxLength={1000} rows={3}/></Form.Item>
-        <div className="voice-form-grid">
+        {!isSiliconFlow && <div className="voice-form-grid">
           <Form.Item label="降噪" name="need_noise_reduction" valuePropName="checked"><Switch/></Form.Item>
           <Form.Item label="音量归一化" name="need_volume_normalization" valuePropName="checked"><Switch/></Form.Item>
-        </div>
+        </div>}
       </Form>
     </Modal>
 

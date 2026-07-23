@@ -3,7 +3,7 @@ import { ApiOutlined, AudioOutlined, CheckCircleOutlined, CloudServerOutlined, C
 import { App, Button, Checkbox, Col, Empty, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Switch } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
-import type { Capability, Model, ModelProvider, OllamaDiscovery, PromptPreset } from '../../api/types'
+import type { Capability, Model, ModelProvider, ModelSupportStatus, OllamaDiscovery, PromptPreset, SiliconFlowDiscovery } from '../../api/types'
 import { FloatingToolbar } from '../../components/FloatingToolbar'
 import { JSONCodeEditor } from '../../components/JSONCodeEditor'
 import { MarkdownEditor, MarkdownPreview } from '../../components/Markdown'
@@ -32,7 +32,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
   const [providerOpen, setProviderOpen] = useState(false)
   const [editingProvider, setEditingProvider] = useState<ModelProvider | null>(null)
   const [discoveryProvider, setDiscoveryProvider] = useState<ModelProvider | null>(null)
-  const [discovery, setDiscovery] = useState<OllamaDiscovery | null>(null)
+  const [discovery, setDiscovery] = useState<OllamaDiscovery | SiliconFlowDiscovery | null>(null)
   const [selectedRemoteModels, setSelectedRemoteModels] = useState<string[]>([])
   const [modelOpen, setModelOpen] = useState(false)
   const [credentialOpen, setCredentialOpen] = useState(false)
@@ -49,6 +49,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
   const [catalogProvider, setCatalogProvider] = useState<string>()
   const [catalogCapability, setCatalogCapability] = useState<string>()
   const [catalogStatus, setCatalogStatus] = useState<string>()
+  const [catalogSupport, setCatalogSupport] = useState<ModelSupportStatus>()
   const [providerHealth, setProviderHealth] = useState<Record<string, 'online' | 'offline'>>({})
   const [providerForm] = Form.useForm()
   const [modelForm] = Form.useForm()
@@ -83,8 +84,9 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
     if (catalogStatus === 'enabled' && (!model.enabled || !model.available)) return false
     if (catalogStatus === 'disabled' && model.enabled) return false
     if (catalogStatus === 'unavailable' && model.available) return false
+    if (catalogSupport && modelSupportStatus(model) !== catalogSupport) return false
     return true
-  }), [catalogCapability, catalogProvider, catalogSearch, catalogStatus, catalogModels])
+  }), [catalogCapability, catalogProvider, catalogSearch, catalogStatus, catalogSupport, catalogModels])
   const filteredPrompts = useMemo(() => prompts.filter((preset) => {
     const keyword = promptSearch.trim().toLocaleLowerCase()
     if (keyword && !`${preset.name} ${preset.description} ${preset.content}`.toLocaleLowerCase().includes(keyword)) return false
@@ -129,7 +131,11 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
     mutationFn: api.testProvider,
     onSuccess: (server, providerID) => {
       setProviderHealth((current) => ({ ...current, [providerID]: 'online' }))
-      message.success('node_count' in server ? `连接正常 · ComfyUI ${server.version}` : `连接正常 · Ollama ${server.version} · ${server.model_count} 个模型`)
+      message.success('node_count' in server
+        ? `连接正常 · ComfyUI ${server.version}`
+        : 'provider' in server
+          ? `连接正常 · 硅基流动当前可见 ${server.model_count} 个生成模型`
+          : `连接正常 · Ollama ${server.version} · ${server.model_count} 个模型`)
     },
     onError: (error, providerID) => {
       setProviderHealth((current) => ({ ...current, [providerID]: 'offline' }))
@@ -140,11 +146,13 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
     mutationFn: ({ provider }: { provider: ModelProvider }) => api.discoverProviderModels(provider.id),
     onSuccess: (result, { provider }) => {
       if (!Array.isArray(result.models)) return
-      const ollamaResult = result as OllamaDiscovery
+      const compatibleResult = result as OllamaDiscovery | SiliconFlowDiscovery
       setDiscoveryProvider(provider)
-      setDiscovery(ollamaResult)
+      setDiscovery(compatibleResult)
       const imported = new Set(models.filter((model) => model.provider_id === provider.id).map((model) => model.model_id))
-      setSelectedRemoteModels(ollamaResult.models.filter((model) => model.supports_text_output && !imported.has(model.name)).map((model) => model.name))
+      setSelectedRemoteModels(compatibleResult.models
+        .filter((model) => remoteModelSupported(model) && !imported.has(model.name))
+        .map((model) => model.name))
     },
     onError: (error, { provider }) => {
       setProviderHealth((current) => ({ ...current, [provider.id]: 'offline' }))
@@ -244,6 +252,11 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
             <Input allowClear onChange={(event) => setCatalogSearch(event.target.value)} placeholder="搜索名称、Model ID 或服务商" prefix={<SearchOutlined/>} value={catalogSearch}/>
             <Select allowClear onChange={setCatalogProvider} options={catalogProviderOptions} placeholder="全部服务商" value={catalogProvider}/>
             <Select allowClear onChange={setCatalogCapability} options={catalogCapabilities.map((value) => ({ value, label: capabilityLabel(value) }))} placeholder="全部类型" value={catalogCapability}/>
+            <Select allowClear onChange={setCatalogSupport} options={[
+              { value: 'verified', label: '已验证' },
+              { value: 'compatible', label: '动态兼容' },
+              { value: 'experimental', label: '实验性' },
+            ]} placeholder="全部支持级别" value={catalogSupport}/>
             <Select allowClear onChange={setCatalogStatus} options={[{ value: 'enabled', label: '已启用' }, { value: 'disabled', label: '已停用' }, { value: 'unavailable', label: '不可用' }]} placeholder="全部状态" value={catalogStatus}/>
             <span>{filteredModels.length} / {models.length} 个模型</span>
           </div>
@@ -255,7 +268,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
               <div className="model-flat-row model-catalog-row">
                 <button aria-expanded={isExpanded} aria-label={`${isExpanded ? '收起' : '展开'} ${item.display_name}`} className="model-row-expand" onClick={() => setExpandedModelID(isExpanded ? undefined : item.id)} type="button"><DownOutlined/></button>
                 <div className="model-row-primary"><strong>{item.display_name}</strong><code>{item.model_id}</code></div>
-                <span className="model-row-provider">{item.provider_name}{!item.available ? ' · 不可用' : ''}</span>
+                <span className="model-row-provider">{item.provider_name}{!item.available ? ' · 不可用' : ''}<em className={`model-support-status ${modelSupportStatus(item)}`}>{modelSupportLabel(modelSupportStatus(item))}</em></span>
                 <span className={`model-capability ${item.capability}`}>{capabilityLabel(item.capability)}</span>
                 <label className="model-row-switch"><Switch checked={item.enabled} onChange={(enabled) => toggleModel.mutate({ model: item, enabled })}/><span>{item.enabled ? '已启用' : '已停用'}</span></label>
                 <Button icon={<SettingOutlined/>} onClick={() => setPresetModel(item)} size="small">参数预设 {modelPresets.length}</Button>
@@ -265,6 +278,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
                 <ModelDetailGroup empty="没有额外可调参数" label="可调参数" values={schemaEntries(item.parameter_schema.properties ?? {})}/>
                 <ModelDetailGroup empty="仅 Prompt" label="可接收内容" values={item.input_modalities.map((value) => [mediaTypeLabel(value), value])}/>
                 <ModelDetailGroup empty={`${capabilityLabel(item.capability)}生成`} label="原生能力" note="由模型服务报告；“工具调用”尚未接入当前生成流程。" values={item.features.map((value) => [modelFeatureLabel(value), value])}/>
+                <ModelDetailGroup empty="未标注" label="支持级别" note={modelSupportNote(modelSupportStatus(item))} values={[[modelSupportLabel(modelSupportStatus(item)), modelSupportStatus(item)]]}/>
               </div>}
             </article>
           })}
@@ -297,7 +311,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
                   options={Array.from({ length: 8 }, (_, index) => ({ value: index + 1, label: `${index + 1} 个任务` }))}
                   value={providerMaxConcurrency(provider)}
                 /></div>}
-                {provider.adapter_code === 'ollama' && <div className="provider-connection-actions"><span>Ollama 服务</span><div>
+                {(provider.adapter_code === 'ollama' || provider.adapter_code === 'siliconflow') && <div className="provider-connection-actions"><span>{provider.adapter_code === 'ollama' ? 'Ollama 服务' : '硅基流动服务'}</span><div>
                   <em className={`provider-health ${providerHealth[provider.id] ?? 'unknown'}`}>{providerHealth[provider.id] === 'online' ? '已连接' : providerHealth[provider.id] === 'offline' ? '未检测到服务' : '尚未检测'}</em>
                   <Button icon={<CheckCircleOutlined/>} loading={testProvider.isPending && testProvider.variables === provider.id} onClick={() => testProvider.mutate(provider.id)} size="small">测试连接</Button>
                   <Button icon={<SyncOutlined/>} loading={discoverModels.isPending && discoverModels.variables?.provider.id === provider.id} onClick={() => discoverModels.mutate({ provider })} size="small" type="primary">同步模型</Button>
@@ -374,18 +388,21 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
       </div> : <VoiceProfileManager models={models} onError={onError}/>}
     </section>
 
-    <Modal title={editingProvider ? '编辑模型服务连接' : '添加模型服务连接'} open={providerOpen} onCancel={closeProviderEditor} onOk={() => providerForm.submit()} confirmLoading={saveProvider.isPending} width={680}><Form form={providerForm} layout="vertical" onFinish={(values) => saveProvider.mutate(values)} requiredMark={false}><Row gutter={12}><Col span={12}><Form.Item label="连接代码" name="code" rules={[{ required: true }]}><Input placeholder="例如 comfyui-official-local"/></Form.Item></Col><Col span={12}><Form.Item label="显示名称" name="display_name" rules={[{ required: true }]}><Input placeholder="例如 本机官方 ComfyUI"/></Form.Item></Col></Row><Row gutter={12}><Col span={12}><Form.Item label="Adapter" name="adapter_code" rules={[{ required: true }]}><Select onChange={(value) => providerForm.setFieldsValue(value === 'comfyui' ? { base_url: 'http://127.0.0.1:8188', capabilities: ['image', 'video'], max_concurrency: 1 } : value === 'ollama' ? { base_url: 'http://127.0.0.1:11434', capabilities: ['text'], max_concurrency: 1 } : value === 'aliyun_bailian' ? { base_url: 'https://dashscope.aliyuncs.com', capabilities: ['text', 'image', 'audio', 'video'], auth_type: 'api_key' } : {})} options={['ollama', 'comfyui', 'openai_chat', 'openai_responses', 'deepseek', 'volcengine', 'minimax', 'aliyun_bailian'].map((value) => ({ value, label: value }))}/></Form.Item></Col><Col span={12}><Form.Item label="认证方式" name="auth_type" rules={[{ required: true }]}><Select options={[{ value: 'none', label: '无需认证' }, { value: 'api_key', label: 'API Key' }, { value: 'bearer', label: 'Bearer Token' }]}/></Form.Item></Col></Row><Row gutter={12}><Col span={isLocalAdapter(providerAdapter) ? 16 : 24}><Form.Item label="Base URL" name="base_url" rules={[{ required: true }, { type: 'url' }]}><Input placeholder="http://127.0.0.1:8188"/></Form.Item></Col>{isLocalAdapter(providerAdapter) && <Col span={8}><Form.Item label="最大并发" name="max_concurrency" rules={[{ required: true }]}><InputNumber min={1} max={8} precision={0} style={{ width: '100%' }}/></Form.Item></Col>}</Row><Form.Item label="输出能力" name="capabilities" rules={[{ required: true }]}><Select mode="multiple" options={capabilities.map((value) => ({ value, label: capabilityLabel(value) }))}/></Form.Item></Form></Modal>
+    <Modal title={editingProvider ? '编辑模型服务连接' : '添加模型服务连接'} open={providerOpen} onCancel={closeProviderEditor} onOk={() => providerForm.submit()} confirmLoading={saveProvider.isPending} width={680}><Form form={providerForm} layout="vertical" onFinish={(values) => saveProvider.mutate(values)} requiredMark={false}><Row gutter={12}><Col span={12}><Form.Item label="连接代码" name="code" rules={[{ required: true }]}><Input placeholder="例如 comfyui-official-local"/></Form.Item></Col><Col span={12}><Form.Item label="显示名称" name="display_name" rules={[{ required: true }]}><Input placeholder="例如 本机官方 ComfyUI"/></Form.Item></Col></Row><Row gutter={12}><Col span={12}><Form.Item label="Adapter" name="adapter_code" rules={[{ required: true }]}><Select onChange={(value) => providerForm.setFieldsValue(value === 'comfyui' ? { base_url: 'http://127.0.0.1:8188', capabilities: ['image', 'video'], max_concurrency: 1, auth_type: 'none' } : value === 'ollama' ? { base_url: 'http://127.0.0.1:11434', capabilities: ['text'], max_concurrency: 1, auth_type: 'none' } : value === 'siliconflow' ? { base_url: 'https://api.siliconflow.cn/v1', capabilities: ['text', 'image', 'audio', 'video', 'multimodal'], auth_type: 'api_key' } : value === 'aliyun_bailian' ? { base_url: 'https://dashscope.aliyuncs.com', capabilities: ['text', 'image', 'audio', 'video'], auth_type: 'api_key' } : {})} options={['ollama', 'comfyui', 'siliconflow', 'openai_chat', 'openai_responses', 'deepseek', 'volcengine', 'minimax', 'aliyun_bailian'].map((value) => ({ value, label: value }))}/></Form.Item></Col><Col span={12}><Form.Item label="认证方式" name="auth_type" rules={[{ required: true }]}><Select options={[{ value: 'none', label: '无需认证' }, { value: 'api_key', label: 'API Key' }, { value: 'bearer', label: 'Bearer Token' }]}/></Form.Item></Col></Row><Row gutter={12}><Col span={isLocalAdapter(providerAdapter) ? 16 : 24}><Form.Item label="Base URL" name="base_url" rules={[{ required: true }, { type: 'url' }]}><Input placeholder="http://127.0.0.1:8188"/></Form.Item></Col>{isLocalAdapter(providerAdapter) && <Col span={8}><Form.Item label="最大并发" name="max_concurrency" rules={[{ required: true }]}><InputNumber min={1} max={8} precision={0} style={{ width: '100%' }}/></Form.Item></Col>}</Row><Form.Item label="输出能力" name="capabilities" rules={[{ required: true }]}><Select mode="multiple" options={capabilities.map((value) => ({ value, label: capabilityLabel(value) }))}/></Form.Item></Form></Modal>
     <Modal title="添加模型" open={modelOpen} onCancel={() => setModelOpen(false)} onOk={() => modelForm.submit()} width={980} confirmLoading={createModel.isPending}><Form form={modelForm} layout="vertical" onFinish={(values) => createModel.mutate(values)} requiredMark={false} initialValues={{ enabled: true, parameter_schema: '{\n  "type": "object",\n  "properties": {}\n}', default_parameters: '{}' }}><Row gutter={12}><Col span={12}><Form.Item label="服务连接" name="provider_id" rules={[{ required: true }]}><Select options={providers.map((item) => ({ value: item.id, label: item.display_name }))}/></Form.Item></Col><Col span={12}><Form.Item label="输出能力" name="capability" rules={[{ required: true }]}><Select options={capabilities.map((value) => ({ value, label: capabilityLabel(value) }))}/></Form.Item></Col></Row><Row gutter={12}><Col span={12}><Form.Item label="Model ID" name="model_id" rules={[{ required: true }]}><Input/></Form.Item></Col><Col span={12}><Form.Item label="显示名称" name="display_name" rules={[{ required: true }]}><Input/></Form.Item></Col></Row><Row gutter={16}><Col span={12}><Form.Item extra="描述生成页如何把参数映射为表单组件。" label="参数 JSON Schema" name="parameter_schema" rules={[jsonRule]}><JSONCodeEditor height={330}/></Form.Item></Col><Col span={12}><Form.Item extra="只写需要由 SagaFlow 主动覆盖的默认值。" label="默认参数" name="default_parameters" rules={[jsonRule]}><JSONCodeEditor height={330}/></Form.Item></Col></Row></Form></Modal>
     <Modal title="添加服务凭证" open={credentialOpen} onCancel={() => setCredentialOpen(false)} onOk={() => credentialForm.submit()} confirmLoading={createCredential.isPending}><Form form={credentialForm} layout="vertical" onFinish={(values) => createCredential.mutate({ ...values, activate: true })} requiredMark={false}><Form.Item label="服务连接" name="provider_id" rules={[{ required: true }]}><Select options={providers.filter((item) => item.auth_type !== 'none').map((item) => ({ value: item.id, label: item.display_name }))}/></Form.Item><Form.Item label="名称" name="name" initialValue="Primary credential" rules={[{ required: true }]}><Input/></Form.Item><Form.Item label="API Key / Token" name="api_key" rules={[{ required: true }]}><Input.Password autoComplete="new-password"/></Form.Item></Form></Modal>
-    <Modal cancelText="取消" confirmLoading={syncModels.isPending} okButtonProps={{ disabled: !discoveryProvider }} okText="同步所选模型" onCancel={() => { setDiscovery(null); setDiscoveryProvider(null) }} onOk={() => discoveryProvider && syncModels.mutate({ providerID: discoveryProvider.id, modelIDs: selectedRemoteModels })} open={!!discovery && !!discoveryProvider} title={discoveryProvider ? `同步 ${discoveryProvider.display_name} 中的模型` : '同步 Ollama 模型'} width={760}>
+    <Modal cancelText="取消" confirmLoading={syncModels.isPending} okButtonProps={{ disabled: !discoveryProvider }} okText="同步所选模型" onCancel={() => { setDiscovery(null); setDiscoveryProvider(null) }} onOk={() => discoveryProvider && syncModels.mutate({ providerID: discoveryProvider.id, modelIDs: selectedRemoteModels })} open={!!discovery && !!discoveryProvider} title={discoveryProvider ? `同步 ${discoveryProvider.display_name} 中的模型` : '同步模型'} width={760}>
       {discovery && discoveryProvider && <div className="ollama-discovery">
-        <div className="ollama-server-summary"><span>Ollama {discovery.server.version}</span><span>{discovery.server.model_count} 个已安装</span><span>{discovery.server.running_count} 个已加载</span></div>
+        {isSiliconFlowDiscovery(discovery)
+          ? <div className="ollama-server-summary"><span>硅基流动在线目录</span><span>{discovery.server.model_count} 个生成模型</span><span>动态兼容模型可按需导入</span></div>
+          : <div className="ollama-server-summary"><span>Ollama {discovery.server.version}</span><span>{discovery.server.model_count} 个已安装</span><span>{discovery.server.running_count} 个已加载</span></div>}
         <Checkbox.Group onChange={(values) => setSelectedRemoteModels(values as string[])} value={selectedRemoteModels}>
           {discovery.models.map((remote) => {
             const imported = models.some((model) => model.provider_id === discoveryProvider.id && model.model_id === remote.name)
-            return <label className={`ollama-model-option${remote.supports_text_output ? '' : ' unsupported'}`} key={remote.name}>
-              <Checkbox disabled={imported || !remote.supports_text_output} value={remote.name}/>
-              <div><strong>{remote.name}</strong><span>{modelDetailSummary(remote)}</span><small>{remote.capabilities.join(' · ')}{imported ? ' · 已导入，将更新元数据' : !remote.supports_text_output ? ' · 当前阶段不支持这种输出类型' : ''}</small></div>
+            const supported = remoteModelSupported(remote)
+            return <label className={`ollama-model-option${supported ? '' : ' unsupported'}`} key={remote.name}>
+              <Checkbox disabled={imported || !supported} value={remote.name}/>
+              <div><strong>{remote.name}</strong><span>{remoteModelSummary(remote)}</span><small>{remoteModelCapabilities(remote)}{imported ? ' · 已导入，将更新元数据' : !supported ? ' · 当前阶段不支持这种输出类型' : ''}</small></div>
             </label>
           })}
         </Checkbox.Group>
@@ -432,7 +449,9 @@ function modelFeatureLabel(value: string) { return ({
   coding: '代码能力', agent: 'Agent 任务', rolling_release: '持续更新', responses_api: 'Responses API', roleplay: '角色扮演',
   dialogue: '对白生成', long_context: '长上下文', fast: '高速生成', image_generation: '图像生成', image_edit: '图像编辑',
   multi_reference: '多参考', sequential_images: '组图生成', knowledge_grounding: '知识增强', video_generation: '视频生成',
-  audio_generation: '同步声音', speech_generation: '语音生成', voice_clone: '音色克隆',
+  audio_generation: '同步声音', speech_generation: '语音生成', speech_recognition: '语音识别', voice_clone: '音色克隆',
+  dynamic_voice: '动态音色', two_speaker_dialogue: '双人对话', long_audio: '长音频', text_to_video: '文生视频',
+  image_to_video: '图生视频', structured_output: '结构化输出', chinese_text: '中文文字',
 } as Record<string, string>)[value] ?? value }
 function isLocalAdapter(value?: string) { return value === 'ollama' || value === 'comfyui' }
 function providerMaxConcurrency(provider: ModelProvider) {
@@ -443,6 +462,34 @@ function modelDetailSummary(model: OllamaDiscovery['models'][number]) {
   const details = model.details as { parameter_size?: string; quantization_level?: string }
   const parts = [details.parameter_size, details.quantization_level, model.context_length ? `${model.context_length.toLocaleString()} 上下文` : undefined]
   return parts.filter(Boolean).join(' · ') || `${(model.size / 1024 / 1024 / 1024).toFixed(1)} GB`
+}
+function modelSupportStatus(model: Model): ModelSupportStatus {
+  const status = model.metadata.support_status
+  return status === 'verified' || status === 'experimental' ? status : 'compatible'
+}
+function modelSupportLabel(status: ModelSupportStatus) {
+  return ({ verified: '已验证', compatible: '动态兼容', experimental: '实验性' } as const)[status]
+}
+function modelSupportNote(status: ModelSupportStatus) {
+  return ({
+    verified: '已由当前 SagaFlow 版本完成真实请求验证。',
+    compatible: '参数来自兼容协议或在线发现；平台变更时可通过目录更新包修正，无需升级二进制。',
+    experimental: '已识别到模型，但能力或参数尚未完整验证，建议先做低成本调用。',
+  } as const)[status]
+}
+function isSiliconFlowDiscovery(discovery: OllamaDiscovery | SiliconFlowDiscovery): discovery is SiliconFlowDiscovery {
+  return 'provider' in discovery.server
+}
+function remoteModelSupported(model: OllamaDiscovery['models'][number] | SiliconFlowDiscovery['models'][number]) {
+  return 'supports_generation' in model ? model.supports_generation : model.supports_text_output
+}
+function remoteModelSummary(model: OllamaDiscovery['models'][number] | SiliconFlowDiscovery['models'][number]) {
+  return 'supports_generation' in model
+    ? `${capabilityLabel(model.capability)} · ${modelSupportLabel(model.support_status)} · ${model.task}`
+    : modelDetailSummary(model)
+}
+function remoteModelCapabilities(model: OllamaDiscovery['models'][number] | SiliconFlowDiscovery['models'][number]) {
+  return ('supports_generation' in model ? model.features : model.capabilities).map(modelFeatureLabel).join(' · ')
 }
 async function copyText(value: string) {
   await navigator.clipboard.writeText(value)

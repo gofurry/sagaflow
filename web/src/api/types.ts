@@ -32,12 +32,16 @@ export interface Model { id: ID; provider_id: ID; provider_code: string; provide
 export interface OllamaServerInfo { version: string; model_count: number; running_count: number }
 export interface OllamaModelInfo { name: string; digest: string; size: number; modified_at: string; details: Record<string, unknown>; capabilities: string[]; parameters: string; context_length: number; input_modalities: MediaType[]; features: string[]; supports_text_output: boolean }
 export interface OllamaDiscovery { server: OllamaServerInfo; models: OllamaModelInfo[] }
-export interface ModelSyncResult { server: OllamaServerInfo; models: Model[]; imported: number; updated: number }
+export interface SiliconFlowServerInfo { provider: 'siliconflow'; model_count: number; last_checked_at: string }
+export interface SiliconFlowModelInfo { name: string; display_name: string; task: string; capability: Capability; input_modalities: MediaType[]; features: string[]; support_status: ModelSupportStatus; supports_generation: boolean }
+export interface SiliconFlowDiscovery { server: SiliconFlowServerInfo; models: SiliconFlowModelInfo[] }
+export type ModelSupportStatus = 'verified' | 'compatible' | 'experimental'
+export interface ModelSyncResult { server: ConnectionServerInfo; models: Model[]; imported: number; updated: number }
 export interface ComfyUIDeviceInfo { name: string; type: string; index: number | null; vram_total: number; vram_free: number }
 export interface ComfyUIServerInfo { version: string; system: Record<string, unknown>; devices: ComfyUIDeviceInfo[]; features: Record<string, unknown>; node_count: number; model_count: number }
 export interface ComfyUIDiscovery { server: ComfyUIServerInfo; nodes: string[]; models: Record<string, string[]> }
-export type ConnectionServerInfo = OllamaServerInfo | ComfyUIServerInfo
-export type ConnectionDiscovery = OllamaDiscovery | ComfyUIDiscovery
+export type ConnectionServerInfo = OllamaServerInfo | ComfyUIServerInfo | SiliconFlowServerInfo
+export type ConnectionDiscovery = OllamaDiscovery | ComfyUIDiscovery | SiliconFlowDiscovery
 export interface JSONSchema { type?: string; properties?: Record<string, { type?: string; enum?: unknown[]; minimum?: number; maximum?: number; title?: string; description?: string; format?: string }> }
 export interface ModelPreset { id: ID; model_id: ID; name: string; parameters: Record<string, unknown>; is_default: boolean; created_at: string; updated_at: string }
 export interface WorkflowTemplate { id: ID; code: string; name: string; description: string; capability: Exclude<Capability, 'multimodal'>; input_modalities: MediaType[]; workflow: Record<string, unknown>; parameter_schema: JSONSchema; default_parameters: Record<string, unknown>; bindings: Record<string, unknown>; outputs: unknown[]; requirements: Record<string, unknown>; enabled: boolean; version: number; checksum: string; created_at: string; updated_at: string }

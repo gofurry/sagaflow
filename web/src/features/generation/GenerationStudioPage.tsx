@@ -351,7 +351,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
             placeholder="输入系统音色 ID，或选择模型页创建的克隆音色"
             value={String(draft.parameters.voice_id ?? '')}
           />
-          <small>当前 MiniMax 语音合成不接收任意音频参考；需要复用一段声音时，请先在“模型 → 音色”中创建克隆音色。</small>
+          <small>使用固定角色声音时，请先在“模型 → 音色”中通过 MiniMax 或硅基流动创建克隆音色；临时音频参考仅在所选模型支持时可用。</small>
         </label>}
         {targetDefinition && <div className="generation-parameters">
           <ModelParameterEditor definition={targetDefinition} hiddenKeys={capability === 'audio' && draft.targetKind === 'model' ? ['voice_id'] : []} onChange={(parameters) => updateDraft({ parameters, parametersCustomized: true })} value={draft.parameters}/>
