@@ -2,7 +2,7 @@
 
 SagaFlow 的模型目录分成三层，避免模型平台的一次参数调整迫使用户升级整个二进制：
 
-1. 编译期目录：随二进制发布，提供已经验证的核心模型和开箱即用的服务连接。
+1. 编译期目录：仓库中的 `internal/modelcatalog/model-catalog.json` 随二进制发布，提供核心模型和开箱即用的服务连接；同一个文件可直接作为 GitHub Release 资产发布。
 2. 在线发现：Ollama 与硅基流动等支持发现的连接可读取当前账号实际可见的模型；新发现的模型以“动态兼容”级别导入。
 3. 目录更新包：`data/catalog/model-catalog.json` 会覆盖或补充编译期目录，可由 GitHub Release 单独发布。
 

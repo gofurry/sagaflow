@@ -188,7 +188,8 @@
       "provider_code": "siliconflow",
       "model_id": "deepseek-ai/DeepSeek-V4-Flash",
       "display_name": "DeepSeek V4 Flash · 硅基流动",
-      "features": ["chat", "thinking", "structured_output", "long_context", "fast"]
+      "features": ["chat", "thinking", "structured_output", "long_context", "fast"],
+      "support_status": "verified"
     },
     {
       "profile": "siliconflow-chat",
@@ -210,7 +211,8 @@
       "profile": "siliconflow-image",
       "provider_code": "siliconflow",
       "model_id": "Tongyi-MAI/Z-Image-Turbo",
-      "display_name": "Z-Image Turbo"
+      "display_name": "Z-Image Turbo",
+      "support_status": "verified"
     },
     {
       "profile": "siliconflow-qwen-image",
@@ -222,7 +224,8 @@
       "profile": "siliconflow-image-edit",
       "provider_code": "siliconflow",
       "model_id": "Qwen/Qwen-Image-Edit-2509",
-      "display_name": "Qwen Image Edit 2509"
+      "display_name": "Qwen Image Edit 2509",
+      "support_status": "verified"
     },
     {
       "profile": "siliconflow-kolors",
@@ -234,7 +237,8 @@
       "profile": "siliconflow-cosyvoice",
       "provider_code": "siliconflow",
       "model_id": "FunAudioLLM/CosyVoice2-0.5B",
-      "display_name": "CosyVoice 2"
+      "display_name": "CosyVoice 2",
+      "support_status": "verified"
     },
     {
       "profile": "siliconflow-moss",
@@ -247,6 +251,7 @@
       "provider_code": "siliconflow",
       "model_id": "FunAudioLLM/SenseVoiceSmall",
       "display_name": "SenseVoice Small",
+      "support_status": "verified",
       "enabled": false
     },
     {
@@ -259,7 +264,8 @@
       "profile": "siliconflow-i2v",
       "provider_code": "siliconflow",
       "model_id": "Wan-AI/Wan2.2-I2V-A14B",
-      "display_name": "Wan 2.2 Image to Video"
+      "display_name": "Wan 2.2 Image to Video",
+      "support_status": "verified"
     }
   ]
 }

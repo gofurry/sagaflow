@@ -25,7 +25,7 @@ const (
 
 var manifestNamespace = uuid.MustParse("9a794da7-a426-4cb0-b1ca-a613b649e71d")
 
-//go:embed default-manifest.json
+//go:embed model-catalog.json
 var defaultManifestData []byte
 
 type Manifest struct {
