@@ -53,7 +53,22 @@ export interface ComfyUIServerInfo { version: string; system: Record<string, unk
 export interface ComfyUIDiscovery { server: ComfyUIServerInfo; nodes: string[]; models: Record<string, string[]> }
 export type ConnectionServerInfo = OllamaServerInfo | ComfyUIServerInfo | SiliconFlowServerInfo | TencentTokenHubServerInfo | MoonshotServerInfo
 export type ConnectionDiscovery = OllamaDiscovery | ComfyUIDiscovery | CloudModelDiscovery
-export interface JSONSchema { type?: string; properties?: Record<string, { type?: string; enum?: unknown[]; minimum?: number; maximum?: number; title?: string; description?: string; format?: string }> }
+export interface JSONSchema {
+  type?: string
+  properties?: Record<string, {
+    type?: string
+    enum?: unknown[]
+    minimum?: number
+    maximum?: number
+    multipleOf?: number
+    title?: string
+    description?: string
+    format?: string
+    readOnly?: boolean
+    default?: unknown
+    items?: { type?: string }
+  }>
+}
 export interface ModelPreset { id: ID; model_id: ID; name: string; parameters: Record<string, unknown>; is_default: boolean; created_at: string; updated_at: string }
 export interface WorkflowTemplate { id: ID; code: string; name: string; description: string; capability: Exclude<Capability, 'multimodal'>; input_modalities: MediaType[]; workflow: Record<string, unknown>; parameter_schema: JSONSchema; default_parameters: Record<string, unknown>; bindings: Record<string, unknown>; outputs: unknown[]; requirements: Record<string, unknown>; enabled: boolean; version: number; checksum: string; created_at: string; updated_at: string }
 export interface WorkflowBinding { node_id: string; input: string; source: 'prompt' | 'parameter' | 'input'; parameter?: string; input_index?: number; required?: boolean }

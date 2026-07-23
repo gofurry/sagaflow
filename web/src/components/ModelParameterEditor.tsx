@@ -5,7 +5,7 @@ import type { JSONSchema } from '../api/types'
 type ParameterSchema = NonNullable<JSONSchema['properties']>[string]
 
 export function ModelParameterEditor({ definition, value, onChange, hiddenKeys = [] }: { definition: { parameter_schema: JSONSchema }; value: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void; hiddenKeys?: string[] }) {
-	const properties = Object.fromEntries(Object.entries(definition.parameter_schema?.properties ?? {}).filter(([key]) => !hiddenKeys.includes(key)))
+	const properties = Object.fromEntries(Object.entries(definition.parameter_schema?.properties ?? {}).filter(([key, schema]) => !hiddenKeys.includes(key) && !schema.readOnly))
   const set = (key: string, next: unknown) => onChange({ ...value, [key]: next })
   return <div className="parameter-editor">
     <div className="parameter-editor-heading">
@@ -21,11 +21,11 @@ function ParameterField({ name, schema, value, onChange }: { name: string; schem
     <label className="field-label">{schema.title ?? name}</label>
     {schema.description && <small>{schema.description}</small>}
     {schema.enum
-      ? <Select options={schema.enum.map((item) => ({ value: item as string | number, label: String(item) }))} value={value as string | number} onChange={onChange}/>
+      ? <Select options={schema.enum.map((item) => ({ value: item as string | number, label: item === '' ? '默认' : String(item) }))} value={value as string | number} onChange={onChange}/>
       : schema.type === 'boolean'
         ? <Checkbox checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)}>启用</Checkbox>
         : schema.type === 'number' || schema.type === 'integer'
-          ? <InputNumber max={schema.maximum} min={schema.minimum} precision={schema.type === 'integer' ? 0 : undefined} value={value as number} onChange={onChange} style={{ width: '100%' }}/>
+          ? <InputNumber max={schema.maximum} min={schema.minimum} precision={schema.type === 'integer' ? 0 : undefined} step={schema.multipleOf ?? (schema.type === 'integer' ? 1 : 0.1)} value={value as number} onChange={onChange} style={{ width: '100%' }}/>
           : schema.type === 'object' || schema.type === 'array'
             ? <JSONParameterInput expected={schema.type} onChange={onChange} value={value}/>
             : schema.format === 'textarea'

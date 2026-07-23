@@ -85,6 +85,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
   const allowedReferences = useMemo(() => targetDefinition
     ? targetDefinition.input_modalities.filter((item): item is MediaType => item !== 'text')
     : capabilityMeta[capability].references, [capability, targetDefinition])
+  const requiresPublishedAssets = draft.targetKind === 'model' && !!model && requiresPublishedReferences(model, providers)
   const modelPresets = useMemo(() => allPresets.filter((preset) => preset.model_id === draft.modelID), [allPresets, draft.modelID])
   const prompts = useMemo(() => (promptsQuery.data ?? []).filter((preset) => preset.capability === capability), [capability, promptsQuery.data])
   const allJobs = useMemo(() => jobsQuery.data ?? [], [jobsQuery.data])
@@ -97,6 +98,9 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
   const videoShots = useMemo(() => (canvasQuery.data?.nodes ?? []).filter((node) => node.data.kind === 'video').sort((left, right) => (left.data.shot_number ?? 0) - (right.data.shot_number ?? 0)), [canvasQuery.data?.nodes])
   const selectedShot = videoShots.find((node) => node.id === draft.shotID)
   const videoReferences = useMemo(() => selectedShot ? canvasReferenceAssets(selectedShot, canvasQuery.data?.nodes ?? [], canvasQuery.data?.edges ?? [], assetsQuery.data ?? []) : [], [assetsQuery.data, canvasQuery.data?.edges, canvasQuery.data?.nodes, selectedShot])
+  const unsupportedVideoReferences = useMemo(() => targetDefinition && capability === 'video'
+    ? videoReferences.filter((asset) => !allowedReferences.includes(asset.media_type))
+    : [], [allowedReferences, capability, targetDefinition, videoReferences])
   const videoNotes = useMemo(() => selectedShot ? canvasNotes(selectedShot, canvasQuery.data?.nodes ?? [], canvasQuery.data?.edges ?? []) : [], [canvasQuery.data?.edges, canvasQuery.data?.nodes, selectedShot])
   const selectedJobID = selectedJobIDs[capability]
   const selectedJob = selectedJobID ? jobs.find((job) => job.id === selectedJobID) : undefined
@@ -155,20 +159,24 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
       const next = models.find((item) => item.id === firstID)
       if (!next) return
       const defaultPreset = defaultModelPreset(allPresets, next)
+      const inputReferences = compatibleDraftReferences(draft.inputReferences, next.input_modalities, requiresPublishedReferences(next, providers))
+      discardTemporaryReferences(draft.inputReferences, inputReferences)
       updateDraft({
         targetKind: 'model', modelID: next.id, workflowID: undefined, providerID: undefined,
         modelPresetID: defaultPreset?.id, parameters: defaultPreset?.parameters ?? next.default_parameters,
         parametersCustomized: false,
-        inputReferences: draft.inputReferences.filter((reference) => next.input_modalities.includes(reference.mediaType)),
+        inputReferences,
       })
       return
     }
     const next = readyWorkflowTargets.find((item) => item.workflow.id === firstID && item.provider.id === secondID)
     if (!next) return
+    const inputReferences = compatibleDraftReferences(draft.inputReferences, next.workflow.input_modalities, false)
+    discardTemporaryReferences(draft.inputReferences, inputReferences)
     updateDraft({
       targetKind: 'workflow', modelID: undefined, modelPresetID: undefined, workflowID: next.workflow.id, providerID: next.provider.id,
       parameters: next.workflow.default_parameters, parametersCustomized: false,
-      inputReferences: draft.inputReferences.filter((reference) => next.workflow.input_modalities.includes(reference.mediaType)),
+      inputReferences,
     })
   }
   const selectPrompt = (presetID?: string) => {
@@ -185,6 +193,8 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
     }
     const recommended = preset.model_preset_id ? allPresets.find((item) => item.id === preset.model_preset_id && item.model_id === nextModel.id) : undefined
     const nextPreset = recommended ?? defaultModelPreset(allPresets, nextModel)
+    const inputReferences = compatibleDraftReferences(draft.inputReferences, nextModel.input_modalities, requiresPublishedReferences(nextModel, providers))
+    discardTemporaryReferences(draft.inputReferences, inputReferences)
     updateDraft({
       promptPresetID: preset.id,
       prompt: preset.content,
@@ -195,6 +205,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
       modelPresetID: nextPreset?.id,
       parameters: nextPreset?.parameters ?? nextModel.default_parameters,
       parametersCustomized: false,
+      inputReferences,
     })
   }
   const selectModelPreset = (value: string) => {
@@ -224,6 +235,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
   const run = () => {
     if (capability === 'video' && (!episode || !draft.shotID)) return message.warning('请先选择当前分集的视频分镜')
     if (!draft.targetKind || (draft.targetKind === 'model' ? !draft.modelID : !draft.workflowID || !draft.providerID)) return message.warning('请先选择生成目标')
+    if (capability === 'video' && unsupportedVideoReferences.length > 0) return message.warning('画布包含当前生成目标不支持的参考类型，请更换目标或调整参考连线')
     if (!draft.prompt.trim()) return message.warning('请输入 Prompt')
     createJob.mutate({
       capability,
@@ -256,6 +268,8 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
     setSelectedJobIDs((current) => ({ ...current, [nextCapability]: job.id }))
   }
   const refreshing = stagedSummaryQuery.isFetching || jobsQuery.isFetching
+  const voiceParameterKey = capability === 'audio' && draft.targetKind === 'model' && model ? modelVoiceParameter(model) : undefined
+  const modelVoices = voiceParameterKey && model ? (voicesQuery.data ?? []).filter((voice) => voice.provider_id === model.provider_id) : []
   const parameterPresetValue = draft.targetKind === 'workflow' ? BASE_PARAMETERS : draft.parametersCustomized ? CUSTOM_PARAMETERS : (draft.modelPresetID ?? BASE_PARAMETERS)
   const selectedTargetKey = draft.targetKind === 'workflow' && draft.workflowID && draft.providerID
     ? `workflow:${draft.workflowID}:${draft.providerID}`
@@ -263,7 +277,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
 
   return <div className="page page-generation">
     <FloatingToolbar ariaLabel="生成工具栏" items={[
-      { key: 'run', label: `开始生成${capabilityMeta[capability].label}`, icon: <ThunderboltOutlined/>, active: true, disabled: !selectedTargetKey || !draft.prompt.trim() || (capability === 'video' && !draft.shotID), loading: createJob.isPending, onClick: run },
+      { key: 'run', label: `开始生成${capabilityMeta[capability].label}`, icon: <ThunderboltOutlined/>, active: true, disabled: !selectedTargetKey || !draft.prompt.trim() || (capability === 'video' && (!draft.shotID || unsupportedVideoReferences.length > 0)), loading: createJob.isPending, onClick: run },
       { key: 'new', label: '新建生成', icon: <PlusOutlined/>, onClick: resetDraft },
       { key: 'refresh', label: '刷新任务与结果', icon: <ReloadOutlined/>, loading: refreshing, onClick: () => void refresh() },
     ]}/>
@@ -334,27 +348,30 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
           onChange={(inputReferences) => updateDraft({ inputReferences })}
           onError={onError}
           projectID={project.id}
+          requiresPublishedAssets={requiresPublishedAssets}
           value={draft.inputReferences}
         />}
         {capability === 'video' && selectedShot && <div className="generation-canvas-references">
           <div className="generation-canvas-reference-heading"><div><strong>画布参考</strong><span>参考关系来自画布，返回画布修改连线</span></div>{videoNotes.length > 0 && <Button onClick={appendVideoNotes} size="small">将关联备注加入 Prompt</Button>}</div>
-          {videoReferences.length ? <div className="generation-canvas-reference-grid">{videoReferences.map((asset) => <div key={asset.id}>
+          {videoReferences.length ? <div className="generation-canvas-reference-grid">{videoReferences.map((asset) => <div className={unsupportedVideoReferences.some((item) => item.id === asset.id) ? 'unsupported' : ''} key={asset.id}>
             <GenerationAssetPreview asset={asset}/><span>{asset.name}</span>
           </div>)}</div> : <p className="generation-canvas-reference-empty">这个分镜还没有连接参考资产，可以无参考生成。</p>}
+          {unsupportedVideoReferences.length > 0 && <p className="generation-reference-warning">当前目标不支持 {unsupportedVideoReferences.map((asset) => asset.name).join('、')} 的媒体类型，请返回画布调整参考连线或更换生成目标。</p>}
+          {requiresPublishedAssets && videoReferences.length > 0 && <p className="generation-reference-notice">当前云模型要求这些参考资产已在“资产”页手动发布到 S3。</p>}
           {videoNotes.length > 0 && <div className="generation-linked-notes">{videoNotes.map((note) => <span key={note.id}>{note.data.title}</span>)}</div>}
         </div>}
-        {capability === 'audio' && draft.targetKind === 'model' && model?.provider_code === 'minimax' && <label className="generation-voice-field">
-          <span>音色</span>
+        {voiceParameterKey && model && <label className="generation-voice-field">
+          <span>{model.parameter_schema.properties?.[voiceParameterKey]?.title ?? '音色'}</span>
           <AutoComplete
-            onChange={(voiceID) => updateDraft({ parameters: { ...draft.parameters, voice_id: voiceID }, parametersCustomized: true })}
-            options={(voicesQuery.data ?? []).map((voice) => ({ value: voice.voice_id, label: `${voice.name} · ${voice.voice_id}` }))}
-            placeholder="输入系统音色 ID，或选择模型页创建的克隆音色"
-            value={String(draft.parameters.voice_id ?? '')}
+            onChange={(voiceID) => updateDraft({ parameters: { ...draft.parameters, [voiceParameterKey]: voiceID }, parametersCustomized: true })}
+            options={modelVoices.map((voice) => ({ value: voice.voice_id, label: `${voice.name} · ${voice.voice_id}` }))}
+            placeholder="输入平台音色 ID，或选择模型页创建的克隆音色"
+            value={String(draft.parameters[voiceParameterKey] ?? '')}
           />
-          <small>使用固定角色声音时，请先在“模型 → 音色”中通过 MiniMax 或硅基流动创建克隆音色；临时音频参考仅在所选模型支持时可用。</small>
+          <small>{modelVoices.length ? `当前服务有 ${modelVoices.length} 个已管理音色，也可以直接输入平台内置音色 ID。` : '可以直接输入平台内置音色 ID；支持克隆的服务可先在“模型 → 音色”中创建音色。'}</small>
         </label>}
         {targetDefinition && <div className="generation-parameters">
-          <ModelParameterEditor definition={targetDefinition} hiddenKeys={capability === 'audio' && draft.targetKind === 'model' ? ['voice_id'] : []} onChange={(parameters) => updateDraft({ parameters, parametersCustomized: true })} value={draft.parameters}/>
+          <ModelParameterEditor definition={targetDefinition} hiddenKeys={voiceParameterKey ? [voiceParameterKey] : []} onChange={(parameters) => updateDraft({ parameters, parametersCustomized: true })} value={draft.parameters}/>
         </div>}
         <GenerationTaskCenter jobs={taskJobs} onSelect={focusTask} selectedJobID={selectedJobID}/>
         <GenerationProgress capability={capability} job={selectedJob}/>
@@ -376,6 +393,30 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
 
 function defaultModelPreset(presets: ModelPreset[], model: Model) {
   return presets.find((preset) => preset.model_id === model.id && preset.is_default)
+}
+
+function modelVoiceParameter(model: Model) {
+  const properties = model.parameter_schema.properties ?? {}
+  if (properties.voice_id) return 'voice_id'
+  if (properties.voice) return 'voice'
+  return undefined
+}
+
+function requiresPublishedReferences(model: Model, providers: ModelProvider[]) {
+  if (model.features.includes('remote_reference_required')) return true
+  const adapterCode = providers.find((provider) => provider.id === model.provider_id)?.adapter_code
+  return !adapterCode || !['ollama', 'comfyui', 'siliconflow', 'zhipu', 'tencent_tokenhub', 'moonshot'].includes(adapterCode)
+}
+
+function compatibleDraftReferences(references: GenerationReferenceDraft[], inputModalities: MediaType[], publishedOnly: boolean) {
+  return references.filter((reference) => inputModalities.includes(reference.mediaType) && (!publishedOnly || reference.source === 'asset'))
+}
+
+function discardTemporaryReferences(previous: GenerationReferenceDraft[], retained: GenerationReferenceDraft[]) {
+  const retainedKeys = new Set(retained.map((reference) => `${reference.source}:${reference.id}`))
+  previous
+    .filter((reference) => reference.source === 'upload' && !retainedKeys.has(`${reference.source}:${reference.id}`))
+    .forEach((reference) => void api.deleteGenerationReference(reference.id).catch(() => undefined))
 }
 
 function workflowTargets(workflows: WorkflowTemplate[], compatibilities: WorkflowCompatibility[], providers: ModelProvider[], capability: GenerationCapability) {

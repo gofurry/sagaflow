@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeftOutlined, ArrowRightOutlined, CloseOutlined, FolderOpenOutlined, InboxOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, ArrowRightOutlined, AudioOutlined, CloseOutlined, FileTextOutlined, FolderOpenOutlined, InboxOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons'
 import { App, Button, Checkbox, Empty, Input, Modal, Spin, Tooltip, Tree } from 'antd'
 import type { DataNode } from 'antd/es/tree'
 import { api } from '../../api/client'
@@ -16,6 +16,7 @@ export function GenerationReferencePicker({
   groups,
   value,
   allowedMedia,
+  requiresPublishedAssets = false,
   onChange,
   onError,
 }: {
@@ -24,6 +25,7 @@ export function GenerationReferencePicker({
   groups: AssetGroup[]
   value: GenerationReferenceDraft[]
   allowedMedia: MediaType[]
+  requiresPublishedAssets?: boolean
   onChange: (value: GenerationReferenceDraft[]) => void
   onError: (error: unknown) => void
 }) {
@@ -79,24 +81,24 @@ export function GenerationReferencePicker({
     <div className="reference-picker-heading">
       <div>
         <strong>参考预览</strong>
-        <span>{value.length ? `${value.length} 项 · 生成时按当前顺序提交` : '可从资产库选择，或上传仅用于本次生成的临时参考'}</span>
+        <span>{value.length
+          ? `${value.length} 项 · 生成时按当前顺序提交`
+          : requiresPublishedAssets ? '当前模型只接受已在资产页发布到 S3 的资产' : '可从资产库选择，或上传仅用于本次生成的临时参考'}</span>
       </div>
       <div className="reference-add-actions">
         <Tooltip title="从资产库添加">
           <Button aria-label="从资产库添加参考" icon={<FolderOpenOutlined/>} onClick={() => setLibraryOpen(true)} shape="circle"/>
         </Tooltip>
-        <Tooltip title="上传本次参考；提交后作为任务快照保留，不进入资产库">
+        {!requiresPublishedAssets && <Tooltip title="上传本次参考；提交后作为任务快照保留，不进入资产库">
           <Button aria-label="上传临时参考" icon={uploading ? <Spin size="small"/> : <UploadOutlined/>} onClick={() => inputRef.current?.click()} shape="circle"/>
-        </Tooltip>
+        </Tooltip>}
         <input accept={acceptFor(allowedMedia)} hidden multiple onChange={(event) => void upload(event.target.files)} ref={inputRef} type="file"/>
       </div>
     </div>
     {value.length
       ? <div className="reference-preview-grid">{value.map((reference, index) => <div className="reference-preview-item" key={`${reference.source}-${reference.id}`}>
           <div className="reference-preview-media">
-            {reference.mediaType === 'image'
-              ? <img alt={reference.name} src={reference.source === 'asset' ? api.assetURL(reference.id) : api.generationReferenceURL(reference.id)}/>
-              : <InboxOutlined/>}
+            <ReferencePreview reference={reference}/>
             <em>{referenceLabel(reference.mediaType, index)}</em>
             <span>{reference.source === 'asset' ? '资产' : '临时'}</span>
           </div>
@@ -109,7 +111,7 @@ export function GenerationReferencePicker({
             </div>
           </div>
         </div>)}</div>
-      : <button className="reference-empty" onClick={() => setLibraryOpen(true)} type="button"><InboxOutlined/><span>添加参考素材</span><small>参考图会按“图 1、图 2…”的顺序传给模型</small></button>}
+      : <button className="reference-empty" onClick={() => setLibraryOpen(true)} type="button"><InboxOutlined/><span>添加参考素材</span><small>{referenceHint(allowedMedia, requiresPublishedAssets)}</small></button>}
     <AssetReferenceModal
       assets={availableAssets}
       groups={groups}
@@ -190,6 +192,21 @@ function referenceLabel(mediaType: MediaType, index: number) {
   return `${prefix} ${index + 1}`
 }
 
+function ReferencePreview({ reference }: { reference: GenerationReferenceDraft }) {
+  const url = reference.source === 'asset' ? api.assetURL(reference.id) : api.generationReferenceURL(reference.id)
+  if (reference.mediaType === 'image') return <img alt={reference.name} src={url}/>
+  if (reference.mediaType === 'video') return <video controls preload="metadata" src={url}/>
+  if (reference.mediaType === 'audio') return <div className="reference-preview-audio"><AudioOutlined/><audio controls preload="metadata" src={url}/></div>
+  if (reference.mediaType === 'text') return <FileTextOutlined/>
+  return <InboxOutlined/>
+}
+
 function acceptFor(types: MediaType[]) {
   return types.map((type) => type === 'file' ? '*/*' : `${type}/*`).join(',')
+}
+
+function referenceHint(types: MediaType[], requiresPublishedAssets: boolean) {
+  const labels = types.map((type) => ({ image: '图像', video: '视频', audio: '音频', text: '文本', file: '文件' })[type])
+  const media = labels.length > 1 ? labels.join('、') : labels[0] ?? '素材'
+  return requiresPublishedAssets ? `选择已发布到 S3 的${media}资产` : `${media}会按当前顺序传给模型`
 }
