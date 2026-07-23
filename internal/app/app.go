@@ -17,6 +17,7 @@ import (
 	"github.com/gofurry/sagaflow/internal/inference/adapters/openaicompat"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/siliconflow"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/volcengine"
+	"github.com/gofurry/sagaflow/internal/inference/adapters/zhipu"
 	"github.com/gofurry/sagaflow/internal/modelcatalog"
 	"github.com/gofurry/sagaflow/internal/platform/sqlite"
 	"github.com/gofurry/sagaflow/internal/platform/storage"
@@ -64,6 +65,7 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	comfyDriver := comfyui.New(comfyui.Config{HTTPClient: httpClient})
 	volcDriver := volcengine.New(volcengine.Config{HTTPClient: httpClient})
 	siliconFlowDriver := siliconflow.New(siliconflow.Config{HTTPClient: httpClient})
+	zhipuDriver := zhipu.New(zhipu.Config{HTTPClient: httpClient})
 	openAIChatDriver := openaicompat.NewChat(httpClient)
 	openAIResponsesDriver := openaicompat.NewResponses(httpClient)
 	gateway, err := inference.NewGateway(map[string]inference.Driver{
@@ -72,6 +74,7 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		service.ProviderMiniMax:         minimax.New(httpClient),
 		service.ProviderAliyunBailian:   bailian.New(bailian.Config{HTTPClient: httpClient}),
 		service.ProviderSiliconFlow:     siliconFlowDriver,
+		service.ProviderZhipu:           zhipuDriver,
 		service.ProviderOllama:          ollama.New(httpClient),
 		service.ProviderComfyUI:         comfyDriver,
 		service.ProviderOpenAIChat:      openAIChatDriver,

@@ -31,7 +31,7 @@ https://github.com/gofurry/sagaflow/releases/latest/download/model-catalog.json
 ```json
 {
   "schema_version": 2,
-  "catalog_version": "2026.07.23.1",
+  "catalog_version": "2026.07.23.2",
   "published_at": "2026-07-23T00:00:00+08:00",
   "profiles": {
     "example-chat": {
@@ -102,3 +102,7 @@ https://github.com/gofurry/sagaflow/releases/latest/download/model-catalog.json
 ```
 
 更新包从清单中删除一个型号不会删除 SQLite 中的目录项。只有显式的 `retired` 会把模型设为不可用于新任务；这样不会破坏历史记录和参数预设。
+
+## 智谱目录
+
+内置目录包含 GLM 文本/视觉理解、GLM Image、GLM TTS/ASR、CogVideoX 与 Vidu 2 系列。`glm-tts` 同时作为音色管理入口；复刻时 SagaFlow 会使用智谱的 `glm-tts-clone` 接口，复刻结果仍由 `glm-tts` 合成。CogVideoX 可以直接读取本机图片数据，Vidu 2 的参考生视频只接受公网 URL，因此使用该型号前需要在资产页手动发布参考图到 S3。

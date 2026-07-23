@@ -209,7 +209,7 @@ func validateResolvedModel(item ManifestModel) error {
 		return fmt.Errorf("unsupported support_status %q", item.SupportStatus)
 	}
 	switch item.Task {
-	case "", "chat", "image_generation", "image_edit", "speech_generation", "speech_recognition", "text_to_video", "image_to_video":
+	case "", "chat", "image_generation", "image_edit", "speech_generation", "speech_recognition", "text_to_video", "image_to_video", "start_end_video", "reference_to_video":
 	default:
 		return fmt.Errorf("unsupported task %q", item.Task)
 	}

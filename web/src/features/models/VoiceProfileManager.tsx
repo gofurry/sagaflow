@@ -19,9 +19,11 @@ export function VoiceProfileManager({ models, onError }: { models: Model[]; onEr
   const [promptFile, setPromptFile] = useState<File | null>(null)
   const selectedModelID = Form.useWatch('model_id', form) as string | undefined
   const voicesQuery = useQuery({ queryKey: ['voice-profiles'], queryFn: api.voiceProfiles })
-  const audioModels = models.filter((model) => model.enabled && model.capability === 'audio' && model.features.includes('voice_clone') && (model.provider_code === 'minimax' || model.provider_code === 'siliconflow'))
+  const audioModels = models.filter((model) => model.enabled && model.capability === 'audio' && model.features.includes('voice_clone') && (model.provider_code === 'minimax' || model.provider_code === 'siliconflow' || model.provider_code === 'zhipu'))
   const selectedModel = audioModels.find((model) => model.id === selectedModelID)
   const isSiliconFlow = selectedModel?.provider_code === 'siliconflow'
+  const isZhipu = selectedModel?.provider_code === 'zhipu'
+  const usesSingleReference = isSiliconFlow || isZhipu
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['voice-profiles'] })
   const closeCreate = () => {
     setCreateOpen(false)
@@ -104,7 +106,7 @@ export function VoiceProfileManager({ models, onError }: { models: Model[]; onEr
     </div>
 
     <Modal cancelText="取消" confirmLoading={create.isPending} okButtonProps={{ disabled: !sourceFile }} okText="克隆并激活" onCancel={closeCreate} onOk={() => form.submit()} open={createOpen} title={selectedModel ? `克隆 ${selectedModel.provider_name} 音色` : '克隆音色'} width={820}>
-      <Alert message={isSiliconFlow ? '参考音频与对应文本会上传到硅基流动创建预置音色，随后立即合成一次试听并保存到本机。' : '创建后会立即使用该音色合成一次正式试听，使音色完成激活；MiniMax 会在首次正式合成时收取音色复刻费用。'} showIcon type="info"/>
+      <Alert message={isSiliconFlow ? '参考音频与对应文本会上传到硅基流动创建预置音色，随后立即合成一次试听并保存到本机。' : isZhipu ? '参考音频会上传到智谱完成音色复刻，随后使用新音色合成试听并保存到本机。' : '创建后会立即使用该音色合成一次正式试听，使音色完成激活；MiniMax 会在首次正式合成时收取音色复刻费用。'} showIcon type="info"/>
       <Form form={form} layout="vertical" onFinish={(values) => create.mutate(values)} requiredMark={false} style={{ marginTop: 18 }}>
         <div className="voice-form-grid">
           <Form.Item label="音色名称" name="name" rules={[{ required: true, whitespace: true }]}><Input autoFocus placeholder="例如：林默 · 冷静青年"/></Form.Item>
@@ -112,19 +114,19 @@ export function VoiceProfileManager({ models, onError }: { models: Model[]; onEr
         </div>
         <Form.Item label="语音模型" name="model_id" rules={[{ required: true }]}><Select onChange={() => setPromptFile(null)} options={audioModels.map((model) => ({ value: model.id, label: `${model.provider_name} · ${model.display_name}` }))}/></Form.Item>
         <Form.Item label="说明" name="description"><Input placeholder="记录角色、年龄、情绪和适用场景"/></Form.Item>
-        <Form.Item extra={isSiliconFlow ? 'mp3、m4a 或 wav；建议小于 30 秒；不超过 20 MB。' : 'mp3、m4a 或 wav；10 秒至 5 分钟；不超过 20 MB。'} label="待克隆音频" required>
-          <Upload.Dragger accept=".mp3,.m4a,.wav,audio/*" beforeUpload={(file) => { setSourceFile(file); return false }} fileList={sourceList} maxCount={1} onRemove={() => { setSourceFile(null); return true }}>
+        <Form.Item extra={isSiliconFlow ? 'mp3、m4a 或 wav；建议小于 30 秒；不超过 20 MB。' : isZhipu ? 'mp3 或 wav；建议 3-30 秒；不超过 10 MB。' : 'mp3、m4a 或 wav；10 秒至 5 分钟；不超过 20 MB。'} label="待克隆音频" required>
+          <Upload.Dragger accept={isZhipu ? '.mp3,.wav,audio/mpeg,audio/wav' : '.mp3,.m4a,.wav,audio/*'} beforeUpload={(file) => { setSourceFile(file); return false }} fileList={sourceList} maxCount={1} onRemove={() => { setSourceFile(null); return true }}>
             <p className="ant-upload-drag-icon"><AudioOutlined/></p><p>拖入或点击选择清晰、单人说话的音频</p>
           </Upload.Dragger>
         </Form.Item>
-        {!isSiliconFlow && <Form.Item extra="可选，小于 8 秒；同时填写下方示例音频对应文本，可提高稳定性。" label="示例音频">
+        {!usesSingleReference && <Form.Item extra="可选，小于 8 秒；同时填写下方示例音频对应文本，可提高稳定性。" label="示例音频">
           <Upload.Dragger accept=".mp3,.m4a,.wav,audio/*" beforeUpload={(file) => { setPromptFile(file); return false }} fileList={promptList} maxCount={1} onRemove={() => { setPromptFile(null); return true }}>
             <p>选择一小段示例音频</p>
           </Upload.Dragger>
         </Form.Item>}
-        {(isSiliconFlow || promptFile) && <Form.Item label={isSiliconFlow ? '参考音频对应文本' : '示例音频文本'} name="prompt_text" rules={[{ required: true, whitespace: true }]}><Input.TextArea placeholder={isSiliconFlow ? '逐字填写待克隆音频中的说话内容' : undefined} rows={2}/></Form.Item>}
+        {(usesSingleReference || promptFile) && <Form.Item extra={isZhipu ? '选填；逐字填写可帮助平台更准确地复刻。' : undefined} label={usesSingleReference ? '参考音频对应文本' : '示例音频文本'} name="prompt_text" rules={isZhipu ? undefined : [{ required: true, whitespace: true }]}><Input.TextArea placeholder={usesSingleReference ? '逐字填写待克隆音频中的说话内容' : undefined} rows={2}/></Form.Item>}
         <Form.Item label="正式试听文本" name="preview_text" rules={[{ required: true, whitespace: true }]}><Input.TextArea maxLength={1000} rows={3}/></Form.Item>
-        {!isSiliconFlow && <div className="voice-form-grid">
+        {!usesSingleReference && <div className="voice-form-grid">
           <Form.Item label="降噪" name="need_noise_reduction" valuePropName="checked"><Switch/></Form.Item>
           <Form.Item label="音量归一化" name="need_volume_normalization" valuePropName="checked"><Switch/></Form.Item>
         </div>}

@@ -1,0 +1,103 @@
+// Package zhipu implements the native text, image, audio and asynchronous
+// video APIs exposed by Zhipu AI's BigModel platform.
+package zhipu
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/gofurry/sagaflow/internal/inference"
+	"github.com/gofurry/sagaflow/internal/inference/adapters/openaicompat"
+	"github.com/gofurry/sagaflow/internal/inference/adapterutil"
+)
+
+const providerCode = "zhipu"
+
+type Config struct {
+	HTTPClient   *http.Client
+	PollInterval time.Duration
+}
+
+type Driver struct {
+	client       *http.Client
+	http         *adapterutil.HTTPClient
+	text         *openaicompat.Driver
+	pollInterval time.Duration
+}
+
+func New(config Config) *Driver {
+	client := config.HTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	interval := config.PollInterval
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	return &Driver{
+		client: client, http: adapterutil.NewHTTPClient(client),
+		text: openaicompat.NewChat(client), pollInterval: interval,
+	}
+}
+
+func (d *Driver) Execute(ctx context.Context, request inference.Request, events inference.EventSink) (inference.Result, error) {
+	if request.Target.Kind != inference.TargetModel {
+		return inference.Result{}, inference.NewError(inference.ErrorInvalidRequest, provider(request), "Zhipu adapter only accepts model targets", false, nil)
+	}
+	if modelTask(request) == "speech_recognition" {
+		return d.transcribe(ctx, request, events)
+	}
+	switch request.Target.Capability {
+	case inference.CapabilityText:
+		updated, err := d.materializeReferences(ctx, request, "image")
+		if err != nil {
+			return inference.Result{}, err
+		}
+		return d.text.Execute(ctx, updated, events)
+	case inference.CapabilityImage:
+		return d.generateImage(ctx, request, events)
+	case inference.CapabilityAudio:
+		return d.generateSpeech(ctx, request, events)
+	case inference.CapabilityVideo:
+		return d.generateVideo(ctx, request, events)
+	default:
+		return inference.Result{}, inference.NewError(inference.ErrorInvalidRequest, provider(request), "unsupported Zhipu output capability", false, nil)
+	}
+}
+
+func provider(request inference.Request) string {
+	if value := strings.TrimSpace(request.Runtime.ProviderCode); value != "" {
+		return value
+	}
+	return providerCode
+}
+
+func modelTask(request inference.Request) string {
+	if len(request.Target.Spec) > 0 {
+		var metadata struct {
+			Task string `json:"task"`
+		}
+		if json.Unmarshal(request.Target.Spec, &metadata) == nil && metadata.Task != "" {
+			return metadata.Task
+		}
+	}
+	modelID := strings.ToLower(request.Target.ID)
+	switch {
+	case strings.Contains(modelID, "asr"):
+		return "speech_recognition"
+	case strings.Contains(modelID, "tts"):
+		return "speech_generation"
+	case strings.Contains(modelID, "start-end"):
+		return "start_end_video"
+	case strings.Contains(modelID, "reference"):
+		return "reference_to_video"
+	}
+	return ""
+}
+
+func endpoint(baseURL, path string) string {
+	return adapterutil.JoinURL(baseURL, path)
+}

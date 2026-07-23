@@ -59,6 +59,16 @@ func TestOpenMigratesCleanDatabaseAndEnforcesSingleAccount(t *testing.T) {
 	if siliconFlowProviders != 1 {
 		t.Fatalf("expected built-in SiliconFlow connection, got %d", siliconFlowProviders)
 	}
+	var zhipuProviders int
+	if err := database.QueryRow(`
+		SELECT COUNT(*) FROM model_providers
+		WHERE code='zhipu' AND adapter_code='zhipu'
+		  AND base_url='https://open.bigmodel.cn/api/paas/v4' AND auth_type='api_key'`).Scan(&zhipuProviders); err != nil {
+		t.Fatal(err)
+	}
+	if zhipuProviders != 1 {
+		t.Fatalf("expected built-in Zhipu connection, got %d", zhipuProviders)
+	}
 	if _, err := database.Exec(`
 		INSERT INTO workflow_templates (
 			id,code,name,capability,input_modalities,workflow,parameter_schema,

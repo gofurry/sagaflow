@@ -88,7 +88,7 @@ func (s *VoiceService) Create(ctx context.Context, input CreateVoiceProfileInput
 	if err != nil {
 		return db.VoiceProfile{}, mapStoreError(err)
 	}
-	if model.Capability != "audio" || (model.ProviderCode != ProviderMiniMax && model.ProviderCode != ProviderSiliconFlow) {
+	if model.Capability != "audio" || (model.ProviderCode != ProviderMiniMax && model.ProviderCode != ProviderSiliconFlow && model.ProviderCode != ProviderZhipu) {
 		return db.VoiceProfile{}, fmt.Errorf("%w: voice cloning requires a supported audio model", ErrInvalidInput)
 	}
 	provider, err := s.store.GetModelProvider(ctx, model.ProviderID)
@@ -105,6 +105,8 @@ func (s *VoiceService) Create(ctx context.Context, input CreateVoiceProfileInput
 		providerFileID   string
 		providerPromptID string
 		previewData      []byte
+		previewName      = "preview.mp3"
+		previewMIMEType  = "audio/mpeg"
 		previewMetadata  json.RawMessage
 		providerMetadata json.RawMessage
 		cleanupRemote    func()
@@ -179,6 +181,37 @@ func (s *VoiceService) Create(ctx context.Context, input CreateVoiceProfileInput
 		if err != nil {
 			return db.VoiceProfile{}, fmt.Errorf("activate cloned voice: %w", err)
 		}
+	case ProviderZhipu:
+		if input.Prompt != nil {
+			return db.VoiceProfile{}, fmt.Errorf("%w: Zhipu uses the clone source directly and does not accept a separate prompt audio", ErrInvalidInput)
+		}
+		if len(input.Source.Data) > 10<<20 || !supportedZhipuCloneAudio(input.Source.MIMEType, input.Source.Name) {
+			return db.VoiceProfile{}, fmt.Errorf("%w: Zhipu clone audio must be mp3 or wav and not exceed 10 MB", ErrInvalidInput)
+		}
+		sourceFileID, uploadErr := s.uploadZhipuVoiceFile(ctx, baseURL, secret.APIKey, input.Source)
+		if uploadErr != nil {
+			return db.VoiceProfile{}, uploadErr
+		}
+		providerFileID = sourceFileID
+		defer s.deleteZhipuFile(context.Background(), baseURL, secret.APIKey, sourceFileID)
+		remoteVoiceID, providerPromptID, providerMetadata, err = s.cloneZhipuVoice(
+			ctx, baseURL, secret.APIKey, strings.TrimSpace(input.VoiceID),
+			strings.TrimSpace(input.PromptText), input.PreviewText, sourceFileID,
+		)
+		if err != nil {
+			return db.VoiceProfile{}, err
+		}
+		cleanupRemote = func() {
+			if deleteErr := s.deleteZhipuVoice(context.Background(), baseURL, secret.APIKey, remoteVoiceID); deleteErr != nil {
+				s.log.Warn("delete orphaned Zhipu voice", zap.String("voice_id", remoteVoiceID), zap.Error(deleteErr))
+			}
+		}
+		previewData, previewMetadata, err = s.previewZhipuVoice(ctx, baseURL, secret.APIKey, remoteVoiceID, input.PreviewText)
+		if err != nil {
+			return db.VoiceProfile{}, fmt.Errorf("activate cloned voice: %w", err)
+		}
+		previewName = "preview.wav"
+		previewMIMEType = "audio/wav"
 	}
 	profileID := uuid.New()
 	sourceObject, err := s.storage.UploadManaged(ctx, storage.ManagedUploadInput{Purpose: "voices/source", OriginalName: input.Source.Name, UploadInput: storage.UploadInput{Data: input.Source.Data, ContentType: input.Source.MIMEType}})
@@ -195,7 +228,7 @@ func (s *VoiceService) Create(ctx context.Context, input CreateVoiceProfileInput
 			return db.VoiceProfile{}, err
 		}
 	}
-	previewObject, err := s.storage.UploadManaged(ctx, storage.ManagedUploadInput{Purpose: "voices/preview", OriginalName: "preview.mp3", UploadInput: storage.UploadInput{Data: previewData, ContentType: "audio/mpeg"}})
+	previewObject, err := s.storage.UploadManaged(ctx, storage.ManagedUploadInput{Purpose: "voices/preview", OriginalName: previewName, UploadInput: storage.UploadInput{Data: previewData, ContentType: previewMIMEType}})
 	if err != nil {
 		_ = s.storage.DeleteManaged(ctx, sourceObject.Record.ID)
 		if promptObject != nil {
@@ -210,7 +243,7 @@ func (s *VoiceService) Create(ctx context.Context, input CreateVoiceProfileInput
 		SourceName: input.Source.Name, SourceMimeType: input.Source.MIMEType, SourceFileSizeBytes: int64(len(input.Source.Data)),
 		SourceObjectID:  sourceObject.Record.ID,
 		PromptText:      strings.TrimSpace(input.PromptText),
-		PreviewMimeType: "audio/mpeg", PreviewFileSizeBytes: int64(len(previewData)),
+		PreviewMimeType: previewMIMEType, PreviewFileSizeBytes: int64(len(previewData)),
 		PreviewObjectID: previewObject.Record.ID,
 		ProviderFileID:  providerFileID, ProviderPromptFileID: providerPromptID,
 		ActivatedAt: &now, Metadata: db.JSON(map[string]any{
@@ -265,6 +298,10 @@ func (s *VoiceService) Delete(ctx context.Context, id uuid.UUID) error {
 		}
 	case ProviderSiliconFlow:
 		if err := s.deleteSiliconFlowVoice(ctx, baseURL, secret.APIKey, profile.VoiceID); err != nil {
+			return err
+		}
+	case ProviderZhipu:
+		if err := s.deleteZhipuVoice(ctx, baseURL, secret.APIKey, profile.VoiceID); err != nil {
 			return err
 		}
 	default:
@@ -452,6 +489,134 @@ func (s *VoiceService) deleteSiliconFlowVoice(ctx context.Context, baseURL, key,
 	return nil
 }
 
+func (s *VoiceService) uploadZhipuVoiceFile(ctx context.Context, baseURL, key string, file VoiceFile) (string, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("purpose", "voice-clone-input"); err != nil {
+		return "", err
+	}
+	part, err := writer.CreateFormFile("file", file.Name)
+	if err != nil {
+		return "", err
+	}
+	if _, err := part.Write(file.Data); err != nil {
+		return "", err
+	}
+	if err := writer.Close(); err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/files", &body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrProviderRequest, err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("%w: status=%d body=%s", ErrProviderRequest, resp.StatusCode, truncate(string(raw), 600))
+	}
+	var response struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &response); err != nil || strings.TrimSpace(response.ID) == "" {
+		return "", fmt.Errorf("%w: Zhipu voice upload returned no file id", ErrProviderRequest)
+	}
+	return strings.TrimSpace(response.ID), nil
+}
+
+func (s *VoiceService) cloneZhipuVoice(ctx context.Context, baseURL, key, voiceName, sourceText, previewText, fileID string) (string, string, json.RawMessage, error) {
+	requestID := uuid.NewString()
+	payload := map[string]any{
+		"model": "glm-tts-clone", "voice_name": voiceName, "input": previewText,
+		"file_id": fileID, "request_id": requestID,
+	}
+	if sourceText != "" {
+		payload["text"] = sourceText
+	}
+	var response struct {
+		Voice     string `json:"voice"`
+		FileID    string `json:"file_id"`
+		RequestID string `json:"request_id"`
+	}
+	raw, err := s.doJSON(ctx, http.MethodPost, baseURL+"/voice/clone", key, payload, &response)
+	if err != nil {
+		return "", "", nil, err
+	}
+	if strings.TrimSpace(response.Voice) == "" {
+		return "", "", raw, fmt.Errorf("%w: Zhipu voice clone returned no voice id", ErrProviderRequest)
+	}
+	return strings.TrimSpace(response.Voice), strings.TrimSpace(response.FileID), jsonSummary(raw), nil
+}
+
+func (s *VoiceService) previewZhipuVoice(ctx context.Context, baseURL, key, voiceID, text string) ([]byte, json.RawMessage, error) {
+	payload, err := json.Marshal(map[string]any{
+		"model": "glm-tts", "input": text, "voice": voiceID, "response_format": "wav",
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/audio/speech", bytes.NewReader(payload))
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("Accept", "audio/wav")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: %v", ErrProviderRequest, err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	if err != nil {
+		return nil, nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, nil, fmt.Errorf("%w: status=%d body=%s", ErrProviderRequest, resp.StatusCode, truncate(string(data), 600))
+	}
+	metadata, _ := json.Marshal(map[string]any{"bytes": len(data)})
+	return data, metadata, nil
+}
+
+func (s *VoiceService) deleteZhipuVoice(ctx context.Context, baseURL, key, voiceID string) error {
+	var response any
+	_, err := s.doJSON(ctx, http.MethodPost, baseURL+"/voice/delete", key, map[string]any{
+		"voice": voiceID, "request_id": uuid.NewString(),
+	}, &response)
+	return err
+}
+
+func (s *VoiceService) deleteZhipuFile(ctx context.Context, baseURL, key, fileID string) {
+	if strings.TrimSpace(fileID) == "" {
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, baseURL+"/files/"+fileID, nil)
+	if err != nil {
+		s.log.Warn("create Zhipu file deletion request", zap.String("file_id", fileID), zap.Error(err))
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		s.log.Warn("delete Zhipu clone input", zap.String("file_id", fileID), zap.Error(err))
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 600))
+		s.log.Warn("delete Zhipu clone input", zap.String("file_id", fileID), zap.Int("status", resp.StatusCode), zap.String("body", string(data)))
+	}
+}
+
 func (s *VoiceService) deleteProviderFile(ctx context.Context, baseURL, key, purpose string, id int64) {
 	if id == 0 {
 		return
@@ -504,6 +669,15 @@ func supportedCloneAudio(mimeType, name string) bool {
 	}
 	mimeType = strings.ToLower(strings.Split(mimeType, ";")[0])
 	return mimeType == "audio/mpeg" || mimeType == "audio/mp4" || mimeType == "audio/x-m4a" || mimeType == "audio/wav" || mimeType == "audio/x-wav"
+}
+
+func supportedZhipuCloneAudio(mimeType, name string) bool {
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext == ".mp3" || ext == ".wav" {
+		return true
+	}
+	mimeType = strings.ToLower(strings.Split(mimeType, ";")[0])
+	return mimeType == "audio/mpeg" || mimeType == "audio/wav" || mimeType == "audio/x-wav"
 }
 
 func optionalIntString(value int64) string {

@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "catalog_version": "2026.07.23.1",
+  "catalog_version": "2026.07.23.2",
   "published_at": "2026-07-23T00:00:00+08:00",
   "profiles": {
     "siliconflow-chat": {
@@ -180,6 +180,209 @@
       "default_parameters": {"image_size": "1280x720"},
       "support_status": "compatible",
       "documentation_url": "https://docs.siliconflow.cn/cn/api-reference/videos/videos_submit"
+    },
+    "zhipu-chat": {
+      "task": "chat",
+      "capability": "text",
+      "input_modalities": ["text"],
+      "features": ["chat", "thinking", "structured_output"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "max_tokens": {"type": "integer", "title": "最大输出 Token", "minimum": 1, "maximum": 131072},
+          "temperature": {"type": "number", "title": "温度", "minimum": 0, "maximum": 1},
+          "top_p": {"type": "number", "title": "Top P", "minimum": 0, "maximum": 1},
+          "thinking": {"type": "string", "title": "深度思考", "enum": ["disabled", "enabled"]},
+          "response_format": {"type": "string", "title": "返回格式", "enum": ["", "json_object"]}
+        }
+      },
+      "default_parameters": {"max_tokens": 4096, "temperature": 0.7, "thinking": "disabled"},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.bigmodel.cn/api-reference/%E6%A8%A1%E5%9E%8B-api/%E5%AF%B9%E8%AF%9D%E8%A1%A5%E5%85%A8"
+    },
+    "zhipu-vlm": {
+      "task": "chat",
+      "capability": "text",
+      "input_modalities": ["text", "image"],
+      "features": ["chat", "vision", "thinking"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "max_tokens": {"type": "integer", "title": "最大输出 Token", "minimum": 1, "maximum": 32768},
+          "temperature": {"type": "number", "title": "温度", "minimum": 0, "maximum": 1},
+          "top_p": {"type": "number", "title": "Top P", "minimum": 0, "maximum": 1},
+          "thinking": {"type": "string", "title": "深度思考", "enum": ["disabled", "enabled"]}
+        }
+      },
+      "default_parameters": {"max_tokens": 4096, "temperature": 0.7, "thinking": "disabled"},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.bigmodel.cn/cn/guide/models/vlm"
+    },
+    "zhipu-image": {
+      "task": "image_generation",
+      "capability": "image",
+      "input_modalities": ["text"],
+      "features": ["image_generation", "chinese_text"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "quality": {"type": "string", "title": "质量", "enum": ["hd"]},
+          "size": {"type": "string", "title": "图像尺寸", "enum": ["1280x1280", "1568x1056", "1056x1568", "1472x1088", "1088x1472", "1728x960", "960x1728"]},
+          "watermark_enabled": {"type": "boolean", "title": "添加水印"},
+          "user_id": {"type": "string", "title": "终端用户标识"}
+        }
+      },
+      "default_parameters": {"quality": "hd", "size": "1280x1280", "watermark_enabled": true},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.bigmodel.cn/api-reference/%E6%A8%A1%E5%9E%8B-api/%E5%9B%BE%E5%83%8F%E7%94%9F%E6%88%90"
+    },
+    "zhipu-cogview": {
+      "task": "image_generation",
+      "capability": "image",
+      "input_modalities": ["text"],
+      "features": ["image_generation", "fast"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "quality": {"type": "string", "title": "质量", "enum": ["standard", "hd"]},
+          "size": {"type": "string", "title": "图像尺寸", "enum": ["1024x1024", "768x1344", "864x1152", "1344x768", "1152x864", "1440x720", "720x1440"]},
+          "watermark_enabled": {"type": "boolean", "title": "添加水印"},
+          "user_id": {"type": "string", "title": "终端用户标识"}
+        }
+      },
+      "default_parameters": {"quality": "standard", "size": "1024x1024", "watermark_enabled": true},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.bigmodel.cn/api-reference/%E6%A8%A1%E5%9E%8B-api/%E5%9B%BE%E5%83%8F%E7%94%9F%E6%88%90"
+    },
+    "zhipu-tts": {
+      "task": "speech_generation",
+      "capability": "audio",
+      "input_modalities": ["text"],
+      "features": ["speech_generation", "voice_clone"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "voice": {"type": "string", "title": "音色"},
+          "response_format": {"type": "string", "title": "输出格式", "enum": ["wav", "pcm"]},
+          "speed": {"type": "number", "title": "语速", "minimum": 0.5, "maximum": 2},
+          "volume": {"type": "number", "title": "音量", "exclusiveMinimum": 0, "maximum": 10},
+          "watermark_enabled": {"type": "boolean", "title": "添加水印"}
+        }
+      },
+      "default_parameters": {"voice": "tongtong", "response_format": "wav", "speed": 1, "volume": 1, "watermark_enabled": true},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.bigmodel.cn/api-reference/%E6%A8%A1%E5%9E%8B-api/%E6%96%87%E6%9C%AC%E8%BD%AC%E8%AF%AD%E9%9F%B3"
+    },
+    "zhipu-asr": {
+      "task": "speech_recognition",
+      "capability": "text",
+      "input_modalities": ["audio"],
+      "features": ["speech_recognition"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {"type": "string", "title": "识别提示"},
+          "hotwords": {"type": "string", "title": "热词"}
+        }
+      },
+      "default_parameters": {},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.bigmodel.cn/api-reference/%E6%A8%A1%E5%9E%8B-api/%E9%9F%B3%E9%A2%91%E8%BD%AC%E5%BD%95"
+    },
+    "zhipu-cogvideo": {
+      "task": "text_to_video",
+      "capability": "video",
+      "input_modalities": ["text"],
+      "features": ["video_generation", "text_to_video", "native_audio"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "quality": {"type": "string", "title": "质量", "enum": ["speed", "quality"]},
+          "with_audio": {"type": "boolean", "title": "生成音频"},
+          "watermark_enabled": {"type": "boolean", "title": "添加水印"},
+          "size": {"type": "string", "title": "视频尺寸"},
+          "fps": {"type": "integer", "title": "帧率"},
+          "duration": {"type": "integer", "title": "时长", "enum": [5, 10]},
+          "aspect_ratio": {"type": "string", "title": "宽高比", "enum": ["16:9", "9:16", "1:1"]},
+          "movement_amplitude": {"type": "string", "title": "运动幅度", "enum": ["auto", "small", "medium", "large"]}
+        }
+      },
+      "default_parameters": {"quality": "speed", "with_audio": false, "watermark_enabled": true, "duration": 5, "aspect_ratio": "16:9", "movement_amplitude": "auto"},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.bigmodel.cn/api-reference/%E6%A8%A1%E5%9E%8B-api/%E8%A7%86%E9%A2%91%E7%94%9F%E6%88%90"
+    },
+    "zhipu-cogvideo-image": {
+      "task": "",
+      "capability": "video",
+      "input_modalities": ["text", "image"],
+      "features": ["video_generation", "text_to_video", "image_to_video", "first_last_frame", "local_reference"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "quality": {"type": "string", "title": "质量", "enum": ["speed", "quality"]},
+          "with_audio": {"type": "boolean", "title": "生成音频"},
+          "watermark_enabled": {"type": "boolean", "title": "添加水印"},
+          "size": {"type": "string", "title": "视频尺寸"},
+          "fps": {"type": "integer", "title": "帧率"},
+          "duration": {"type": "integer", "title": "时长", "enum": [5, 10]},
+          "aspect_ratio": {"type": "string", "title": "宽高比", "enum": ["16:9", "9:16", "1:1"]},
+          "movement_amplitude": {"type": "string", "title": "运动幅度", "enum": ["auto", "small", "medium", "large"]}
+        }
+      },
+      "default_parameters": {"quality": "speed", "with_audio": false, "watermark_enabled": true, "duration": 5, "movement_amplitude": "auto"},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.bigmodel.cn/api-reference/%E6%A8%A1%E5%9E%8B-api/%E8%A7%86%E9%A2%91%E7%94%9F%E6%88%90"
+    },
+    "zhipu-vidu-image": {
+      "task": "image_to_video",
+      "capability": "video",
+      "input_modalities": ["text", "image"],
+      "features": ["video_generation", "image_to_video"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "with_audio": {"type": "boolean", "title": "生成音频"},
+          "duration": {"type": "integer", "title": "时长", "enum": [4]},
+          "size": {"type": "string", "title": "视频尺寸", "enum": ["1280x720", "720x1280"]}
+        }
+      },
+      "default_parameters": {"with_audio": false, "duration": 4, "size": "1280x720"},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.bigmodel.cn/cn/guide/models/video-generation/vidu"
+    },
+    "zhipu-vidu-start-end": {
+      "task": "start_end_video",
+      "capability": "video",
+      "input_modalities": ["text", "image"],
+      "features": ["video_generation", "first_last_frame"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "with_audio": {"type": "boolean", "title": "生成音频"},
+          "duration": {"type": "integer", "title": "时长", "enum": [4]},
+          "size": {"type": "string", "title": "视频尺寸", "enum": ["1280x720", "720x1280"]}
+        }
+      },
+      "default_parameters": {"with_audio": false, "duration": 4, "size": "1280x720"},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.bigmodel.cn/cn/guide/models/video-generation/vidu"
+    },
+    "zhipu-vidu-reference": {
+      "task": "reference_to_video",
+      "capability": "video",
+      "input_modalities": ["text", "image"],
+      "features": ["video_generation", "multi_reference", "remote_reference_required"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "with_audio": {"type": "boolean", "title": "生成音频"},
+          "duration": {"type": "integer", "title": "时长", "enum": [4]},
+          "size": {"type": "string", "title": "视频尺寸", "enum": ["1280x720", "720x1280"]}
+        }
+      },
+      "default_parameters": {"with_audio": false, "duration": 4, "size": "1280x720"},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.bigmodel.cn/cn/guide/models/video-generation/vidu"
     }
   },
   "models": [
@@ -266,6 +469,115 @@
       "model_id": "Wan-AI/Wan2.2-I2V-A14B",
       "display_name": "Wan 2.2 Image to Video",
       "support_status": "verified"
+    },
+    {
+      "profile": "zhipu-chat",
+      "provider_code": "zhipu",
+      "model_id": "glm-5.2",
+      "display_name": "GLM 5.2"
+    },
+    {
+      "profile": "zhipu-chat",
+      "provider_code": "zhipu",
+      "model_id": "glm-4.7-flash",
+      "display_name": "GLM 4.7 Flash",
+      "features": ["chat", "thinking", "structured_output", "fast", "free"],
+      "support_status": "verified"
+    },
+    {
+      "profile": "zhipu-chat",
+      "provider_code": "zhipu",
+      "model_id": "glm-4.7-flashx",
+      "display_name": "GLM 4.7 FlashX",
+      "enabled": false
+    },
+    {
+      "profile": "zhipu-vlm",
+      "provider_code": "zhipu",
+      "model_id": "glm-5v-turbo",
+      "display_name": "GLM 5V Turbo",
+      "support_status": "verified"
+    },
+    {
+      "profile": "zhipu-vlm",
+      "provider_code": "zhipu",
+      "model_id": "glm-4.6v-flash",
+      "display_name": "GLM 4.6V Flash",
+      "features": ["chat", "vision", "fast", "free"],
+      "enabled": false
+    },
+    {
+      "profile": "zhipu-image",
+      "provider_code": "zhipu",
+      "model_id": "glm-image",
+      "display_name": "GLM Image",
+      "support_status": "verified"
+    },
+    {
+      "profile": "zhipu-cogview",
+      "provider_code": "zhipu",
+      "model_id": "cogview-4",
+      "display_name": "CogView 4",
+      "enabled": false
+    },
+    {
+      "profile": "zhipu-cogview",
+      "provider_code": "zhipu",
+      "model_id": "cogview-3-flash",
+      "display_name": "CogView 3 Flash",
+      "features": ["image_generation", "fast", "free"],
+      "enabled": false
+    },
+    {
+      "profile": "zhipu-tts",
+      "provider_code": "zhipu",
+      "model_id": "glm-tts",
+      "display_name": "GLM TTS",
+      "support_status": "verified"
+    },
+    {
+      "profile": "zhipu-asr",
+      "provider_code": "zhipu",
+      "model_id": "glm-asr-2512",
+      "display_name": "GLM ASR 2512",
+      "support_status": "verified",
+      "enabled": false
+    },
+    {
+      "profile": "zhipu-cogvideo-image",
+      "provider_code": "zhipu",
+      "model_id": "cogvideox-3",
+      "display_name": "CogVideoX 3",
+      "support_status": "verified"
+    },
+    {
+      "profile": "zhipu-cogvideo",
+      "provider_code": "zhipu",
+      "model_id": "cogvideox-flash",
+      "display_name": "CogVideoX Flash",
+      "features": ["video_generation", "text_to_video", "fast", "free"],
+      "enabled": false
+    },
+    {
+      "profile": "zhipu-vidu-image",
+      "provider_code": "zhipu",
+      "model_id": "vidu2-image",
+      "display_name": "Vidu 2 · 图生视频",
+      "enabled": false
+    },
+    {
+      "profile": "zhipu-vidu-start-end",
+      "provider_code": "zhipu",
+      "model_id": "vidu2-start-end",
+      "display_name": "Vidu 2 · 首尾帧",
+      "enabled": false
+    },
+    {
+      "profile": "zhipu-vidu-reference",
+      "provider_code": "zhipu",
+      "model_id": "vidu2-reference",
+      "display_name": "Vidu 2 · 参考生视频",
+      "enabled": false
     }
   ]
 }

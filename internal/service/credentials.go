@@ -20,6 +20,7 @@ const (
 	ProviderMiniMax         = "minimax"
 	ProviderAliyunBailian   = "aliyun_bailian"
 	ProviderSiliconFlow     = "siliconflow"
+	ProviderZhipu           = "zhipu"
 	ProviderOllama          = "ollama"
 	ProviderComfyUI         = "comfyui"
 	ProviderOpenAIChat      = "openai_chat"
