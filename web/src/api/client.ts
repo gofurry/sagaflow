@@ -1,4 +1,4 @@
-import type { Account, Asset, AssetGroup, AssetRemoteExport, AuthStatus, CanvasDocument, CanvasNodeDTO, CatalogImportResult, CatalogUpdateStatus, ComfyUIDiscovery, ConnectionServerInfo, CurrentUser, Episode, EpisodeScript, GenerationInputReference, GenerationInvocation, GenerationJob, GenerationReferenceUpload, ID, Model, ModelPreset, ModelProvider, ModelSyncResult, OllamaDiscovery, Project, PromptPreset, ProviderCredential, S3Connection, SiliconFlowDiscovery, StagedAsset, StagedAssetPage, StagedAssetSummary, VoiceProfile, WorkflowAnalysis, WorkflowCompatibility, WorkflowTemplate } from './types'
+import type { Account, Asset, AssetGroup, AssetRemoteExport, AuthStatus, CanvasDocument, CanvasNodeDTO, CatalogImportResult, CatalogUpdateStatus, ComfyUIDiscovery, ConnectionServerInfo, CurrentUser, Episode, EpisodeScript, GenerationInputReference, GenerationInvocation, GenerationJob, GenerationReferenceUpload, ID, Model, ModelPreset, ModelProvider, ModelSyncResult, OllamaDiscovery, Project, PromptPreset, ProviderCredential, S3Connection, SiliconFlowDiscovery, StagedAsset, StagedAssetPage, StagedAssetSummary, TencentTokenHubDiscovery, VoiceProfile, WorkflowAnalysis, WorkflowCompatibility, WorkflowTemplate } from './types'
 
 interface Envelope<T> { data?: T; error?: { code: string; message: string } }
 export class APIError extends Error {
@@ -66,7 +66,7 @@ export const api = {
   updateProvider: (id: ID, input: Partial<ModelProvider>) => request<ModelProvider>(`/model-providers/${id}`, { method: 'PATCH', body: body(input) }),
   deleteProvider: (id: ID) => request<{ deleted: boolean }>(`/model-providers/${id}`, { method: 'DELETE' }),
   testProvider: (id: ID) => request<ConnectionServerInfo>(`/model-providers/${id}/test`, { method: 'POST' }),
-  discoverProviderModels: (id: ID) => request<OllamaDiscovery | ComfyUIDiscovery | SiliconFlowDiscovery>(`/model-providers/${id}/discover`, { method: 'POST' }),
+  discoverProviderModels: (id: ID) => request<OllamaDiscovery | ComfyUIDiscovery | SiliconFlowDiscovery | TencentTokenHubDiscovery>(`/model-providers/${id}/discover`, { method: 'POST' }),
   syncProviderModels: (id: ID, modelIDs: string[]) => request<ModelSyncResult>(`/model-providers/${id}/sync`, { method: 'POST', body: body({ model_ids: modelIDs }) }),
   models: (capability?: string, projectID?: ID) => request<Model[]>(`/model-catalog${query({ capability, project_id: projectID })}`),
   modelCatalogUpdateStatus: () => request<CatalogUpdateStatus>('/model-catalog/update'),

@@ -3,7 +3,7 @@ import { ApiOutlined, AudioOutlined, CheckCircleOutlined, CloudServerOutlined, C
 import { App, Button, Checkbox, Col, Empty, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Switch, Upload } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
-import type { Capability, Model, ModelLifecycleStatus, ModelProvider, ModelSupportStatus, OllamaDiscovery, PromptPreset, SiliconFlowDiscovery } from '../../api/types'
+import type { Capability, CloudModelDiscovery, Model, ModelLifecycleStatus, ModelProvider, ModelSupportStatus, OllamaDiscovery, PromptPreset } from '../../api/types'
 import { FloatingToolbar } from '../../components/FloatingToolbar'
 import { JSONCodeEditor } from '../../components/JSONCodeEditor'
 import { MarkdownEditor, MarkdownPreview } from '../../components/Markdown'
@@ -32,7 +32,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
   const [providerOpen, setProviderOpen] = useState(false)
   const [editingProvider, setEditingProvider] = useState<ModelProvider | null>(null)
   const [discoveryProvider, setDiscoveryProvider] = useState<ModelProvider | null>(null)
-  const [discovery, setDiscovery] = useState<OllamaDiscovery | SiliconFlowDiscovery | null>(null)
+  const [discovery, setDiscovery] = useState<OllamaDiscovery | CloudModelDiscovery | null>(null)
   const [selectedRemoteModels, setSelectedRemoteModels] = useState<string[]>([])
   const [modelOpen, setModelOpen] = useState(false)
   const [credentialOpen, setCredentialOpen] = useState(false)
@@ -149,7 +149,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
       message.success('node_count' in server
         ? `连接正常 · ComfyUI ${server.version}`
         : 'provider' in server
-          ? `连接正常 · 硅基流动当前可见 ${server.model_count} 个生成模型`
+          ? `连接正常 · 当前可见 ${server.model_count} 个已支持模型`
           : `连接正常 · Ollama ${server.version} · ${server.model_count} 个模型`)
     },
     onError: (error, providerID) => {
@@ -161,7 +161,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
     mutationFn: ({ provider }: { provider: ModelProvider }) => api.discoverProviderModels(provider.id),
     onSuccess: (result, { provider }) => {
       if (!Array.isArray(result.models)) return
-      const compatibleResult = result as OllamaDiscovery | SiliconFlowDiscovery
+      const compatibleResult = result as OllamaDiscovery | CloudModelDiscovery
       setDiscoveryProvider(provider)
       setDiscovery(compatibleResult)
       const imported = new Set(models.filter((model) => model.provider_id === provider.id).map((model) => model.model_id))
@@ -346,7 +346,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
                   options={Array.from({ length: 8 }, (_, index) => ({ value: index + 1, label: `${index + 1} 个任务` }))}
                   value={providerMaxConcurrency(provider)}
                 /></div>}
-                {(provider.adapter_code === 'ollama' || provider.adapter_code === 'siliconflow') && <div className="provider-connection-actions"><span>{provider.adapter_code === 'ollama' ? 'Ollama 服务' : '硅基流动服务'}</span><div>
+                {(provider.adapter_code === 'ollama' || provider.adapter_code === 'siliconflow' || provider.adapter_code === 'tencent_tokenhub') && <div className="provider-connection-actions"><span>{provider.adapter_code === 'ollama' ? 'Ollama 服务' : provider.adapter_code === 'siliconflow' ? '硅基流动服务' : '腾讯云 TokenHub'}</span><div>
                   <em className={`provider-health ${providerHealth[provider.id] ?? 'unknown'}`}>{providerHealth[provider.id] === 'online' ? '已连接' : providerHealth[provider.id] === 'offline' ? '未检测到服务' : '尚未检测'}</em>
                   <Button icon={<CheckCircleOutlined/>} loading={testProvider.isPending && testProvider.variables === provider.id} onClick={() => testProvider.mutate(provider.id)} size="small">测试连接</Button>
                   <Button icon={<SyncOutlined/>} loading={discoverModels.isPending && discoverModels.variables?.provider.id === provider.id} onClick={() => discoverModels.mutate({ provider })} size="small" type="primary">同步模型</Button>
@@ -423,7 +423,23 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
       </div> : <VoiceProfileManager models={models} onError={onError}/>}
     </section>
 
-    <Modal title={editingProvider ? '编辑模型服务连接' : '添加模型服务连接'} open={providerOpen} onCancel={closeProviderEditor} onOk={() => providerForm.submit()} confirmLoading={saveProvider.isPending} width={680}><Form form={providerForm} layout="vertical" onFinish={(values) => saveProvider.mutate(values)} requiredMark={false}><Row gutter={12}><Col span={12}><Form.Item label="连接代码" name="code" rules={[{ required: true }]}><Input placeholder="例如 comfyui-official-local"/></Form.Item></Col><Col span={12}><Form.Item label="显示名称" name="display_name" rules={[{ required: true }]}><Input placeholder="例如 本机官方 ComfyUI"/></Form.Item></Col></Row><Row gutter={12}><Col span={12}><Form.Item label="Adapter" name="adapter_code" rules={[{ required: true }]}><Select onChange={(value) => providerForm.setFieldsValue(value === 'comfyui' ? { base_url: 'http://127.0.0.1:8188', capabilities: ['image', 'video'], max_concurrency: 1, auth_type: 'none' } : value === 'ollama' ? { base_url: 'http://127.0.0.1:11434', capabilities: ['text'], max_concurrency: 1, auth_type: 'none' } : value === 'siliconflow' ? { base_url: 'https://api.siliconflow.cn/v1', capabilities: ['text', 'image', 'audio', 'video', 'multimodal'], auth_type: 'api_key' } : value === 'zhipu' ? { base_url: 'https://open.bigmodel.cn/api/paas/v4', capabilities: ['text', 'image', 'audio', 'video', 'multimodal'], auth_type: 'api_key' } : value === 'aliyun_bailian' ? { base_url: 'https://dashscope.aliyuncs.com', capabilities: ['text', 'image', 'audio', 'video'], auth_type: 'api_key' } : {})} options={['ollama', 'comfyui', 'siliconflow', 'zhipu', 'openai_chat', 'openai_responses', 'deepseek', 'volcengine', 'minimax', 'aliyun_bailian'].map((value) => ({ value, label: value }))}/></Form.Item></Col><Col span={12}><Form.Item label="认证方式" name="auth_type" rules={[{ required: true }]}><Select options={[{ value: 'none', label: '无需认证' }, { value: 'api_key', label: 'API Key' }, { value: 'bearer', label: 'Bearer Token' }]}/></Form.Item></Col></Row><Row gutter={12}><Col span={isLocalAdapter(providerAdapter) ? 16 : 24}><Form.Item label="Base URL" name="base_url" rules={[{ required: true }, { type: 'url' }]}><Input placeholder="http://127.0.0.1:8188"/></Form.Item></Col>{isLocalAdapter(providerAdapter) && <Col span={8}><Form.Item label="最大并发" name="max_concurrency" rules={[{ required: true }]}><InputNumber min={1} max={8} precision={0} style={{ width: '100%' }}/></Form.Item></Col>}</Row><Form.Item label="输出能力" name="capabilities" rules={[{ required: true }]}><Select mode="multiple" options={capabilities.map((value) => ({ value, label: capabilityLabel(value) }))}/></Form.Item></Form></Modal>
+    <Modal title={editingProvider ? '编辑模型服务连接' : '添加模型服务连接'} open={providerOpen} onCancel={closeProviderEditor} onOk={() => providerForm.submit()} confirmLoading={saveProvider.isPending} width={680}>
+      <Form form={providerForm} layout="vertical" onFinish={(values) => saveProvider.mutate(values)} requiredMark={false}>
+        <Row gutter={12}>
+          <Col span={12}><Form.Item label="连接代码" name="code" rules={[{ required: true }]}><Input placeholder="例如 comfyui-official-local"/></Form.Item></Col>
+          <Col span={12}><Form.Item label="显示名称" name="display_name" rules={[{ required: true }]}><Input placeholder="例如 本机官方 ComfyUI"/></Form.Item></Col>
+        </Row>
+        <Row gutter={12}>
+          <Col span={12}><Form.Item label="Adapter" name="adapter_code" rules={[{ required: true }]}><Select onChange={(value) => providerForm.setFieldsValue(providerDefaults(value))} options={['ollama', 'comfyui', 'siliconflow', 'tencent_tokenhub', 'zhipu', 'openai_chat', 'openai_responses', 'deepseek', 'volcengine', 'minimax', 'aliyun_bailian'].map((value) => ({ value, label: value }))}/></Form.Item></Col>
+          <Col span={12}><Form.Item label="认证方式" name="auth_type" rules={[{ required: true }]}><Select options={[{ value: 'none', label: '无需认证' }, { value: 'api_key', label: 'API Key' }, { value: 'bearer', label: 'Bearer Token' }]}/></Form.Item></Col>
+        </Row>
+        <Row gutter={12}>
+          <Col span={isLocalAdapter(providerAdapter) ? 16 : 24}><Form.Item label="Base URL" name="base_url" rules={[{ required: true }, { type: 'url' }]}><Input placeholder="http://127.0.0.1:8188"/></Form.Item></Col>
+          {isLocalAdapter(providerAdapter) && <Col span={8}><Form.Item label="最大并发" name="max_concurrency" rules={[{ required: true }]}><InputNumber min={1} max={8} precision={0} style={{ width: '100%' }}/></Form.Item></Col>}
+        </Row>
+        <Form.Item label="输出能力" name="capabilities" rules={[{ required: true }]}><Select mode="multiple" options={capabilities.map((value) => ({ value, label: capabilityLabel(value) }))}/></Form.Item>
+      </Form>
+    </Modal>
     <Modal title="添加模型" open={modelOpen} onCancel={() => setModelOpen(false)} onOk={() => modelForm.submit()} width={980} confirmLoading={createModel.isPending}><Form form={modelForm} layout="vertical" onFinish={(values) => createModel.mutate(values)} requiredMark={false} initialValues={{ enabled: true, parameter_schema: '{\n  "type": "object",\n  "properties": {}\n}', default_parameters: '{}' }}><Row gutter={12}><Col span={12}><Form.Item label="服务连接" name="provider_id" rules={[{ required: true }]}><Select options={providers.map((item) => ({ value: item.id, label: item.display_name }))}/></Form.Item></Col><Col span={12}><Form.Item label="输出能力" name="capability" rules={[{ required: true }]}><Select options={capabilities.map((value) => ({ value, label: capabilityLabel(value) }))}/></Form.Item></Col></Row><Row gutter={12}><Col span={12}><Form.Item label="Model ID" name="model_id" rules={[{ required: true }]}><Input/></Form.Item></Col><Col span={12}><Form.Item label="显示名称" name="display_name" rules={[{ required: true }]}><Input/></Form.Item></Col></Row><Row gutter={16}><Col span={12}><Form.Item extra="描述生成页如何把参数映射为表单组件。" label="参数 JSON Schema" name="parameter_schema" rules={[jsonRule]}><JSONCodeEditor height={330}/></Form.Item></Col><Col span={12}><Form.Item extra="只写需要由 SagaFlow 主动覆盖的默认值。" label="默认参数" name="default_parameters" rules={[jsonRule]}><JSONCodeEditor height={330}/></Form.Item></Col></Row></Form></Modal>
     <Modal cancelText="取消" confirmLoading={importCatalog.isPending} okButtonProps={{ disabled: !catalogUpdateJSON.trim() }} okText="校验并更新" onCancel={() => setCatalogUpdateOpen(false)} onOk={submitCatalogUpdate} open={catalogUpdateOpen} title="更新模型目录" width={1040}>
       <div className="catalog-update-heading">
@@ -446,8 +462,8 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
     <Modal title="添加服务凭证" open={credentialOpen} onCancel={() => setCredentialOpen(false)} onOk={() => credentialForm.submit()} confirmLoading={createCredential.isPending}><Form form={credentialForm} layout="vertical" onFinish={(values) => createCredential.mutate({ ...values, activate: true })} requiredMark={false}><Form.Item label="服务连接" name="provider_id" rules={[{ required: true }]}><Select options={providers.filter((item) => item.auth_type !== 'none').map((item) => ({ value: item.id, label: item.display_name }))}/></Form.Item><Form.Item label="名称" name="name" initialValue="Primary credential" rules={[{ required: true }]}><Input/></Form.Item><Form.Item label="API Key / Token" name="api_key" rules={[{ required: true }]}><Input.Password autoComplete="new-password"/></Form.Item></Form></Modal>
     <Modal cancelText="取消" confirmLoading={syncModels.isPending} okButtonProps={{ disabled: !discoveryProvider }} okText="同步所选模型" onCancel={() => { setDiscovery(null); setDiscoveryProvider(null) }} onOk={() => discoveryProvider && syncModels.mutate({ providerID: discoveryProvider.id, modelIDs: selectedRemoteModels })} open={!!discovery && !!discoveryProvider} title={discoveryProvider ? `同步 ${discoveryProvider.display_name} 中的模型` : '同步模型'} width={760}>
       {discovery && discoveryProvider && <div className="ollama-discovery">
-        {isSiliconFlowDiscovery(discovery)
-          ? <div className="ollama-server-summary"><span>硅基流动在线目录</span><span>{discovery.server.model_count} 个生成模型</span><span>动态兼容模型可按需导入</span></div>
+        {isCloudDiscovery(discovery)
+          ? <div className="ollama-server-summary"><span>{discovery.server.provider === 'siliconflow' ? '硅基流动在线目录' : '腾讯云 TokenHub 在线目录'}</span><span>{discovery.server.model_count} 个已支持模型</span><span>{discovery.server.provider === 'siliconflow' ? '动态兼容模型可按需导入' : '只同步 SagaFlow 内置的腾讯模型与下线状态'}</span></div>
           : <div className="ollama-server-summary"><span>Ollama {discovery.server.version}</span><span>{discovery.server.model_count} 个已安装</span><span>{discovery.server.running_count} 个已加载</span></div>}
         <Checkbox.Group onChange={(values) => setSelectedRemoteModels(values as string[])} value={selectedRemoteModels}>
           {discovery.models.map((remote) => {
@@ -504,9 +520,22 @@ function modelFeatureLabel(value: string) { return ({
   multi_reference: '多参考', sequential_images: '组图生成', knowledge_grounding: '知识增强', video_generation: '视频生成',
   audio_generation: '同步声音', speech_generation: '语音生成', speech_recognition: '语音识别', voice_clone: '音色克隆',
   dynamic_voice: '动态音色', two_speaker_dialogue: '双人对话', long_audio: '长音频', text_to_video: '文生视频',
-  image_to_video: '图生视频', structured_output: '结构化输出', chinese_text: '中文文字',
+  image_to_video: '图生视频', structured_output: '结构化输出', chinese_text: '中文文字', video_understanding: '视频理解',
+  remote_reference_required: '参考需手动发布 S3',
+  translation: '翻译',
 } as Record<string, string>)[value] ?? value }
 function isLocalAdapter(value?: string) { return value === 'ollama' || value === 'comfyui' }
+function providerDefaults(value: string) {
+  switch (value) {
+    case 'comfyui': return { base_url: 'http://127.0.0.1:8188', capabilities: ['image', 'video'], max_concurrency: 1, auth_type: 'none' }
+    case 'ollama': return { base_url: 'http://127.0.0.1:11434', capabilities: ['text'], max_concurrency: 1, auth_type: 'none' }
+    case 'siliconflow': return { base_url: 'https://api.siliconflow.cn/v1', capabilities: ['text', 'image', 'audio', 'video', 'multimodal'], auth_type: 'api_key' }
+    case 'tencent_tokenhub': return { base_url: 'https://tokenhub.tencentmaas.com/v1', capabilities: ['text', 'image', 'video', 'multimodal'], auth_type: 'api_key' }
+    case 'zhipu': return { base_url: 'https://open.bigmodel.cn/api/paas/v4', capabilities: ['text', 'image', 'audio', 'video', 'multimodal'], auth_type: 'api_key' }
+    case 'aliyun_bailian': return { base_url: 'https://dashscope.aliyuncs.com', capabilities: ['text', 'image', 'audio', 'video'], auth_type: 'api_key' }
+    default: return {}
+  }
+}
 function providerMaxConcurrency(provider: ModelProvider) {
   const value = Number(provider.metadata.max_concurrency)
   return Number.isInteger(value) && value >= 1 && value <= 8 ? value : 1
@@ -553,18 +582,18 @@ function replacementLabel(model: Model) {
   const value = replacement as Record<string, unknown>
   return typeof value.model_id === 'string' && value.model_id ? `建议迁移到 ${value.model_id}。` : ''
 }
-function isSiliconFlowDiscovery(discovery: OllamaDiscovery | SiliconFlowDiscovery): discovery is SiliconFlowDiscovery {
+function isCloudDiscovery(discovery: OllamaDiscovery | CloudModelDiscovery): discovery is CloudModelDiscovery {
   return 'provider' in discovery.server
 }
-function remoteModelSupported(model: OllamaDiscovery['models'][number] | SiliconFlowDiscovery['models'][number]) {
+function remoteModelSupported(model: OllamaDiscovery['models'][number] | CloudModelDiscovery['models'][number]) {
   return 'supports_generation' in model ? model.supports_generation : model.supports_text_output
 }
-function remoteModelSummary(model: OllamaDiscovery['models'][number] | SiliconFlowDiscovery['models'][number]) {
+function remoteModelSummary(model: OllamaDiscovery['models'][number] | CloudModelDiscovery['models'][number]) {
   return 'supports_generation' in model
     ? `${capabilityLabel(model.capability)} · ${modelSupportLabel(model.support_status)} · ${model.task}`
     : modelDetailSummary(model)
 }
-function remoteModelCapabilities(model: OllamaDiscovery['models'][number] | SiliconFlowDiscovery['models'][number]) {
+function remoteModelCapabilities(model: OllamaDiscovery['models'][number] | CloudModelDiscovery['models'][number]) {
   return ('supports_generation' in model ? model.features : model.capabilities).map(modelFeatureLabel).join(' · ')
 }
 async function copyText(value: string) {

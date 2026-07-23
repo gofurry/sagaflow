@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/gofiber/fiber/v3"
@@ -41,6 +42,7 @@ type resolvedGenerationTarget struct {
 	WorkflowID        *uuid.UUID
 	Capability        string
 	InputModalities   []string
+	Features          []string
 	ProviderCode      string
 	AdapterCode       string
 	Identifier        string
@@ -129,7 +131,7 @@ func (s *Server) createGenerationJob(c fiber.Ctx) error {
 			return fmt.Errorf("%w: prompt preset must match the model capability", service.ErrInvalidInput)
 		}
 	}
-	references, err := s.validateGenerationReferences(c, req.ProjectID, target.InputModalities, target.Capability, target.AdapterCode, req.InputReferences)
+	references, err := s.validateGenerationReferences(c, req.ProjectID, target.InputModalities, target.Features, target.Capability, target.AdapterCode, req.InputReferences)
 	if err != nil {
 		return err
 	}
@@ -182,7 +184,7 @@ func (s *Server) resolveGenerationTarget(c fiber.Ctx, req generationRequest) (re
 			return resolvedGenerationTarget{}, err
 		}
 		return resolvedGenerationTarget{
-			Kind: "model", ModelID: req.ModelID, Capability: model.Capability, InputModalities: model.InputModalities,
+			Kind: "model", ModelID: req.ModelID, Capability: model.Capability, InputModalities: model.InputModalities, Features: model.Features,
 			ProviderCode: model.ProviderCode, AdapterCode: provider.AdapterCode, Identifier: model.ModelID, DefaultParameters: model.DefaultParameters,
 			Snapshot: db.JSON(map[string]any{"kind": "model", "id": model.ModelID, "capability": model.Capability}),
 		}, nil
@@ -220,7 +222,7 @@ func (s *Server) resolveGenerationTarget(c fiber.Ctx, req generationRequest) (re
 	}
 }
 
-func (s *Server) validateGenerationReferences(c fiber.Ctx, projectID uuid.UUID, modalities []string, capability, adapterCode string, requested []generationInputReferenceRequest) ([]db.GenerationInputReference, error) {
+func (s *Server) validateGenerationReferences(c fiber.Ctx, projectID uuid.UUID, modalities, features []string, capability, adapterCode string, requested []generationInputReferenceRequest) ([]db.GenerationInputReference, error) {
 	allowed := allowedReferenceMedia(modalities, capability)
 	if len(requested) > 0 && len(allowed) == 0 {
 		return nil, fmt.Errorf("%w: selected execution target does not accept reference files", service.ErrInvalidInput)
@@ -262,7 +264,7 @@ func (s *Server) validateGenerationReferences(c fiber.Ctx, projectID uuid.UUID, 
 			return nil, fmt.Errorf("%w: %s references are not supported by this model capability", service.ErrInvalidInput, mediaType)
 		}
 		remoteExportID := requestedReference.RemoteExportID
-		if providerRequiresRemoteReferences(adapterCode) {
+		if providerRequiresRemoteReferences(adapterCode) || slices.Contains(features, "remote_reference_required") {
 			if requestedReference.Source != "asset" {
 				return nil, fmt.Errorf("%w: temporary references cannot be sent to a cloud model; import and publish the asset first", service.ErrInvalidInput)
 			}
@@ -290,7 +292,7 @@ func (s *Server) validateGenerationReferences(c fiber.Ctx, projectID uuid.UUID, 
 
 func providerRequiresRemoteReferences(adapterCode string) bool {
 	switch adapterCode {
-	case service.ProviderOllama, service.ProviderComfyUI:
+	case service.ProviderOllama, service.ProviderComfyUI, service.ProviderSiliconFlow, service.ProviderZhipu, service.ProviderTencentTokenHub:
 		return false
 	default:
 		return true

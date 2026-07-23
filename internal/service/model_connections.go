@@ -11,6 +11,7 @@ import (
 	"github.com/gofurry/sagaflow/internal/inference/adapters/comfyui"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/ollama"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/siliconflow"
+	"github.com/gofurry/sagaflow/internal/inference/adapters/tencenttokenhub"
 	"github.com/gofurry/sagaflow/internal/store/db"
 	"github.com/google/uuid"
 )
@@ -21,6 +22,7 @@ type ModelConnectionService struct {
 	ollama      *ollama.Driver
 	comfyui     *comfyui.Driver
 	siliconflow *siliconflow.Driver
+	tencent     *tencenttokenhub.Driver
 }
 
 type ModelSyncResult struct {
@@ -30,13 +32,13 @@ type ModelSyncResult struct {
 	Updated  int        `json:"updated"`
 }
 
-func NewModelConnectionService(store *db.Store, credentials *CredentialService, ollamaDriver *ollama.Driver, comfyDriver *comfyui.Driver, siliconFlowDriver *siliconflow.Driver) (*ModelConnectionService, error) {
-	if store == nil || credentials == nil || ollamaDriver == nil || comfyDriver == nil || siliconFlowDriver == nil {
+func NewModelConnectionService(store *db.Store, credentials *CredentialService, ollamaDriver *ollama.Driver, comfyDriver *comfyui.Driver, siliconFlowDriver *siliconflow.Driver, tencentDriver *tencenttokenhub.Driver) (*ModelConnectionService, error) {
+	if store == nil || credentials == nil || ollamaDriver == nil || comfyDriver == nil || siliconFlowDriver == nil || tencentDriver == nil {
 		return nil, fmt.Errorf("model connection service dependencies are required")
 	}
 	return &ModelConnectionService{
 		store: store, credentials: credentials, ollama: ollamaDriver,
-		comfyui: comfyDriver, siliconflow: siliconFlowDriver,
+		comfyui: comfyDriver, siliconflow: siliconFlowDriver, tencent: tencentDriver,
 	}, nil
 }
 
@@ -66,6 +68,17 @@ func (s *ModelConnectionService) Test(ctx context.Context, providerID uuid.UUID)
 		return server, nil
 	case ProviderSiliconFlow:
 		server, probeErr := s.siliconflow.Probe(ctx, runtime)
+		if probeErr != nil {
+			return nil, providerConnectionError(provider)
+		}
+		if err := s.updateGenericMetadata(ctx, provider, map[string]any{
+			"model_count": server.ModelCount, "last_checked_at": server.LastCheckedAt,
+		}); err != nil {
+			return nil, err
+		}
+		return server, nil
+	case ProviderTencentTokenHub:
+		server, probeErr := s.tencent.Probe(ctx, runtime)
 		if probeErr != nil {
 			return nil, providerConnectionError(provider)
 		}
@@ -115,6 +128,17 @@ func (s *ModelConnectionService) Discover(ctx context.Context, providerID uuid.U
 			return nil, err
 		}
 		return discovery, nil
+	case ProviderTencentTokenHub:
+		discovery, discoverErr := s.tencent.Discover(ctx, runtime)
+		if discoverErr != nil {
+			return nil, providerConnectionError(provider)
+		}
+		if err := s.updateGenericMetadata(ctx, provider, map[string]any{
+			"model_count": discovery.Server.ModelCount, "last_checked_at": discovery.Server.LastCheckedAt,
+		}); err != nil {
+			return nil, err
+		}
+		return discovery, nil
 	default:
 		return nil, fmt.Errorf("%w: discovery is unavailable for adapter %s", ErrInvalidInput, provider.AdapterCode)
 	}
@@ -130,9 +154,72 @@ func (s *ModelConnectionService) Sync(ctx context.Context, providerID uuid.UUID,
 		return s.syncOllama(ctx, provider, runtime, selectedModelIDs)
 	case ProviderSiliconFlow:
 		return s.syncSiliconFlow(ctx, provider, runtime, selectedModelIDs)
+	case ProviderTencentTokenHub:
+		return s.syncTencentTokenHub(ctx, provider, runtime)
 	default:
 		return ModelSyncResult{}, fmt.Errorf("%w: model synchronization is unavailable for adapter %s", ErrInvalidInput, provider.AdapterCode)
 	}
+}
+
+func (s *ModelConnectionService) syncTencentTokenHub(ctx context.Context, provider db.ModelProvider, runtime inference.Runtime) (ModelSyncResult, error) {
+	discovery, err := s.tencent.Discover(ctx, runtime)
+	if err != nil {
+		return ModelSyncResult{}, providerConnectionError(provider)
+	}
+	if err := s.updateGenericMetadata(ctx, provider, map[string]any{
+		"model_count": discovery.Server.ModelCount, "last_checked_at": discovery.Server.LastCheckedAt,
+	}); err != nil {
+		return ModelSyncResult{}, err
+	}
+	existing, err := s.store.ListModelsByProvider(ctx, provider.ID)
+	if err != nil {
+		return ModelSyncResult{}, err
+	}
+	existingByKey := make(map[string]db.Model, len(existing))
+	for _, model := range existing {
+		existingByKey[model.ModelID+"\x00"+model.Capability] = model
+	}
+	availableKeys := make(map[string]struct{}, len(discovery.Models))
+	result := ModelSyncResult{Server: discovery.Server, Models: make([]db.Model, 0, len(discovery.Models))}
+	for _, discovered := range discovery.Models {
+		key := discovered.Name + "\x00" + discovered.Capability
+		availableKeys[key] = struct{}{}
+		model, ok := existingByKey[key]
+		if !ok {
+			// The model catalog update package owns schemas and feature declarations.
+			// Live discovery intentionally never imports arbitrary TokenHub proxy models.
+			continue
+		}
+		metadata := metadataMap(model.Metadata)
+		metadata["last_seen_at"] = time.Now().UTC()
+		metadata["live_status"] = discovered.RemoteStatus
+		if discovered.LifecycleStatus == "deprecated" && metadata["lifecycle_status"] == "active" {
+			metadata["lifecycle_status"] = "deprecated"
+			metadata["lifecycle_message"] = "腾讯云已将该模型标记为即将下线"
+		}
+		model.Available = discovered.RemoteStatus == "online" || discovered.RemoteStatus == "pre-offline"
+		model.Metadata = db.JSON(metadata)
+		updated, updateErr := s.store.UpdateModel(ctx, model)
+		if updateErr != nil {
+			return ModelSyncResult{}, updateErr
+		}
+		result.Models = append(result.Models, updated)
+		result.Updated++
+	}
+	for _, model := range existing {
+		if _, available := availableKeys[model.ModelID+"\x00"+model.Capability]; available || !model.Available {
+			continue
+		}
+		metadata := metadataMap(model.Metadata)
+		metadata["live_status"] = "missing"
+		metadata["live_message"] = "当前凭证的在线目录中不可见；可能未开放权限或暂时不可用"
+		model.Available = false
+		model.Metadata = db.JSON(metadata)
+		if _, err := s.store.UpdateModel(ctx, model); err != nil {
+			return ModelSyncResult{}, err
+		}
+	}
+	return result, nil
 }
 
 func (s *ModelConnectionService) syncOllama(ctx context.Context, provider db.ModelProvider, runtime inference.Runtime, selectedModelIDs []string) (ModelSyncResult, error) {

@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "catalog_version": "2026.07.23.2",
+  "catalog_version": "2026.07.23.3",
   "published_at": "2026-07-23T00:00:00+08:00",
   "profiles": {
     "siliconflow-chat": {
@@ -383,6 +383,156 @@
       "default_parameters": {"with_audio": false, "duration": 4, "size": "1280x720"},
       "support_status": "compatible",
       "documentation_url": "https://docs.bigmodel.cn/cn/guide/models/video-generation/vidu"
+    },
+    "tencent-tokenhub-chat": {
+      "task": "chat",
+      "capability": "text",
+      "input_modalities": ["text"],
+      "features": ["chat", "thinking", "structured_output", "long_context"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "max_tokens": {"type": "integer", "title": "最大输出 Token", "minimum": 1, "maximum": 131072},
+          "temperature": {"type": "number", "title": "温度", "minimum": 0, "maximum": 2},
+          "top_p": {"type": "number", "title": "Top P", "minimum": 0, "maximum": 1},
+          "thinking": {"type": "string", "title": "思考模式", "enum": ["disabled", "enabled"]},
+          "reasoning_effort": {"type": "string", "title": "推理强度", "enum": ["low", "medium", "high"]},
+          "response_format": {"type": "string", "title": "输出格式", "enum": ["text", "json_object"]}
+        }
+      },
+      "default_parameters": {"max_tokens": 4096, "temperature": 0.7, "thinking": "disabled", "reasoning_effort": "high"},
+      "support_status": "verified",
+      "documentation_url": "https://cloud.tencent.com/document/product/1823/130079"
+    },
+    "tencent-tokenhub-role": {
+      "task": "chat",
+      "capability": "text",
+      "input_modalities": ["text"],
+      "features": ["chat", "roleplay", "dialogue"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "max_tokens": {"type": "integer", "title": "最大输出 Token", "minimum": 1, "maximum": 4096},
+          "temperature": {"type": "number", "title": "温度", "minimum": 0, "maximum": 2},
+          "top_p": {"type": "number", "title": "Top P", "minimum": 0, "maximum": 1}
+        }
+      },
+      "default_parameters": {"max_tokens": 2048, "temperature": 0.8, "top_p": 0.9},
+      "support_status": "verified",
+      "documentation_url": "https://cloud.tencent.com/document/product/1823/130051"
+    },
+    "tencent-tokenhub-vision": {
+      "task": "chat",
+      "capability": "text",
+      "input_modalities": ["text", "image"],
+      "features": ["chat", "vision"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "max_tokens": {"type": "integer", "title": "最大输出 Token", "minimum": 1, "maximum": 16384},
+          "temperature": {"type": "number", "title": "温度", "minimum": 0, "maximum": 2},
+          "top_p": {"type": "number", "title": "Top P", "minimum": 0, "maximum": 1}
+        }
+      },
+      "default_parameters": {"max_tokens": 2048, "temperature": 0.3},
+      "support_status": "verified",
+      "documentation_url": "https://cloud.tencent.com/document/product/1823/130988"
+    },
+    "tencent-tokenhub-vita": {
+      "task": "chat",
+      "capability": "text",
+      "input_modalities": ["text", "image", "video"],
+      "features": ["chat", "vision", "video_understanding"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "max_tokens": {"type": "integer", "title": "最大输出 Token", "minimum": 1, "maximum": 15000},
+          "temperature": {"type": "number", "title": "温度", "minimum": 0, "maximum": 2},
+          "top_p": {"type": "number", "title": "Top P", "minimum": 0, "maximum": 1}
+        }
+      },
+      "default_parameters": {"max_tokens": 2048, "temperature": 0.3},
+      "support_status": "verified",
+      "documentation_url": "https://cloud.tencent.com/document/product/1823/130988"
+    },
+    "tencent-tokenhub-image-v3": {
+      "task": "image_generation",
+      "capability": "image",
+      "input_modalities": ["text", "image"],
+      "features": ["image_generation", "image_edit", "multi_reference", "chinese_text", "remote_reference_required"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "resolution": {"type": "string", "title": "图像尺寸", "enum": ["1024:1024", "1280:720", "720:1280", "768:1024", "1024:768"]},
+          "seed": {"type": "integer", "title": "随机种子", "minimum": 1, "maximum": 4294967295},
+          "revise": {"type": "boolean", "title": "自动改写 Prompt"},
+          "watermark": {"type": "boolean", "title": "添加水印"}
+        }
+      },
+      "default_parameters": {"resolution": "1024:1024", "revise": true, "watermark": true},
+      "support_status": "verified",
+      "documentation_url": "https://cloud.tencent.com/document/product/1823/130080"
+    },
+    "tencent-tokenhub-image-lite": {
+      "task": "image_generation",
+      "capability": "image",
+      "input_modalities": ["text"],
+      "features": ["image_generation", "fast", "chinese_text"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "negative_prompt": {"type": "string", "title": "负面 Prompt"},
+          "resolution": {"type": "string", "title": "图像尺寸", "enum": ["1024:1024", "1280:720", "720:1280", "768:1024", "1024:768"]},
+          "seed": {"type": "integer", "title": "随机种子", "minimum": 0},
+          "watermark": {"type": "boolean", "title": "添加水印"},
+          "response_format": {"type": "string", "title": "返回格式", "enum": ["url", "base64"]}
+        }
+      },
+      "default_parameters": {"resolution": "1024:1024", "watermark": true, "response_format": "url"},
+      "support_status": "verified",
+      "documentation_url": "https://cloud.tencent.com/document/product/1823/130080"
+    },
+    "tencent-tokenhub-hy-video": {
+      "task": "text_to_video",
+      "capability": "video",
+      "input_modalities": ["text", "image"],
+      "features": ["video_generation", "text_to_video", "image_to_video"],
+      "parameter_schema": {"type": "object", "properties": {}},
+      "default_parameters": {},
+      "support_status": "verified",
+      "documentation_url": "https://cloud.tencent.com/document/product/1823/130081"
+    },
+    "tencent-tokenhub-yt-video": {
+      "task": "image_to_video",
+      "capability": "video",
+      "input_modalities": ["text", "image"],
+      "features": ["video_generation", "image_to_video", "remote_reference_required"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "resolution": {"type": "string", "title": "清晰度", "enum": ["480p", "720p", "1080p"]},
+          "fps": {"type": "integer", "title": "帧率", "enum": [16, 24, 30]}
+        }
+      },
+      "default_parameters": {"resolution": "720p", "fps": 30},
+      "support_status": "compatible",
+      "documentation_url": "https://cloud.tencent.com/document/product/1823/130081"
+    },
+    "tencent-tokenhub-translation": {
+      "task": "chat",
+      "capability": "text",
+      "input_modalities": ["text"],
+      "features": ["chat", "translation"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "max_tokens": {"type": "integer", "title": "最大输出 Token", "minimum": 1, "maximum": 4096},
+          "temperature": {"type": "number", "title": "温度", "minimum": 0, "maximum": 2}
+        }
+      },
+      "default_parameters": {"max_tokens": 2048, "temperature": 0.3},
+      "support_status": "compatible",
+      "documentation_url": "https://cloud.tencent.com/document/product/1823/130051"
     }
   },
   "models": [
@@ -577,6 +727,79 @@
       "provider_code": "zhipu",
       "model_id": "vidu2-reference",
       "display_name": "Vidu 2 · 参考生视频",
+      "enabled": false
+    },
+    {
+      "profile": "tencent-tokenhub-chat",
+      "provider_code": "tencent_tokenhub",
+      "model_id": "hy3",
+      "display_name": "Hunyuan 3"
+    },
+    {
+      "profile": "tencent-tokenhub-role",
+      "provider_code": "tencent_tokenhub",
+      "model_id": "hunyuan-role-latest",
+      "display_name": "Hunyuan Role"
+    },
+    {
+      "profile": "tencent-tokenhub-vision",
+      "provider_code": "tencent_tokenhub",
+      "model_id": "hy-vision-2.0-instruct",
+      "display_name": "Hunyuan Vision 2.0 Instruct"
+    },
+    {
+      "profile": "tencent-tokenhub-vita",
+      "provider_code": "tencent_tokenhub",
+      "model_id": "youtu-vita",
+      "display_name": "YT VITA"
+    },
+    {
+      "profile": "tencent-tokenhub-image-v3",
+      "provider_code": "tencent_tokenhub",
+      "model_id": "hy-image-v3.0",
+      "display_name": "Hunyuan Image 3.0"
+    },
+    {
+      "profile": "tencent-tokenhub-image-lite",
+      "provider_code": "tencent_tokenhub",
+      "model_id": "hy-image-lite",
+      "display_name": "Hunyuan Image Lite"
+    },
+    {
+      "profile": "tencent-tokenhub-hy-video",
+      "provider_code": "tencent_tokenhub",
+      "model_id": "hy-video-1.5",
+      "display_name": "Hunyuan Video 1.5"
+    },
+    {
+      "profile": "tencent-tokenhub-chat",
+      "provider_code": "tencent_tokenhub",
+      "model_id": "hy3-preview",
+      "display_name": "Hunyuan 3 Preview",
+      "support_status": "compatible",
+      "enabled": false
+    },
+    {
+      "profile": "tencent-tokenhub-vision",
+      "provider_code": "tencent_tokenhub",
+      "model_id": "hunyuan-t1-vision-20250916",
+      "display_name": "Hunyuan T1 Vision",
+      "features": ["chat", "vision", "thinking"],
+      "support_status": "compatible",
+      "enabled": false
+    },
+    {
+      "profile": "tencent-tokenhub-yt-video",
+      "provider_code": "tencent_tokenhub",
+      "model_id": "yt-video-2.0",
+      "display_name": "YT Video 2.0",
+      "enabled": false
+    },
+    {
+      "profile": "tencent-tokenhub-translation",
+      "provider_code": "tencent_tokenhub",
+      "model_id": "hy-mt2-pro",
+      "display_name": "Hunyuan MT 2 Pro",
       "enabled": false
     }
   ]

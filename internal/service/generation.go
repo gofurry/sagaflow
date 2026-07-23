@@ -299,7 +299,11 @@ func (s *GenerationService) loadInputReferences(ctx context.Context, job db.Gene
 }
 
 func providerRequiresRemoteInput(adapterCode string) bool {
-	return adapterCode != ProviderOllama && adapterCode != ProviderComfyUI && adapterCode != ProviderSiliconFlow && adapterCode != ProviderZhipu
+	return adapterCode != ProviderOllama &&
+		adapterCode != ProviderComfyUI &&
+		adapterCode != ProviderSiliconFlow &&
+		adapterCode != ProviderZhipu &&
+		adapterCode != ProviderTencentTokenHub
 }
 
 func (s *GenerationService) referenceURL(ctx context.Context, reference generationReference) (string, error) {

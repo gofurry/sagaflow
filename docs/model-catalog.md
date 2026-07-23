@@ -3,7 +3,7 @@
 SagaFlow 的模型目录分成三层，避免模型平台的一次参数调整迫使用户升级整个二进制：
 
 1. 编译期目录：仓库中的 `internal/modelcatalog/model-catalog.json` 随二进制发布，提供核心模型和开箱即用的服务连接；同一个文件可直接作为 GitHub Release 资产发布。
-2. 在线发现：Ollama 与硅基流动等支持发现的连接可读取当前账号实际可见的模型；新发现的模型以“动态兼容”级别导入。
+2. 在线发现：Ollama、硅基流动与腾讯云 TokenHub 等支持发现的连接可读取当前账号实际可见的模型。硅基流动可以按需导入动态兼容模型；TokenHub 只同步 SagaFlow 清单内的腾讯模型，避免重复导入其代理的第三方模型。
 3. 目录更新包：`data/catalog/model-catalog.json` 会覆盖或补充编译期目录，可由 GitHub Release 单独发布。
 
 ## 支持级别
@@ -31,7 +31,7 @@ https://github.com/gofurry/sagaflow/releases/latest/download/model-catalog.json
 ```json
 {
   "schema_version": 2,
-  "catalog_version": "2026.07.23.2",
+  "catalog_version": "2026.07.23.3",
   "published_at": "2026-07-23T00:00:00+08:00",
   "profiles": {
     "example-chat": {
@@ -106,3 +106,16 @@ https://github.com/gofurry/sagaflow/releases/latest/download/model-catalog.json
 ## 智谱目录
 
 内置目录包含 GLM 文本/视觉理解、GLM Image、GLM TTS/ASR、CogVideoX 与 Vidu 2 系列。`glm-tts` 同时作为音色管理入口；复刻时 SagaFlow 会使用智谱的 `glm-tts-clone` 接口，复刻结果仍由 `glm-tts` 合成。CogVideoX 可以直接读取本机图片数据，Vidu 2 的参考生视频只接受公网 URL，因此使用该型号前需要在资产页手动发布参考图到 S3。
+
+## 腾讯云 TokenHub 目录
+
+TokenHub 使用 `https://tokenhub.tencentmaas.com/v1` 和 Bearer API Key。内置目录覆盖 Hunyuan 3、角色对话、混元/优图视觉理解、混元生图与混元/优图视频，并保留翻译和预览型号作为默认停用的兼容项。
+
+“同步模型”会读取当前凭证的 `/models`：
+
+- `online` 保持可用；
+- `pre-offline` 标记为即将弃用；
+- 当前凭证不可见的清单模型标记为不可用，但不会自动判定为永久退役，因为这也可能由账号权限造成；
+- TokenHub 返回的第三方代理模型不会导入，新增腾讯型号应先通过目录更新包补齐参数 Schema。
+
+混元生图 3.0 的无参考生成可以直接使用。TokenHub 的图生图兼容接口与 YT Video 2.0 只稳定接受公网参考 URL，因此这些型号会在提交前要求用户先从资产页手动发布到 S3。HY Video 1.5 文生视频不依赖 S3。
