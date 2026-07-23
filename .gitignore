@@ -8,12 +8,16 @@ configs/config.yaml
 data/
 logs/
 bin/
+dist/
 tmp/
+tools/ffmpeg/windows-x64/
+tools/ffmpeg/linux-x64/
+tools/ffmpeg/darwin-x64/
+tools/ffmpeg/darwin-arm64/
+tools/ffmpeg/*.zip
 
 # Go
 *.exe
-!tools/ffmpeg/windows-x64/ffmpeg.exe
-!tools/ffmpeg/windows-x64/ffprobe.exe
 *.test
 coverage.out
 

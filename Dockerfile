@@ -16,7 +16,7 @@ COPY --from=web /src/internal/webui/dist ./internal/webui/dist
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.version=${VERSION}" -o /out/sagaflow ./cmd/sagaflow
 
 FROM alpine:3.22
-RUN apk add --no-cache ca-certificates tzdata && adduser -D -H -s /sbin/nologin sagaflow
+RUN apk add --no-cache ca-certificates ffmpeg tzdata && adduser -D -H -s /sbin/nologin sagaflow
 COPY --from=build /out/sagaflow /usr/local/bin/sagaflow
 RUN mkdir -p /data && chown sagaflow:sagaflow /data
 USER sagaflow

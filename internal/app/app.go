@@ -20,6 +20,7 @@ import (
 	"github.com/gofurry/sagaflow/internal/inference/adapters/tencenttokenhub"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/volcengine"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/zhipu"
+	mediaffmpeg "github.com/gofurry/sagaflow/internal/media/ffmpeg"
 	"github.com/gofurry/sagaflow/internal/modelcatalog"
 	"github.com/gofurry/sagaflow/internal/platform/sqlite"
 	"github.com/gofurry/sagaflow/internal/platform/storage"
@@ -98,6 +99,12 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		return err
 	}
 	defer jobs.Close()
+	mediaTools := service.NewMediaToolsService(store, objectStore, mediaffmpeg.Discover(), cfg.TempDir(), log.Named("media-tools"))
+	mediaJobs := queue.NewMediaClient(store, cfg.Jobs, mediaTools.Execute, log.Named("media-jobs"))
+	if err := mediaJobs.Run(ctx); err != nil {
+		return err
+	}
+	defer mediaJobs.Close()
 	voices := service.NewVoiceService(store, credentials, objectStore, log.Named("voices"))
 	modelConnections, err := service.NewModelConnectionService(store, credentials, ollama.New(httpClient), comfyDriver, siliconFlowDriver, tencentTokenHubDriver, moonshotDriver)
 	if err != nil {
@@ -108,8 +115,9 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		return err
 	}
 	server := api.New(api.Dependencies{
-		Config: cfg, Logger: log, Store: store, Queue: jobs, Storage: objectStore, Auth: auth,
+		Config: cfg, Logger: log, Store: store, Queue: jobs, MediaQueue: mediaJobs, Storage: objectStore, Auth: auth,
 		Credentials: credentials, Voices: voices, ModelConnections: modelConnections, Workflows: workflows, StorageService: storageService,
+		MediaTools: mediaTools,
 	})
 	webui.Mount(server)
 	errCh := make(chan error, 1)

@@ -93,6 +93,31 @@ type Asset struct {
 	UpdatedAt          time.Time       `db:"updated_at" json:"updated_at"`
 }
 
+type MediaJob struct {
+	ID                  uuid.UUID       `db:"id" json:"id"`
+	ProjectID           uuid.UUID       `db:"project_id" json:"project_id"`
+	TargetAssetGroupID  *uuid.UUID      `db:"target_asset_group_id" json:"target_asset_group_id"`
+	Tool                string          `db:"tool" json:"tool"`
+	SourceAssetIDs      []uuid.UUID     `db:"source_asset_ids" json:"source_asset_ids"`
+	OutputName          string          `db:"output_name" json:"output_name"`
+	Parameters          json.RawMessage `db:"parameters" json:"parameters"`
+	Status              string          `db:"status" json:"status"`
+	Stage               string          `db:"stage" json:"stage"`
+	Progress            float64         `db:"progress" json:"progress"`
+	OutputAssetID       *uuid.UUID      `db:"output_asset_id" json:"output_asset_id"`
+	OutputStagedAssetID *uuid.UUID      `db:"output_staged_asset_id" json:"output_staged_asset_id"`
+	CommandSnapshot     []string        `db:"command_snapshot" json:"command_snapshot"`
+	ProbeSnapshot       json.RawMessage `db:"probe_snapshot" json:"probe_snapshot"`
+	ErrorMessage        string          `db:"error_message" json:"error_message"`
+	CancelRequested     bool            `db:"cancel_requested" json:"cancel_requested"`
+	AvailableAt         time.Time       `db:"available_at" json:"available_at"`
+	LeaseUntil          *time.Time      `db:"lease_until" json:"lease_until"`
+	StartedAt           *time.Time      `db:"started_at" json:"started_at"`
+	FinishedAt          *time.Time      `db:"finished_at" json:"finished_at"`
+	CreatedAt           time.Time       `db:"created_at" json:"created_at"`
+	UpdatedAt           time.Time       `db:"updated_at" json:"updated_at"`
+}
+
 type CanvasNode struct {
 	ID                    uuid.UUID       `db:"id" json:"id"`
 	EpisodeID             uuid.UUID       `db:"episode_id" json:"episode_id"`

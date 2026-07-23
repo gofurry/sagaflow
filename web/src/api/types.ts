@@ -26,6 +26,30 @@ export type AssetStatus = 'candidate' | 'adopted' | 'discarded'
 export type MediaType = 'image' | 'audio' | 'video' | 'text' | 'file'
 export interface AssetGroup { id: ID; project_id: ID; parent_id: ID | null; kind: AssetKind; name: string; description: string; sort_order: number; created_at: string; updated_at: string }
 export interface Asset { id: ID; project_id: ID; group_id: ID | null; staged_asset_id: ID | null; episode_id: ID | null; canvas_node_id: ID | null; name: string; media_type: MediaType; source: 'upload' | 'generated'; status: AssetStatus; mime_type: string; file_size_bytes: number; storage_backend: string; original_url: string; provider_code: string; model_identifier: string; metadata: Record<string, unknown>; created_at: string; updated_at: string }
+export type MediaTool = 'inspect' | 'transcode' | 'aspect' | 'audio' | 'trim' | 'merge' | 'subtitle' | 'screenshot'
+export interface MediaToolsStatus { available: boolean; ffmpeg_path: string; ffprobe_path: string; version: string; source: string; message: string }
+export interface MediaJob {
+  id: ID
+  project_id: ID
+  target_asset_group_id: ID | null
+  tool: MediaTool
+  source_asset_ids: ID[]
+  output_name: string
+  parameters: Record<string, unknown>
+  status: JobStatus
+  stage: string
+  progress: number
+  output_asset_id: ID | null
+  output_staged_asset_id: ID | null
+  command_snapshot: string[]
+  probe_snapshot: Record<string, unknown>
+  error_message: string
+  cancel_requested: boolean
+  started_at: string | null
+  finished_at: string | null
+  created_at: string
+  updated_at: string
+}
 export interface CanvasNodeDTO { id: ID; type: string; position: { x: number; y: number }; width?: number; height?: number; z_index?: number; data: CanvasNodeData }
 export interface CanvasEdgeDTO { id: ID; source: ID; target: ID; source_handle?: string | null; target_handle?: string | null; type: CanvasEdgeKind; data?: CanvasEdgeData }
 export interface CanvasAnnotationDTO { id: ID; type: CanvasAnnotationKind; position: { x: number; y: number }; width: number; height: number; stroke_color: string; stroke_width: number; line_style: CanvasAnnotationLineStyle; opacity: number; label: string; label_position: CanvasAnnotationLabelPosition; z_index?: number }

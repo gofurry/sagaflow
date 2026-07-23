@@ -17,6 +17,7 @@ SagaFlow 个人版是一套本地优先的 AI 漫剧生产工作台。项目、�
 - Go 1.26、Fiber 3.4.0、easyhash 1.2.0
 - SQLite（WAL）、持久化进程内任务队列
 - React 19、TypeScript、Vite、Ant Design、React Flow
+- FFmpeg / FFprobe 子进程，用于本地媒体检查、转换、裁切、合片、字幕和截图
 - AWS SDK for Go v2，用于 AWS S3、腾讯云 COS、阿里云 OSS、MinIO 等 S3 兼容服务的手动发布
 
 ## 本机启动
@@ -90,6 +91,18 @@ docker compose up -d
 - 同步 Ollama 模型、导入 ComfyUI API 工作流、维护模型参数、全局 Prompt 预设和全局音色。
 
 所有素材会先写入本地内容寻址对象目录。Ollama 与 ComfyUI 使用本地内容流，不需要公网 URL。云端模型需要参考素材时，先在“设置 → S3 发布”添加兼容连接，再从资产操作中手动发布所需文件；生成任务保存的是该资产对应的具体远端副本，不会后台自动上传。
+
+## 本地媒体工具
+
+“工具”页提供媒体检查、格式转换、画幅适配、音频处理、精确裁切、顺序合片、软/硬字幕和视频截图。所有操作只读取源资产；结果默认进入“未处理”暂存区，也可在提交任务前选择资产分组直接生成候选资产。任务状态保存在 SQLite 中，不依赖外部 worker。
+
+SagaFlow 会依次查找程序同目录、仓库的 `tools/ffmpeg/<平台-架构>/` 和系统 `PATH`。Windows 开发环境可执行：
+
+```powershell
+.\tools\ffmpeg\install-windows.ps1
+```
+
+实际的 FFmpeg 文件被 Git 忽略。构建好 `bin/sagaflow.exe` 后，可以运行 `.\tools\ffmpeg\package-windows.ps1`，生成包含 SagaFlow、FFmpeg、FFprobe 和相应许可证的便携目录。Docker 镜像则直接安装发行版提供的 FFmpeg 包。
 
 ## 运维命令
 

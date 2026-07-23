@@ -6,6 +6,10 @@ data
 logs
 bin
 tmp
+tools/ffmpeg/windows-x64
+tools/ffmpeg/linux-x64
+tools/ffmpeg/darwin-x64
+tools/ffmpeg/darwin-arm64
 
 configs/config.yaml
 .env

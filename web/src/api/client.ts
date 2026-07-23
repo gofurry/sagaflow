@@ -1,4 +1,4 @@
-import type { Account, Asset, AssetGroup, AssetRemoteExport, AuthStatus, CanvasDocument, CanvasNodeDTO, CatalogImportResult, CatalogUpdateStatus, ComfyUIDiscovery, ConnectionServerInfo, CurrentUser, Episode, EpisodeScript, GenerationInputReference, GenerationInvocation, GenerationJob, GenerationReferenceUpload, ID, Model, ModelPreset, ModelProvider, ModelSyncResult, MoonshotDiscovery, OllamaDiscovery, Project, PromptPreset, ProviderCredential, S3Connection, SiliconFlowDiscovery, StagedAsset, StagedAssetPage, StagedAssetSummary, TencentTokenHubDiscovery, VoiceProfile, WorkflowAnalysis, WorkflowCompatibility, WorkflowTemplate } from './types'
+import type { Account, Asset, AssetGroup, AssetRemoteExport, AuthStatus, CanvasDocument, CanvasNodeDTO, CatalogImportResult, CatalogUpdateStatus, ComfyUIDiscovery, ConnectionServerInfo, CurrentUser, Episode, EpisodeScript, GenerationInputReference, GenerationInvocation, GenerationJob, GenerationReferenceUpload, ID, MediaJob, MediaTool, MediaToolsStatus, Model, ModelPreset, ModelProvider, ModelSyncResult, MoonshotDiscovery, OllamaDiscovery, Project, PromptPreset, ProviderCredential, S3Connection, SiliconFlowDiscovery, StagedAsset, StagedAssetPage, StagedAssetSummary, TencentTokenHubDiscovery, VoiceProfile, WorkflowAnalysis, WorkflowCompatibility, WorkflowTemplate } from './types'
 
 interface Envelope<T> { data?: T; error?: { code: string; message: string } }
 export class APIError extends Error {
@@ -47,6 +47,12 @@ export const api = {
   updateAssetGroup: (id: ID, input: Partial<AssetGroup>) => request<AssetGroup>(`/asset-groups/${id}`, { method: 'PATCH', body: body(input) }),
   deleteAssetGroup: (id: ID) => request<{ deleted: boolean; asset_count: number }>(`/asset-groups/${id}`, { method: 'DELETE' }),
   assets: (projectID: ID, filters: { group_id?: ID; episode_id?: ID; status?: string; media_type?: string } = {}) => request<Asset[]>(`/projects/${projectID}/assets${query(filters)}`),
+  mediaToolsStatus: () => request<MediaToolsStatus>('/media-tools/status'),
+  mediaJobs: (projectID: ID) => request<MediaJob[]>(`/projects/${projectID}/media-jobs`),
+  mediaJob: (id: ID) => request<MediaJob>(`/media-jobs/${id}`),
+  createMediaJob: (projectID: ID, input: { tool: MediaTool; source_asset_ids: ID[]; target_asset_group_id?: ID; output_name?: string; parameters?: Record<string, unknown> }) => request<MediaJob>(`/projects/${projectID}/media-jobs`, { method: 'POST', body: body(input) }),
+  cancelMediaJob: (id: ID) => request<MediaJob>(`/media-jobs/${id}/cancel`, { method: 'POST' }),
+  clearCompletedMediaJobs: (projectID: ID) => request<{ deleted: number }>(`/projects/${projectID}/media-jobs/completed`, { method: 'DELETE' }),
   uploadAsset: async (groupID: ID, file: File, values: { name?: string; media_type?: string; episode_id?: ID; status?: string }) => { const form = new FormData(); form.append('file', file); Object.entries(values).forEach(([key, value]) => { if (value) form.append(key, value) }); return request<Asset>(`/asset-groups/${groupID}/assets/upload`, { method: 'POST', body: form }) },
   updateAsset: (id: ID, input: { name: string }) => request<Asset>(`/assets/${id}`, { method: 'PATCH', body: body(input) }),
   adoptAsset: (id: ID) => request<Asset>(`/assets/${id}/adopt`, { method: 'POST' }),

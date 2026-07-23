@@ -17,6 +17,7 @@ type Dependencies struct {
 	Logger           *zap.Logger
 	Store            *db.Store
 	Queue            *queue.Client
+	MediaQueue       *queue.MediaClient
 	Storage          *storage.Manager
 	Auth             *service.AuthService
 	Credentials      *service.CredentialService
@@ -24,12 +25,14 @@ type Dependencies struct {
 	ModelConnections *service.ModelConnectionService
 	Workflows        *service.WorkflowService
 	StorageService   *service.StorageService
+	MediaTools       *service.MediaToolsService
 }
 type Server struct {
 	cfg              config.Config
 	log              *zap.Logger
 	store            *db.Store
 	queue            *queue.Client
+	mediaQueue       *queue.MediaClient
 	storage          *storage.Manager
 	auth             *service.AuthService
 	credentials      *service.CredentialService
@@ -37,6 +40,7 @@ type Server struct {
 	modelConnections *service.ModelConnectionService
 	workflows        *service.WorkflowService
 	storageService   *service.StorageService
+	mediaTools       *service.MediaToolsService
 }
 
 func New(deps Dependencies) *fiber.App {
@@ -44,7 +48,7 @@ func New(deps Dependencies) *fiber.App {
 	if log == nil {
 		log = zap.NewNop()
 	}
-	s := &Server{cfg: deps.Config, log: log, store: deps.Store, queue: deps.Queue, storage: deps.Storage, auth: deps.Auth, credentials: deps.Credentials, voices: deps.Voices, modelConnections: deps.ModelConnections, workflows: deps.Workflows, storageService: deps.StorageService}
+	s := &Server{cfg: deps.Config, log: log, store: deps.Store, queue: deps.Queue, mediaQueue: deps.MediaQueue, storage: deps.Storage, auth: deps.Auth, credentials: deps.Credentials, voices: deps.Voices, modelConnections: deps.ModelConnections, workflows: deps.Workflows, storageService: deps.StorageService, mediaTools: deps.MediaTools}
 	app := fiber.New(fiber.Config{BodyLimit: 512 * 1024 * 1024, ReadTimeout: 10 * time.Minute, ErrorHandler: errorHandler(log)})
 	s.RegisterRoutes(app)
 	return app

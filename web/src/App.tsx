@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { App as AntApp, Avatar, Button, Form, Input, Layout, Modal, Popover, Select, Skeleton, Space, Typography } from 'antd'
-import { AppstoreOutlined, BgColorsOutlined, BranchesOutlined, FolderOpenOutlined, HomeOutlined, LogoutOutlined, PlusOutlined, SettingOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, BgColorsOutlined, BranchesOutlined, FolderOpenOutlined, HomeOutlined, LogoutOutlined, PlusOutlined, SettingOutlined, ThunderboltOutlined, ToolOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api/client'
 import type { Episode, Principal, Project } from './api/types'
@@ -14,10 +14,11 @@ import { ModelHubPage } from './features/models/ModelHubPage'
 import { SettingsPage } from './features/settings/SettingsPage'
 import { HomePage } from './features/home/HomePage'
 import { GenerationStudioPage } from './features/generation/GenerationStudioPage'
+import { LocalToolsPage } from './features/tools/LocalToolsPage'
 
-type ModuleKey = 'home' | 'episodes' | 'assets' | 'generation' | 'canvas' | 'models' | 'settings'
+type ModuleKey = 'home' | 'episodes' | 'assets' | 'generation' | 'canvas' | 'tools' | 'models' | 'settings'
 const moduleMeta: Record<ModuleKey, { label: string; icon: React.ReactNode }> = {
-  home: { label: '主页', icon: <HomeOutlined/> }, episodes: { label: '剧本', icon: <FolderOpenOutlined/> }, assets: { label: '资产', icon: <AppstoreOutlined/> }, generation: { label: '生成', icon: <ThunderboltOutlined/> }, canvas: { label: '画布', icon: <BranchesOutlined/> }, models: { label: '模型', icon: <BgColorsOutlined/> }, settings: { label: '设置', icon: <SettingOutlined/> },
+  home: { label: '主页', icon: <HomeOutlined/> }, episodes: { label: '剧本', icon: <FolderOpenOutlined/> }, assets: { label: '资产', icon: <AppstoreOutlined/> }, generation: { label: '生成', icon: <ThunderboltOutlined/> }, canvas: { label: '画布', icon: <BranchesOutlined/> }, tools: { label: '工具', icon: <ToolOutlined/> }, models: { label: '模型', icon: <BgColorsOutlined/> }, settings: { label: '设置', icon: <SettingOutlined/> },
 }
 
 export default function App() {
@@ -119,5 +120,6 @@ function ModuleContent({ active, project, episode, episodes, onEpisodeChange, on
   if (active === 'assets') return <AssetLibraryPage episode={episode} onError={onError} project={project}/>
   if (active === 'generation') return <GenerationStudioPage episode={episode} onError={onError} project={project}/>
   if (active === 'canvas') return episode ? <CanvasComposer episode={episode} onError={onError} project={project}/> : <EmptyState description="Composer 需要关联一个分集。" title="请先创建分集"/>
+  if (active === 'tools') return <LocalToolsPage onError={onError} project={project}/>
   return <ModelHubPage onError={onError}/>
 }
