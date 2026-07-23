@@ -271,7 +271,55 @@ func (s *Server) sendStoredFile(c fiber.Ctx, objectID uuid.UUID, mimeType, name 
 		disposition = "inline"
 	}
 	c.Set(fiber.HeaderContentDisposition, contentDisposition(disposition, name))
+	c.Set("Accept-Ranges", "bytes")
+	if rangeHeader := strings.TrimSpace(c.Get("Range")); rangeHeader != "" {
+		start, end, ok := parseByteRange(rangeHeader, int64(len(data)))
+		if !ok {
+			c.Set("Content-Range", fmt.Sprintf("bytes */%d", len(data)))
+			return c.SendStatus(fiber.StatusRequestedRangeNotSatisfiable)
+		}
+		c.Status(fiber.StatusPartialContent)
+		c.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(data)))
+		c.Set(fiber.HeaderContentLength, strconv.FormatInt(end-start+1, 10))
+		return c.Send(data[start : end+1])
+	}
 	return c.Send(data)
+}
+
+func parseByteRange(header string, size int64) (int64, int64, bool) {
+	if size <= 0 || !strings.HasPrefix(header, "bytes=") || strings.Contains(header, ",") {
+		return 0, 0, false
+	}
+	value := strings.TrimSpace(strings.TrimPrefix(header, "bytes="))
+	startText, endText, found := strings.Cut(value, "-")
+	if !found {
+		return 0, 0, false
+	}
+	if startText == "" {
+		suffix, err := strconv.ParseInt(endText, 10, 64)
+		if err != nil || suffix <= 0 {
+			return 0, 0, false
+		}
+		if suffix > size {
+			suffix = size
+		}
+		return size - suffix, size - 1, true
+	}
+	start, err := strconv.ParseInt(startText, 10, 64)
+	if err != nil || start < 0 || start >= size {
+		return 0, 0, false
+	}
+	end := size - 1
+	if endText != "" {
+		end, err = strconv.ParseInt(endText, 10, 64)
+		if err != nil || end < start {
+			return 0, 0, false
+		}
+		if end >= size {
+			end = size - 1
+		}
+	}
+	return start, end, true
 }
 
 func (s *Server) adoptAsset(c fiber.Ctx) error {

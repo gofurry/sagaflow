@@ -62,13 +62,13 @@ function Workspace({ onError, sessionUser }: { onError: (error: unknown) => void
   const openProject = (id: string) => { setProjectID(id); setActive('episodes') }
   return <Layout className="app-layout">
     <nav aria-label="主菜单" className="floating-nav">
-      <button aria-label="返回主页" className="floating-nav-logo" onClick={() => setActive('home')} type="button"><img alt="" src="/logo-mini.svg"/></button>
       {(Object.keys(moduleMeta) as ModuleKey[]).map((key) => <button aria-current={active === key ? 'page' : undefined} className={`floating-nav-button${active === key ? ' active' : ''}`} key={key} onClick={() => setActive(key)} type="button"><span className="floating-nav-icon">{moduleMeta[key].icon}</span><span>{moduleMeta[key].label}</span></button>)}
       <a className="floating-nav-button floating-nav-open-source" href="https://github.com/gofurry/sagaflow" rel="noreferrer" target="_blank"><span className="floating-nav-icon"><GithubOutlined/></span><span>开源</span></a>
     </nav>
     <Layout>
       <Layout.Header className="app-header">
         <div className="header-left">
+          <button aria-label="返回主页" className="header-brand-logo" onClick={() => setActive('home')} type="button"><img alt="" src="/logo-mini.svg"/></button>
           <div className="header-title"><strong>{moduleMeta[active].label}</strong></div>
           {active !== 'home' && <div className="header-project">
             <Select className="project-select" options={projectOptions} placeholder="选择项目" value={projectID || undefined} onChange={setProjectID} popupMatchSelectWidth={300}/>

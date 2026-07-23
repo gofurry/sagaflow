@@ -15,7 +15,7 @@ import {
   StopOutlined,
   WarningOutlined,
 } from '@ant-design/icons'
-import { App, Button, Checkbox, Input, InputNumber, Modal, Progress, Select, Slider, Switch } from 'antd'
+import { App, Button, Input, InputNumber, Modal, Progress, Select, Slider, Switch } from 'antd'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
 import type { Asset, AssetGroup, MediaJob, MediaTool, Project } from '../../api/types'
@@ -183,7 +183,6 @@ export function LocalToolsPage({ onError, project }: { onError: (error: unknown)
         {tool === 'merge' && draft.sourceAssetIDs.length > 0 && <MergeOrderList assets={assets} ids={draft.sourceAssetIDs} onChange={(sourceAssetIDs) => setDraft((current) => ({ ...current, sourceAssetIDs }))}/>}
         {(tool === 'trim' || tool === 'screenshot') && draft.sourceAssetIDs[0] && <VideoTimeline asset={assets.find((item) => item.id === draft.sourceAssetIDs[0])} mode={tool} parameters={draft.parameters} update={updateParameters}/>}
         {tool === 'aspect' && draft.sourceAssetIDs[0] && <AspectPreview asset={assets.find((item) => item.id === draft.sourceAssetIDs[0])} parameters={draft.parameters}/>}
-        {!['merge', 'trim', 'screenshot', 'aspect'].includes(tool) && draft.sourceAssetIDs.length > 0 && <SourceStrip assets={assets} ids={draft.sourceAssetIDs}/>}
       </div>
 
       <MediaTaskCenter assets={assets} jobs={jobs} onSelect={setSelectedJobID} selectedJob={selectedJob}/>
@@ -223,19 +222,18 @@ function MergeVideoPicker({ assets, onChange, value }: { assets: Asset[]; onChan
     setPending(value)
     setOpen(true)
   }
-  const toggle = (id: string, checked: boolean) => setPending((current) => checked ? [...current, id] : current.filter((item) => item !== id))
+  const toggle = (id: string) => setPending((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
   return <>
     <Button block onClick={show}>{value.length ? `已选择 ${value.length} 个视频` : '选择视频'}</Button>
     <Modal cancelText="取消" okButtonProps={{ disabled: pending.length < 2 }} okText="确认顺序" onCancel={() => setOpen(false)} onOk={() => { onChange(pending); setOpen(false) }} open={open} title="选择参与合片的视频" width={860}>
       <div className="merge-picker-grid">
         {assets.map((asset) => {
           const order = pending.indexOf(asset.id)
-          return <label className={order >= 0 ? 'selected' : ''} key={asset.id}>
+          return <button aria-pressed={order >= 0} className={order >= 0 ? 'selected' : ''} key={asset.id} onClick={() => toggle(asset.id)} type="button">
             <video muted preload="metadata" src={api.assetURL(asset.id)}/>
             {order >= 0 && <i>{order + 1}</i>}
             <span><strong>{asset.name}</strong><small>{formatBytes(asset.file_size_bytes)}</small></span>
-            <Checkbox checked={order >= 0} onChange={(event) => toggle(asset.id, event.target.checked)}/>
-          </label>
+          </button>
         })}
         {!assets.length && <div className="merge-picker-empty">资产库中还没有视频</div>}
       </div>
@@ -288,13 +286,17 @@ function MergeOrderList({ assets, ids, onChange }: { assets: Asset[]; ids: strin
 }
 
 function VideoTimeline({ asset, mode, parameters, update }: { asset?: Asset; mode: 'trim' | 'screenshot'; parameters: Record<string, unknown>; update: (patch: Record<string, unknown>) => void }) {
+  if (!asset) return null
+  return mode === 'trim'
+    ? <TrimTimeline asset={asset} parameters={parameters} update={update}/>
+    : <ScreenshotTimeline asset={asset} parameters={parameters} update={update}/>
+}
+
+function ScreenshotTimeline({ asset, parameters, update }: { asset: Asset; parameters: Record<string, unknown>; update: (patch: Record<string, unknown>) => void }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [duration, setDuration] = useState(0)
-  const [playhead, setPlayhead] = useState(Number(parameters.time_seconds ?? parameters.start_seconds ?? 0))
-  if (!asset) return null
+  const [playhead, setPlayhead] = useState(Number(parameters.time_seconds ?? 0))
   const max = duration > 0 ? duration : 1
-  const start = Math.min(Number(parameters.start_seconds ?? 0), max)
-  const end = Math.min(Math.max(start + Number(parameters.duration ?? 5), start + .001), max)
   const seek = (value: number) => {
     setPlayhead(value)
     if (videoRef.current) videoRef.current.currentTime = value
@@ -303,35 +305,24 @@ function VideoTimeline({ asset, mode, parameters, update }: { asset?: Asset; mod
     const nextDuration = videoRef.current?.duration ?? 0
     if (!Number.isFinite(nextDuration) || nextDuration <= 0) return
     setDuration(nextDuration)
-    if (mode === 'screenshot') {
-      const next = Math.min(Number(parameters.time_seconds ?? 0), nextDuration)
-      seek(next)
-      update({ time_seconds: next })
-    } else {
-      const nextStart = Math.min(Number(parameters.start_seconds ?? 0), Math.max(0, nextDuration - .001))
-      const nextEnd = Math.min(nextStart + Number(parameters.duration ?? 5), nextDuration)
-      update({ start_seconds: nextStart, duration: Math.max(.001, nextEnd - nextStart) })
-      seek(nextStart)
-    }
+    const next = Math.min(Number(parameters.time_seconds ?? 0), nextDuration)
+    seek(next)
+    update({ time_seconds: next })
   }
   return <div className="video-timeline-editor">
     <div className="video-timeline-preview">
       <video
         controls
         onLoadedMetadata={loaded}
-        onPause={() => mode === 'screenshot' && update({ time_seconds: playhead })}
+        onPause={() => update({ time_seconds: playhead })}
         onSeeked={() => {
           const current = videoRef.current?.currentTime ?? 0
           setPlayhead(current)
-          if (mode === 'screenshot') update({ time_seconds: current })
+          update({ time_seconds: current })
         }}
         onTimeUpdate={() => {
           const current = videoRef.current?.currentTime ?? 0
           setPlayhead(current)
-          if (mode === 'trim' && current > end) {
-            videoRef.current?.pause()
-            seek(start)
-          }
         }}
         preload="metadata"
         ref={videoRef}
@@ -339,13 +330,88 @@ function VideoTimeline({ asset, mode, parameters, update }: { asset?: Asset; mod
       />
     </div>
     <div className="video-timeline-track">
-      <div><strong>{mode === 'screenshot' ? '截图位置' : '保留片段'}</strong><span>{mode === 'screenshot' ? formatTimestamp(playhead) : `${formatTimestamp(start)} — ${formatTimestamp(end)}`}</span></div>
-      {mode === 'screenshot'
-        ? <Slider max={max} min={0} onChange={(value) => seek(value)} onChangeComplete={(value) => update({ time_seconds: value })} step={.001} tooltip={{ formatter: formatTimestamp }} value={Math.min(playhead, max)}/>
-        : <Slider max={max} min={0} onChange={(value) => { const [nextStart, nextEnd] = value; update({ start_seconds: nextStart, duration: Math.max(.001, nextEnd - nextStart) }); seek(nextStart) }} range step={.001} tooltip={{ formatter: formatTimestamp }} value={[start, end]}/>}
+      <div><strong>截图位置</strong><span>{formatTimestamp(playhead)}</span></div>
+      <Slider max={max} min={0} onChange={(value) => seek(value)} onChangeComplete={(value) => update({ time_seconds: value })} step={.001} tooltip={{ formatter: formatTimestamp }} value={Math.min(playhead, max)}/>
       <div className="video-timeline-scale"><span>00:00.000</span><span>{formatTimestamp(max)}</span></div>
     </div>
   </div>
+}
+
+function TrimTimeline({ asset, parameters, update }: { asset: Asset; parameters: Record<string, unknown>; update: (patch: Record<string, unknown>) => void }) {
+  const [duration, setDuration] = useState(0)
+  const durationRef = useRef(0)
+  const max = duration > 0 ? duration : 1
+  const start = Math.min(Number(parameters.start_seconds ?? 0), Math.max(0, max - .001))
+  const end = Math.min(Math.max(start + Number(parameters.duration ?? 5), start + .001), max)
+  const registerDuration = (nextDuration: number) => {
+    if (!Number.isFinite(nextDuration) || nextDuration <= 0 || Math.abs(durationRef.current - nextDuration) < .001) return
+    durationRef.current = nextDuration
+    setDuration(nextDuration)
+    const nextStart = Math.min(Number(parameters.start_seconds ?? 0), Math.max(0, nextDuration - .001))
+    const nextEnd = Math.min(nextStart + Number(parameters.duration ?? 5), nextDuration)
+    update({ start_seconds: nextStart, duration: Math.max(.001, nextEnd - nextStart) })
+  }
+  return <div className="video-trim-editor">
+    <div className="trim-frame-pair">
+      <FramePreview asset={asset} label="起点" onDuration={registerDuration} time={start}/>
+      <FramePreview asset={asset} label="终点" onDuration={registerDuration} time={end}/>
+    </div>
+    <div className="video-timeline-track">
+      <div><strong>保留片段</strong><span>{formatTimestamp(start)} — {formatTimestamp(end)}</span></div>
+      <Slider max={max} min={0} onChange={(value) => { const [nextStart, nextEnd] = value; update({ start_seconds: nextStart, duration: Math.max(.001, nextEnd - nextStart) }) }} range step={.001} tooltip={{ formatter: formatTimestamp }} value={[start, end]}/>
+      <div className="video-timeline-scale"><span>00:00.000</span><span>{formatTimestamp(max)}</span></div>
+    </div>
+  </div>
+}
+
+function FramePreview({ asset, label, onDuration, time }: { asset: Asset; label: string; onDuration: (duration: number) => void; time: number }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const draw = () => {
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    if (!video || !canvas || !video.videoWidth || !video.videoHeight) return
+    const width = Math.min(video.videoWidth, 960)
+    const height = Math.round(width * video.videoHeight / video.videoWidth)
+    canvas.width = width
+    canvas.height = height
+    canvas.getContext('2d')?.drawImage(video, 0, 0, width, height)
+  }
+  const seek = () => {
+    const video = videoRef.current
+    if (!video || !Number.isFinite(video.duration)) return
+    const target = Math.min(Math.max(0, time), Math.max(0, video.duration - .001))
+    if (Math.abs(video.currentTime - target) < .001) draw()
+    else video.currentTime = target
+  }
+  useEffect(() => {
+    videoRef.current?.load()
+  }, [asset.id])
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !Number.isFinite(video.duration)) return
+    const target = Math.min(Math.max(0, time), Math.max(0, video.duration - .001))
+    if (Math.abs(video.currentTime - target) < .001) draw()
+    else video.currentTime = target
+  }, [time])
+  return <figure className="trim-frame-preview">
+    <canvas ref={canvasRef}/>
+    <video
+      aria-hidden
+      muted
+      onLoadedData={seek}
+      onLoadedMetadata={() => {
+        const duration = videoRef.current?.duration ?? 0
+        onDuration(duration)
+        seek()
+      }}
+      onSeeked={draw}
+      preload="auto"
+      ref={videoRef}
+      src={api.assetURL(asset.id)}
+    />
+    <figcaption><strong>{label}</strong><span>{formatTimestamp(time)}</span></figcaption>
+  </figure>
 }
 
 function AspectPreview({ asset, parameters }: { asset?: Asset; parameters: Record<string, unknown> }) {
@@ -358,16 +424,6 @@ function AspectPreview({ asset, parameters }: { asset?: Asset; parameters: Recor
     <div className="aspect-preview-frame" style={{ aspectRatio: `${width} / ${height}`, backgroundColor: String(parameters.background ?? '#F5EDE2') }}>
       <video controls preload="metadata" src={api.assetURL(asset.id)} style={{ objectFit: fit }}/>
     </div>
-  </div>
-}
-
-function SourceStrip({ assets, ids }: { assets: Asset[]; ids: string[] }) {
-  return <div className="local-tool-sources">
-    {ids.map((id, index) => {
-      const asset = assets.find((item) => item.id === id)
-      if (!asset) return null
-      return <div key={id}><em>{String(index + 1).padStart(2, '0')}</em><span>{asset.name}</span><small>{asset.media_type} · {formatBytes(asset.file_size_bytes)}</small></div>
-    })}
   </div>
 }
 
