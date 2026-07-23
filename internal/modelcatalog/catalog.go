@@ -20,9 +20,9 @@ type Definition struct {
 }
 
 type SyncResult struct {
-	Created int
-	Updated int
-	Skipped int
+	Created int `json:"created"`
+	Updated int `json:"updated"`
+	Skipped int `json:"skipped"`
 }
 
 func Sync(ctx context.Context, store *db.Store) (SyncResult, error) {
@@ -103,6 +103,30 @@ func SyncFromPath(ctx context.Context, store *db.Store, manifestPath string) (Sy
 		result.Updated++
 	}
 	return result, nil
+}
+
+func ValidateProviders(ctx context.Context, store *db.Store, manifest Manifest) error {
+	if store == nil {
+		return fmt.Errorf("model catalog store is required")
+	}
+	definitions, err := manifestDefinitions(manifest, "external")
+	if err != nil {
+		return err
+	}
+	providers, err := store.ListModelProviders(ctx)
+	if err != nil {
+		return err
+	}
+	available := make(map[string]struct{}, len(providers))
+	for _, provider := range providers {
+		available[provider.Code] = struct{}{}
+	}
+	for _, definition := range definitions {
+		if _, ok := available[definition.ProviderCode]; !ok {
+			return fmt.Errorf("model provider %q requires a newer SagaFlow binary", definition.ProviderCode)
+		}
+	}
+	return nil
 }
 
 func mergeDefinitions(base, overlays []Definition) []Definition {

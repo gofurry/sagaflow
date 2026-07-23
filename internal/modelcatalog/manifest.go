@@ -354,6 +354,18 @@ func InstallManifest(source, destination string) (ManifestInfo, error) {
 	if err != nil {
 		return ManifestInfo{}, err
 	}
+	return installManifest(destination, manifest)
+}
+
+func InstallManifestContent(reader io.Reader, destination string) (ManifestInfo, error) {
+	manifest, err := DecodeManifest(reader)
+	if err != nil {
+		return ManifestInfo{}, err
+	}
+	return installManifest(destination, manifest)
+}
+
+func installManifest(destination string, manifest Manifest) (ManifestInfo, error) {
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return ManifestInfo{}, err

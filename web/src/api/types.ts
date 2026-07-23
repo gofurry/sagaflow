@@ -38,6 +38,9 @@ export interface SiliconFlowDiscovery { server: SiliconFlowServerInfo; models: S
 export type ModelSupportStatus = 'verified' | 'compatible' | 'experimental'
 export type ModelLifecycleStatus = 'active' | 'deprecated' | 'retired'
 export interface ModelSyncResult { server: ConnectionServerInfo; models: Model[]; imported: number; updated: number }
+export interface CatalogManifestInfo { path: string; installed: boolean; schema_version: number; catalog_version: string; published_at?: string; model_count: number }
+export interface CatalogUpdateStatus { overlay: CatalogManifestInfo; source_url: string }
+export interface CatalogImportResult { overlay: CatalogManifestInfo; sync: { created: number; updated: number; skipped: number } }
 export interface ComfyUIDeviceInfo { name: string; type: string; index: number | null; vram_total: number; vram_free: number }
 export interface ComfyUIServerInfo { version: string; system: Record<string, unknown>; devices: ComfyUIDeviceInfo[]; features: Record<string, unknown>; node_count: number; model_count: number }
 export interface ComfyUIDiscovery { server: ComfyUIServerInfo; nodes: string[]; models: Record<string, string[]> }

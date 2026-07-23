@@ -67,6 +67,8 @@ func (s *Server) RegisterRoutes(app *fiber.App) {
 	p.Post("/model-providers/:id/sync", s.syncProviderModels)
 	p.Get("/model-catalog", s.listModels)
 	p.Post("/model-catalog", s.createModel)
+	p.Get("/model-catalog/update", s.modelCatalogUpdateStatus)
+	p.Post("/model-catalog/update", s.importModelCatalog)
 	p.Patch("/model-catalog/:id", s.updateModel)
 	p.Get("/model-presets", s.listModelPresets)
 	p.Post("/model-presets", s.createModelPreset)

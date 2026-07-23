@@ -611,6 +611,12 @@ button { -webkit-tap-highlight-color: transparent; }
 .model-support-status.experimental { color: #a26545; border-color: rgba(162, 101, 69, .22); background: rgba(248, 226, 210, .52); }
 .model-lifecycle-status { flex-shrink: 0; padding: 1px 6px; border: 1px solid rgba(169, 103, 55, .26); border-radius: 999px; color: #a15d32; background: rgba(249, 224, 197, .6); font-size: var(--font-size-caption); font-style: normal; }
 .model-lifecycle-status.retired { color: #866f63; border-color: rgba(134, 111, 99, .22); background: rgba(225, 216, 209, .62); }
+.catalog-update-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 16px; }
+.catalog-update-heading > div:first-child { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.catalog-update-heading strong { color: #49362c; font-size: 15px; }
+.catalog-update-heading span, .catalog-update-editor > span { color: #927b6d; font-size: var(--font-size-supporting); }
+.catalog-update-heading > div:last-child { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.catalog-update-editor { display: flex; flex-direction: column; gap: 8px; }
 .model-capability { width: fit-content; display: inline-flex; align-items: center; min-height: 24px; padding: 0 9px; border: 1px solid rgba(173, 106, 65, .16); border-radius: 999px; color: #9a5c38; font-size: var(--font-size-caption); background: rgba(238, 213, 190, .34); }
 .model-capability.audio { color: #8b7042; background: rgba(231, 207, 153, .25); }
 .model-capability.video { color: #6f7952; background: rgba(202, 212, 174, .27); }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { ApiOutlined, AudioOutlined, CheckCircleOutlined, CloudServerOutlined, CopyOutlined, DeleteOutlined, DeploymentUnitOutlined, DownOutlined, EditOutlined, FileTextOutlined, KeyOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SettingOutlined, SyncOutlined } from '@ant-design/icons'
-import { App, Button, Checkbox, Col, Empty, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Switch } from 'antd'
+import { ApiOutlined, AudioOutlined, CheckCircleOutlined, CloudServerOutlined, CopyOutlined, DeleteOutlined, DeploymentUnitOutlined, DownOutlined, EditOutlined, FileTextOutlined, ImportOutlined, KeyOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SettingOutlined, SyncOutlined, UploadOutlined } from '@ant-design/icons'
+import { App, Button, Checkbox, Col, Empty, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Switch, Upload } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
 import type { Capability, Model, ModelLifecycleStatus, ModelProvider, ModelSupportStatus, OllamaDiscovery, PromptPreset, SiliconFlowDiscovery } from '../../api/types'
@@ -51,6 +51,9 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
   const [catalogStatus, setCatalogStatus] = useState<string>()
   const [catalogSupport, setCatalogSupport] = useState<ModelSupportStatus>()
   const [catalogLifecycle, setCatalogLifecycle] = useState<ModelLifecycleStatus>()
+  const [catalogUpdateOpen, setCatalogUpdateOpen] = useState(false)
+  const [catalogUpdateJSON, setCatalogUpdateJSON] = useState('')
+  const [catalogUpdateFile, setCatalogUpdateFile] = useState('')
   const [providerHealth, setProviderHealth] = useState<Record<string, 'online' | 'offline'>>({})
   const [providerForm] = Form.useForm()
   const [modelForm] = Form.useForm()
@@ -61,6 +64,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
   const providerAdapter = Form.useWatch('adapter_code', providerForm) as string | undefined
   const providersQuery = useQuery({ queryKey: ['providers'], queryFn: api.providers })
   const modelsQuery = useQuery({ queryKey: ['models', 'catalog'], queryFn: () => api.models() })
+  const catalogUpdateStatusQuery = useQuery({ queryKey: ['model-catalog-update'], queryFn: api.modelCatalogUpdateStatus })
   const credentialsQuery = useQuery({ queryKey: ['credentials'], queryFn: () => api.credentials() })
   const presetsQuery = useQuery({ queryKey: ['presets'], queryFn: () => api.presets() })
   const promptsQuery = useQuery({ queryKey: ['prompt-presets'], queryFn: () => api.promptPresets() })
@@ -125,6 +129,15 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
   })
   const createModel = useMutation({ mutationFn: (values: Record<string, unknown>) => api.createModel({ ...values, parameter_schema: parseJSON(values.parameter_schema as string), default_parameters: parseJSON(values.default_parameters as string) }), onSuccess: async () => { await refresh(['models']); setModelOpen(false); modelForm.resetFields(); message.success('模型已加入目录') }, onError })
   const toggleModel = useMutation({ mutationFn: ({ model, enabled }: { model: Model; enabled: boolean }) => api.updateModel(model.id, { ...model, enabled }), onSuccess: () => refresh(['models']), onError })
+  const importCatalog = useMutation({
+    mutationFn: (manifest: Record<string, unknown>) => api.importModelCatalog(manifest),
+    onSuccess: async (result) => {
+      await refresh(['models'], ['model-catalog-update'])
+      setCatalogUpdateOpen(false)
+      message.success(`目录 ${result.overlay.catalog_version} 已更新 · 新增 ${result.sync.created} · 更新 ${result.sync.updated}`)
+    },
+    onError,
+  })
   const createCredential = useMutation({ mutationFn: api.createCredential, onSuccess: async () => { await refresh(['credentials']); setCredentialOpen(false); credentialForm.resetFields(); message.success('凭证已加密保存') }, onError })
   const activate = useMutation({ mutationFn: api.activateCredential, onSuccess: () => refresh(['credentials']), onError })
   const test = useMutation({ mutationFn: api.testCredential, onSuccess: (result) => message.success(result.message), onError })
@@ -227,10 +240,24 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
   }
   const createLabel = section === 'prompts' ? '新建 Prompt 预设' : view === 'providers' ? '添加服务连接' : view === 'credentials' ? '添加凭证' : '添加模型'
   const canCreateCurrent = section === 'prompts' || section === 'models'
+  const openCatalogUpdate = () => {
+    setCatalogUpdateJSON('')
+    setCatalogUpdateFile('')
+    setCatalogUpdateOpen(true)
+  }
+  const submitCatalogUpdate = () => {
+    try {
+      const manifest = JSON.parse(catalogUpdateJSON) as Record<string, unknown>
+      importCatalog.mutate(manifest)
+    } catch {
+      message.error('请输入完整、有效的模型目录 JSON')
+    }
+  }
 
   return <div className="page page-models">
     {section !== 'voices' && !(section === 'models' && view === 'workflows') && <FloatingToolbar ariaLabel="模型页工具栏" items={[
       ...(canCreateCurrent ? [{ key: 'create', label: createLabel, icon: <PlusOutlined/>, active: true, onClick: openCurrentCreate }] : []),
+      ...(section === 'models' && view === 'catalog' ? [{ key: 'catalog-update', label: '更新模型目录', icon: <ImportOutlined/>, onClick: openCatalogUpdate }] : []),
       { key: 'refresh', label: '刷新当前列表', icon: <ReloadOutlined/>, loading: refreshing, onClick: () => void refreshCurrent() },
     ]}/>}
     <section className="model-page-content">
@@ -398,6 +425,24 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
 
     <Modal title={editingProvider ? '编辑模型服务连接' : '添加模型服务连接'} open={providerOpen} onCancel={closeProviderEditor} onOk={() => providerForm.submit()} confirmLoading={saveProvider.isPending} width={680}><Form form={providerForm} layout="vertical" onFinish={(values) => saveProvider.mutate(values)} requiredMark={false}><Row gutter={12}><Col span={12}><Form.Item label="连接代码" name="code" rules={[{ required: true }]}><Input placeholder="例如 comfyui-official-local"/></Form.Item></Col><Col span={12}><Form.Item label="显示名称" name="display_name" rules={[{ required: true }]}><Input placeholder="例如 本机官方 ComfyUI"/></Form.Item></Col></Row><Row gutter={12}><Col span={12}><Form.Item label="Adapter" name="adapter_code" rules={[{ required: true }]}><Select onChange={(value) => providerForm.setFieldsValue(value === 'comfyui' ? { base_url: 'http://127.0.0.1:8188', capabilities: ['image', 'video'], max_concurrency: 1, auth_type: 'none' } : value === 'ollama' ? { base_url: 'http://127.0.0.1:11434', capabilities: ['text'], max_concurrency: 1, auth_type: 'none' } : value === 'siliconflow' ? { base_url: 'https://api.siliconflow.cn/v1', capabilities: ['text', 'image', 'audio', 'video', 'multimodal'], auth_type: 'api_key' } : value === 'aliyun_bailian' ? { base_url: 'https://dashscope.aliyuncs.com', capabilities: ['text', 'image', 'audio', 'video'], auth_type: 'api_key' } : {})} options={['ollama', 'comfyui', 'siliconflow', 'openai_chat', 'openai_responses', 'deepseek', 'volcengine', 'minimax', 'aliyun_bailian'].map((value) => ({ value, label: value }))}/></Form.Item></Col><Col span={12}><Form.Item label="认证方式" name="auth_type" rules={[{ required: true }]}><Select options={[{ value: 'none', label: '无需认证' }, { value: 'api_key', label: 'API Key' }, { value: 'bearer', label: 'Bearer Token' }]}/></Form.Item></Col></Row><Row gutter={12}><Col span={isLocalAdapter(providerAdapter) ? 16 : 24}><Form.Item label="Base URL" name="base_url" rules={[{ required: true }, { type: 'url' }]}><Input placeholder="http://127.0.0.1:8188"/></Form.Item></Col>{isLocalAdapter(providerAdapter) && <Col span={8}><Form.Item label="最大并发" name="max_concurrency" rules={[{ required: true }]}><InputNumber min={1} max={8} precision={0} style={{ width: '100%' }}/></Form.Item></Col>}</Row><Form.Item label="输出能力" name="capabilities" rules={[{ required: true }]}><Select mode="multiple" options={capabilities.map((value) => ({ value, label: capabilityLabel(value) }))}/></Form.Item></Form></Modal>
     <Modal title="添加模型" open={modelOpen} onCancel={() => setModelOpen(false)} onOk={() => modelForm.submit()} width={980} confirmLoading={createModel.isPending}><Form form={modelForm} layout="vertical" onFinish={(values) => createModel.mutate(values)} requiredMark={false} initialValues={{ enabled: true, parameter_schema: '{\n  "type": "object",\n  "properties": {}\n}', default_parameters: '{}' }}><Row gutter={12}><Col span={12}><Form.Item label="服务连接" name="provider_id" rules={[{ required: true }]}><Select options={providers.map((item) => ({ value: item.id, label: item.display_name }))}/></Form.Item></Col><Col span={12}><Form.Item label="输出能力" name="capability" rules={[{ required: true }]}><Select options={capabilities.map((value) => ({ value, label: capabilityLabel(value) }))}/></Form.Item></Col></Row><Row gutter={12}><Col span={12}><Form.Item label="Model ID" name="model_id" rules={[{ required: true }]}><Input/></Form.Item></Col><Col span={12}><Form.Item label="显示名称" name="display_name" rules={[{ required: true }]}><Input/></Form.Item></Col></Row><Row gutter={16}><Col span={12}><Form.Item extra="描述生成页如何把参数映射为表单组件。" label="参数 JSON Schema" name="parameter_schema" rules={[jsonRule]}><JSONCodeEditor height={330}/></Form.Item></Col><Col span={12}><Form.Item extra="只写需要由 SagaFlow 主动覆盖的默认值。" label="默认参数" name="default_parameters" rules={[jsonRule]}><JSONCodeEditor height={330}/></Form.Item></Col></Row></Form></Modal>
+    <Modal cancelText="取消" confirmLoading={importCatalog.isPending} okButtonProps={{ disabled: !catalogUpdateJSON.trim() }} okText="校验并更新" onCancel={() => setCatalogUpdateOpen(false)} onOk={submitCatalogUpdate} open={catalogUpdateOpen} title="更新模型目录" width={1040}>
+      <div className="catalog-update-heading">
+        <div>
+          <strong>{catalogUpdateStatusQuery.data?.overlay.installed ? `当前更新包 ${catalogUpdateStatusQuery.data.overlay.catalog_version}` : '当前使用二进制内置目录'}</strong>
+          <span>导入后立即同步模型；已有启用状态、历史记录和参数预设不会被覆盖。</span>
+        </div>
+        <div>
+          <Upload accept=".json,application/json" beforeUpload={(file) => { void file.text().then((content) => { setCatalogUpdateJSON(content); setCatalogUpdateFile(file.name) }); return false }} maxCount={1} showUploadList={false}>
+            <Button icon={<UploadOutlined/>}>选择 JSON 文件</Button>
+          </Upload>
+          {catalogUpdateStatusQuery.data?.source_url && <Button href={catalogUpdateStatusQuery.data.source_url} rel="noreferrer" target="_blank">打开更新文件</Button>}
+        </div>
+      </div>
+      <div className="catalog-update-editor">
+        <span>{catalogUpdateFile || '粘贴完整的 model-catalog.json'}</span>
+        <JSONCodeEditor height={500} onChange={setCatalogUpdateJSON} value={catalogUpdateJSON}/>
+      </div>
+    </Modal>
     <Modal title="添加服务凭证" open={credentialOpen} onCancel={() => setCredentialOpen(false)} onOk={() => credentialForm.submit()} confirmLoading={createCredential.isPending}><Form form={credentialForm} layout="vertical" onFinish={(values) => createCredential.mutate({ ...values, activate: true })} requiredMark={false}><Form.Item label="服务连接" name="provider_id" rules={[{ required: true }]}><Select options={providers.filter((item) => item.auth_type !== 'none').map((item) => ({ value: item.id, label: item.display_name }))}/></Form.Item><Form.Item label="名称" name="name" initialValue="Primary credential" rules={[{ required: true }]}><Input/></Form.Item><Form.Item label="API Key / Token" name="api_key" rules={[{ required: true }]}><Input.Password autoComplete="new-password"/></Form.Item></Form></Modal>
     <Modal cancelText="取消" confirmLoading={syncModels.isPending} okButtonProps={{ disabled: !discoveryProvider }} okText="同步所选模型" onCancel={() => { setDiscovery(null); setDiscoveryProvider(null) }} onOk={() => discoveryProvider && syncModels.mutate({ providerID: discoveryProvider.id, modelIDs: selectedRemoteModels })} open={!!discovery && !!discoveryProvider} title={discoveryProvider ? `同步 ${discoveryProvider.display_name} 中的模型` : '同步模型'} width={760}>
       {discovery && discoveryProvider && <div className="ollama-discovery">

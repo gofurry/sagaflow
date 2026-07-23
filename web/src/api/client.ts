@@ -1,4 +1,4 @@
-import type { Account, Asset, AssetGroup, AssetRemoteExport, AuthStatus, CanvasDocument, CanvasNodeDTO, ComfyUIDiscovery, ConnectionServerInfo, CurrentUser, Episode, EpisodeScript, GenerationInputReference, GenerationInvocation, GenerationJob, GenerationReferenceUpload, ID, Model, ModelPreset, ModelProvider, ModelSyncResult, OllamaDiscovery, Project, PromptPreset, ProviderCredential, S3Connection, SiliconFlowDiscovery, StagedAsset, StagedAssetPage, StagedAssetSummary, VoiceProfile, WorkflowAnalysis, WorkflowCompatibility, WorkflowTemplate } from './types'
+import type { Account, Asset, AssetGroup, AssetRemoteExport, AuthStatus, CanvasDocument, CanvasNodeDTO, CatalogImportResult, CatalogUpdateStatus, ComfyUIDiscovery, ConnectionServerInfo, CurrentUser, Episode, EpisodeScript, GenerationInputReference, GenerationInvocation, GenerationJob, GenerationReferenceUpload, ID, Model, ModelPreset, ModelProvider, ModelSyncResult, OllamaDiscovery, Project, PromptPreset, ProviderCredential, S3Connection, SiliconFlowDiscovery, StagedAsset, StagedAssetPage, StagedAssetSummary, VoiceProfile, WorkflowAnalysis, WorkflowCompatibility, WorkflowTemplate } from './types'
 
 interface Envelope<T> { data?: T; error?: { code: string; message: string } }
 export class APIError extends Error {
@@ -69,6 +69,8 @@ export const api = {
   discoverProviderModels: (id: ID) => request<OllamaDiscovery | ComfyUIDiscovery | SiliconFlowDiscovery>(`/model-providers/${id}/discover`, { method: 'POST' }),
   syncProviderModels: (id: ID, modelIDs: string[]) => request<ModelSyncResult>(`/model-providers/${id}/sync`, { method: 'POST', body: body({ model_ids: modelIDs }) }),
   models: (capability?: string, projectID?: ID) => request<Model[]>(`/model-catalog${query({ capability, project_id: projectID })}`),
+  modelCatalogUpdateStatus: () => request<CatalogUpdateStatus>('/model-catalog/update'),
+  importModelCatalog: (manifest: Record<string, unknown>) => request<CatalogImportResult>('/model-catalog/update', { method: 'POST', body: body(manifest) }),
   createModel: (input: Partial<Model>) => request<Model>('/model-catalog', { method: 'POST', body: body(input) }),
   updateModel: (id: ID, input: Partial<Model>) => request<Model>(`/model-catalog/${id}`, { method: 'PATCH', body: body(input) }),
   presets: (modelID?: ID) => request<ModelPreset[]>(`/model-presets${query({ model_id: modelID })}`),

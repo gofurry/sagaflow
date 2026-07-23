@@ -3,19 +3,16 @@ package cli
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/gofurry/sagaflow/internal/app"
 	"github.com/gofurry/sagaflow/internal/backup"
 	"github.com/gofurry/sagaflow/internal/config"
-	"github.com/gofurry/sagaflow/internal/modelcatalog"
 	applogger "github.com/gofurry/sagaflow/internal/platform/logger"
 	"github.com/gofurry/sagaflow/internal/platform/sqlite"
 	"github.com/gofurry/sagaflow/internal/service"
@@ -162,55 +159,6 @@ func NewRootCommand(version string) *cobra.Command {
 	_ = restoreBackup.MarkFlagRequired("archive")
 	backupCmd.AddCommand(createBackup, restoreBackup)
 	root.AddCommand(backupCmd)
-
-	catalogCmd := &cobra.Command{Use: "catalog", Short: "Manage the independently updateable model catalog"}
-	catalogStatus := &cobra.Command{Use: "status", Short: "Show the installed catalog overlay", RunE: func(_ *cobra.Command, _ []string) error {
-		cfg, err := config.Load(cfgPath)
-		if err != nil {
-			return err
-		}
-		info, err := modelcatalog.ManifestStatus(cfg.ModelCatalogPath())
-		if err != nil {
-			return err
-		}
-		if !info.Installed {
-			fmt.Printf("catalog overlay: not installed\npath: %s\n", info.Path)
-			return nil
-		}
-		fmt.Printf("catalog overlay: %s\nschema: %d\nmodels: %d\npath: %s\n", info.CatalogVersion, info.SchemaVersion, info.ModelCount, info.Path)
-		return nil
-	}}
-	var catalogURL string
-	catalogUpdate := &cobra.Command{Use: "update", Short: "Download the latest model catalog from GitHub Releases", RunE: func(cmd *cobra.Command, _ []string) error {
-		cfg, err := config.Load(cfgPath)
-		if err != nil {
-			return err
-		}
-		info, err := modelcatalog.DownloadManifest(cmd.Context(), &http.Client{Timeout: 2 * time.Minute}, catalogURL, cfg.ModelCatalogPath())
-		if err != nil {
-			return err
-		}
-		fmt.Printf("catalog %s installed with %d model definitions\n", info.CatalogVersion, info.ModelCount)
-		return nil
-	}}
-	catalogUpdate.Flags().StringVar(&catalogURL, "url", modelcatalog.DefaultManifestURL, "catalog manifest URL")
-	var catalogFile string
-	catalogInstall := &cobra.Command{Use: "install", Short: "Install a downloaded model catalog file", RunE: func(_ *cobra.Command, _ []string) error {
-		cfg, err := config.Load(cfgPath)
-		if err != nil {
-			return err
-		}
-		info, err := modelcatalog.InstallManifest(catalogFile, cfg.ModelCatalogPath())
-		if err != nil {
-			return err
-		}
-		fmt.Printf("catalog %s installed with %d model definitions\n", info.CatalogVersion, info.ModelCount)
-		return nil
-	}}
-	catalogInstall.Flags().StringVarP(&catalogFile, "file", "i", "", "catalog JSON file")
-	_ = catalogInstall.MarkFlagRequired("file")
-	catalogCmd.AddCommand(catalogStatus, catalogUpdate, catalogInstall)
-	root.AddCommand(catalogCmd)
 
 	serviceCmd := &cobra.Command{Use: "service", Short: "Install or remove the Linux systemd service"}
 	var serviceUser, unitPath string

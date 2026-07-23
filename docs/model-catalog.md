@@ -14,21 +14,15 @@ SagaFlow 的模型目录分成三层，避免模型平台的一次参数调整�
 
 支持级别描述的是 SagaFlow 对调用链路的验证程度，不代表模型质量。
 
-## 命令
+## 更新入口
 
-```bash
-sagaflow catalog status
-sagaflow catalog update
-sagaflow catalog install --file model-catalog.json
-```
-
-`catalog update` 默认下载：
+在“模型 → 模型目录”右侧工具栏打开“更新模型目录”，可以粘贴更新 JSON 或选择本地 JSON 文件。模态框提供默认更新文件的跳转：
 
 ```text
 https://github.com/gofurry/sagaflow/releases/latest/download/model-catalog.json
 ```
 
-安装会先校验 JSON、Schema 版本、模型能力、参数 Schema 与支持级别，再原子替换本地文件。更新后的目录会在下次启动时同步到 SQLite；用户对模型“启用/停用”的选择不会被覆盖。
+导入会先校验 JSON、Schema 版本、模型能力、参数 Schema、支持级别、生命周期以及当前二进制是否包含对应服务商，再原子替换本地文件并立即同步到 SQLite。用户对模型“启用/停用”的选择不会被覆盖。
 
 ## Release 资产格式
 

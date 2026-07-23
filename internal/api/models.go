@@ -1,16 +1,55 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofurry/sagaflow/internal/modelcatalog"
 	"github.com/gofurry/sagaflow/internal/service"
 	"github.com/gofurry/sagaflow/internal/store/db"
 	"github.com/google/uuid"
 )
+
+type catalogUpdateStatus struct {
+	Overlay   modelcatalog.ManifestInfo `json:"overlay"`
+	SourceURL string                    `json:"source_url"`
+}
+
+type catalogImportResult struct {
+	Overlay modelcatalog.ManifestInfo `json:"overlay"`
+	Sync    modelcatalog.SyncResult   `json:"sync"`
+}
+
+func (s *Server) modelCatalogUpdateStatus(c fiber.Ctx) error {
+	info, err := modelcatalog.ManifestStatus(s.cfg.ModelCatalogPath())
+	if err != nil {
+		return err
+	}
+	return writeOK(c, catalogUpdateStatus{Overlay: info, SourceURL: modelcatalog.DefaultManifestURL})
+}
+
+func (s *Server) importModelCatalog(c fiber.Ctx) error {
+	manifest, err := modelcatalog.DecodeManifest(bytes.NewReader(c.Body()))
+	if err != nil {
+		return fmt.Errorf("%w: %v", service.ErrInvalidInput, err)
+	}
+	if err := modelcatalog.ValidateProviders(c.Context(), s.store, manifest); err != nil {
+		return fmt.Errorf("%w: %v", service.ErrInvalidInput, err)
+	}
+	info, err := modelcatalog.InstallManifestContent(bytes.NewReader(c.Body()), s.cfg.ModelCatalogPath())
+	if err != nil {
+		return err
+	}
+	result, err := modelcatalog.SyncFromPath(c.Context(), s.store, s.cfg.ModelCatalogPath())
+	if err != nil {
+		return err
+	}
+	return writeOK(c, catalogImportResult{Overlay: info, Sync: result})
+}
 
 type providerRequest struct {
 	Code         string          `json:"code"`
