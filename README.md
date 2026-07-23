@@ -1,74 +1,99 @@
-# SagaFlow
+<p align="center">
+  <img src="web/public/logo-mini.svg" alt="SagaFlow" width="88">
+</p>
 
-SagaFlow 个人版是一套本地优先的 AI 漫剧生产工作台。项目、剧本、素材、生成任务和画布都保存在自己的设备上；Ollama 与 ComfyUI 可以直接读取本地素材，云端模型只在需要参考文件时使用用户手动发布的 S3 副本。
+<h1 align="center">SagaFlow</h1>
 
-## 设计边界
+<p align="center">
+  本地优先的 AI 漫剧生产工作台：在一个应用里管理剧本、素材、模型生成、分镜画布与媒体处理。
+</p>
 
-- 单个全局账号，不包含用户、角色、工作组或资源授权系统。
-- Go 单进程同时提供 API、SQLite 持久任务队列和内嵌的 React 工作台。
-- SQLite 是唯一数据库，不需要 PostgreSQL、Redis 或独立 worker。
-- 本地文件是唯一主副本；S3 是可选的手动发布目标，不会自动同步或替代本地文件。
-- 模型服务、模型目录、凭证、ComfyUI 工作流、全局 Prompt 预设、全局音色和 S3 连接都在工作台内维护，不写入运行配置。
-- 模型目录支持随二进制发布的内置清单、在线发现，以及通过 GitHub Release 独立更新的 JSON 目录包，详见 [模型目录与更新包](docs/model-catalog.md)。
-- 个人版使用独立的干净数据结构，不兼容团队版数据库，也不会尝试迁移团队版数据。
+<p align="center">
+  <a href="https://go.dev/"><img alt="Go 1.26" src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white"></a>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-cd7540"></a>
+  <img alt="Development status" src="https://img.shields.io/badge/status-active%20development-d7874d">
+</p>
 
-## 技术栈
+SagaFlow 面向希望在自己的电脑、NAS 或小型服务器上完成 AI 漫剧生产的个人创作者。应用由单个 Go 进程提供 API、任务执行和内嵌的 React 工作台，默认只依赖 SQLite 与本地文件系统，不需要 PostgreSQL、Redis、独立 Worker 或强制 S3。
 
-- Go 1.26、Fiber 3.4.0、easyhash 1.2.0
-- SQLite（WAL）、持久化进程内任务队列
-- React 19、TypeScript、Vite、Ant Design、React Flow
-- FFmpeg / FFprobe 子进程，用于本地媒体检查、转换、裁切、合片和截图
-- AWS SDK for Go v2，用于 AWS S3、腾讯云 COS、阿里云 OSS、MinIO 等 S3 兼容服务的手动发布
+> 当前处于积极开发阶段，功能已经形成完整生产闭环，但数据结构和交互仍可能在正式版本前调整。
 
-## 本机启动
+## 核心能力
 
-首次运行先创建唯一账号：
+- **项目与剧本**：管理项目、分集和 Markdown 剧本版本。
+- **树状资产库**：人物、场景、道具和素材支持任意层级分组；文本、图像、音频和视频统一管理。
+- **多模型生成**：接入 DeepSeek、火山方舟、MiniMax、阿里云百炼、硅基流动、智谱、腾讯云 Token Hub、Kimi / Moonshot、Ollama 与 ComfyUI。
+- **可更新模型目录**：内置模型清单随应用发布，也可以在界面导入独立 JSON 更新包。
+- **分集画布**：将已采用资产、备注、关系线和视频分镜放到无限画布中编排。
+- **本地媒体工具**：检查、转码、画幅适配、音频处理、裁切、合片和视频截图。
+- **本地优先存储**：生成结果先落到本地对象库；S3 只作为用户主动发布的可选公网副本。
+- **持久任务队列**：生成和媒体任务都写入 SQLite，应用重启后仍可恢复状态。
+- **完整备份**：一次归档数据库、素材对象和凭证主密钥。
+
+## 为什么是本地优先
+
+```text
+浏览器工作台
+    │
+    ▼
+SagaFlow 单二进制
+    ├── SQLite：项目、任务、模型与业务数据
+    ├── data/objects：本地素材主副本
+    ├── 模型网关：云端模型、Ollama、ComfyUI
+    ├── FFmpeg：本地媒体处理
+    └── 可选 S3：仅手动发布公网副本
+```
+
+本地文件始终是主副本。Ollama、ComfyUI 和 FFmpeg 直接读取本地素材；只有需要公网 URL 的云端模型，才需要先把指定素材手动发布到 S3。
+
+## 快速开始
+
+### 从源码构建
+
+需要 Go 1.26、Node.js 24、Corepack，以及与当前系统和架构匹配的
+FFmpeg/FFprobe。可以把它们放在系统 `PATH`，也可以放到
+`tools/ffmpeg/<goos>-<goarch>/`。
 
 ```bash
-go run ./cmd/sagaflow account init \
+git clone https://github.com/gofurry/sagaflow.git
+cd sagaflow
+
+cd web
+corepack pnpm install --frozen-lockfile
+corepack pnpm build
+cd ..
+```
+
+Windows PowerShell：
+
+```powershell
+.\tools\ffmpeg\install-windows.ps1
+go build -o .\bin\sagaflow.exe .\cmd\sagaflow
+.\bin\sagaflow.exe serve
+```
+
+Linux 或 macOS：
+
+```bash
+go build -o ./bin/sagaflow ./cmd/sagaflow
+./bin/sagaflow serve
+```
+
+打开 [http://127.0.0.1:8080](http://127.0.0.1:8080)，首次进入时按引导创建唯一的本地账号。应用默认在二进制同目录创建 `data/`；移动或备份整个目录即可带走工作台数据。
+
+也可以提前通过命令行初始化账号：
+
+```bash
+sagaflow account init \
   --username admin \
   --display-name Creator \
   --password "change-this-password"
-go run ./cmd/sagaflow serve
+sagaflow serve
 ```
 
-打开 `http://127.0.0.1:8080`。正式二进制默认使用与自身同目录的 `data/`，便于整套移动和备份；`go run` 开发时使用当前仓库下的 `data/`。也可以仅为当前命令覆盖：
+### Docker Compose
 
-```bash
-SAGAFLOW_DATA_DIR=./data go run ./cmd/sagaflow account init --password "change-this-password"
-SAGAFLOW_DATA_DIR=./data go run ./cmd/sagaflow serve
-```
-
-PowerShell 使用 `$env:SAGAFLOW_DATA_DIR = '.\data'`。如果仅监听回环地址，也可以直接启动并在首次打开页面时创建账号；绑定公网或局域网地址前必须先初始化账号。
-
-运行配置是可选的：
-
-```bash
-go run ./cmd/sagaflow config init --output ./data/config.yaml
-go run ./cmd/sagaflow serve --config ./data/config.yaml
-```
-
-配置只包含数据目录、监听地址、会话和任务执行参数，示例见 [`configs/config.example.yaml`](configs/config.example.yaml)。模型密钥或 S3 密钥不会从该文件或环境变量读取。
-
-## 前端开发
-
-后端运行在 `127.0.0.1:8080` 时：
-
-```bash
-cd web
-corepack pnpm install --frozen-lockfile
-corepack pnpm dev
-```
-
-生产构建会写入 `internal/webui/dist`，随后由 Go `embed` 放入同一个二进制：
-
-```bash
-make build
-```
-
-## Docker
-
-镜像只有一个应用容器和一个数据卷。由于容器监听 `0.0.0.0`，需要先创建账号再启动服务：
+Docker 镜像内已安装 FFmpeg，只需要一个应用容器和一个数据卷：
 
 ```bash
 docker compose build
@@ -79,32 +104,83 @@ docker compose run --rm sagaflow account init \
 docker compose up -d
 ```
 
-访问 `http://localhost:8080`。停止服务使用 `docker compose down`；不要加 `-v`，除非确认要删除全部数据。
+访问 [http://localhost:8080](http://localhost:8080)。停止应用使用 `docker compose down`；除非确认要删除全部数据，否则不要添加 `-v`。
 
-## 模型和存储
+## FFmpeg 与多平台发布
 
-登录后在“模型”页完成以下管理：
+FFmpeg 不内嵌到 SagaFlow 二进制，也不绑定某个操作系统或 CPU
+架构。每个平台的发布包携带对应工具：
 
-- Ollama（`http://127.0.0.1:11434`）和 ComfyUI（`http://127.0.0.1:8188`）连接已预置，启动本地服务后可直接检测、同步模型或导入工作流；
-- 添加或编辑 DeepSeek、Seedream、Seedance、MiniMax 等云端服务连接；
-- 保存本机加密的服务凭证；
-- 同步 Ollama 模型、导入 ComfyUI API 工作流、维护模型参数、全局 Prompt 预设和全局音色。
-
-所有素材会先写入本地内容寻址对象目录。Ollama 与 ComfyUI 使用本地内容流，不需要公网 URL。云端模型需要参考素材时，先在“设置 → S3 发布”添加兼容连接，再从资产操作中手动发布所需文件；生成任务保存的是该资产对应的具体远端副本，不会后台自动上传。
-
-## 本地媒体工具
-
-“工具”页提供媒体检查、格式转换、画幅适配、音频处理、轨道裁切、顺序合片和视频截图。所有操作只读取源资产；结果默认进入“未处理”暂存区，也可在提交任务前选择资产分组直接生成候选资产。任务状态保存在 SQLite 中，不依赖外部 worker。
-
-SagaFlow 会依次查找程序同目录、仓库的 `tools/ffmpeg/<平台-架构>/` 和系统 `PATH`。Windows 开发环境可执行：
-
-```powershell
-.\tools\ffmpeg\install-windows.ps1
+```text
+sagaflow-<goos>-<goarch>/
+├── sagaflow[.exe]
+├── ffmpeg[.exe]
+├── ffprobe[.exe]
+├── SAGAFLOW-LICENSE.txt
+└── FFMPEG-LICENSE.txt
 ```
 
-实际的 FFmpeg 文件被 Git 忽略。构建好 `bin/sagaflow.exe` 后，可以运行 `.\tools\ffmpeg\package-windows.ps1`，生成包含 SagaFlow、FFmpeg、FFprobe 和相应许可证的便携目录。Docker 镜像则直接安装发行版提供的 FFmpeg 包。
+SagaFlow 会从程序同目录、平台工具目录和系统 `PATH` 自动发现
+FFmpeg。这样可以分别支持 Windows、Linux、macOS 的 amd64/arm64，
+同时保持源码仓库和应用二进制与架构无关。Docker 镜像直接安装
+发行版软件包。
 
-## 运维命令
+开发环境安装、平台目录约定、发布打包脚本和第三方许可证说明见
+[`tools/ffmpeg/README.md`](tools/ffmpeg/README.md)。
+
+## 数据目录
+
+```text
+data/
+├── sagaflow.db       # SQLite 数据库
+├── objects/          # 本地素材主副本
+├── secrets/          # 本机凭证主密钥
+├── temp/             # 可清理的任务临时文件
+├── backups/          # 默认备份输出
+└── config.yaml       # 可选的最小运行配置
+```
+
+模型密钥、服务连接、工作流、Prompt 预设、音色和 S3 连接均在工作台内部维护，不需要写进仓库配置文件。
+
+## 本地模型与云端模型
+
+登录后进入“模型”：
+
+- Ollama 默认连接 `http://127.0.0.1:11434`，可以同步本机已安装模型；
+- ComfyUI 默认连接 `http://127.0.0.1:8188`，可以导入 API 工作流并自动解析输入参数；
+- 云端服务通过“服务连接”和“凭证”配置；
+- 模型目录支持按服务商、类型和参考能力过滤；
+- Prompt 预设与音色是全局资源，可跨项目复用。
+
+模型参数和平台能力会持续变化，内置目录与独立更新包的格式见 [`docs/model-catalog.md`](docs/model-catalog.md)。
+
+## 开发
+
+```bash
+# 后端与全部 Go 测试
+go test ./...
+go vet ./...
+
+# 前端开发
+cd web
+corepack pnpm dev
+
+# 前端检查与生产构建
+corepack pnpm lint
+corepack pnpm build
+```
+
+常用 Make 目标：
+
+```bash
+make run
+make test
+make build
+make docker-up
+make docker-down
+```
+
+## 运维
 
 ```bash
 sagaflow doctor
@@ -113,17 +189,30 @@ sagaflow backup create
 sagaflow backup restore --archive /path/to/backup.zip --yes
 ```
 
-备份包含 SQLite 快照、本地素材和解密凭证所需的主密钥，不包含与机器路径相关的运行配置，应像密码一样保护。恢复前必须停止 SagaFlow；恢复成功后，原数据目录会以 `.before-restore-时间` 后缀保留，确认无误后再手动删除。
+恢复备份前必须停止 SagaFlow。备份包含素材和凭证主密钥，应像密码一样妥善保管。
 
-Linux systemd、Docker、Windows/macOS 命令行部署详见 [`docs/deployment.md`](docs/deployment.md)，架构和数据边界详见 [`docs/architecture.md`](docs/architecture.md)。
+更多信息：
 
-## 验证
+- [架构与数据边界](docs/architecture.md)
+- [部署：systemd、Docker、Windows 与 macOS](docs/deployment.md)
+- [模型目录与更新包](docs/model-catalog.md)
+
+## 参与贡献
+
+欢迎提交 Issue 和 Pull Request。提交代码前请确保：
 
 ```bash
 go test ./...
+go vet ./...
 cd web && corepack pnpm lint && corepack pnpm build
 ```
 
-## License
+请勿提交 API Key、`.env`、本地数据库、生成素材或其他个人数据。
 
-[MIT](LICENSE)
+## 许可证
+
+SagaFlow 源代码使用 [MIT License](LICENSE)。
+
+发布包附带的 FFmpeg / FFprobe 是独立的第三方程序；SagaFlow
+通过子进程和文件与其交互。相应许可证和分发说明保存在
+[`tools/ffmpeg/README.md`](tools/ffmpeg/README.md)。

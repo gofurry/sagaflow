@@ -814,11 +814,6 @@ button { -webkit-tap-highlight-color: transparent; }
 .local-tool-tabs button.active { color: #fff7f0; border-color: rgba(224, 151, 99, .44); background: linear-gradient(105deg, #ca7842, #cf814a); box-shadow: 0 9px 25px rgba(181, 96, 44, .16); }
 .local-tool-tabs button .anticon { font-size: 14px; }
 .local-tool-tabs button strong { font-size: 13px; font-weight: 650; }
-.local-tool-runtime { min-height: 38px; display: flex; align-items: center; gap: 9px; margin-bottom: 24px; padding: 4px 3px 11px; border-bottom: 1px solid rgba(139, 105, 82, .13); }
-.local-tool-runtime > .anticon { color: #a38b7c; font-size: 17px; }
-.local-tool-runtime.ready > .anticon { color: #7e9467; }
-.local-tool-runtime.missing > .anticon { color: #b25d4c; }
-.local-tool-runtime strong { overflow: hidden; color: #674f42; font-size: var(--font-size-supporting); text-overflow: ellipsis; white-space: nowrap; }
 .local-tool-workbench { padding: 2px 0 28px; }
 .local-tool-workbench > header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
 .local-tool-workbench > header h2 { margin: 0; color: #594439; font-size: 22px; }

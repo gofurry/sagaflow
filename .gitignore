@@ -10,11 +10,11 @@ logs/
 bin/
 dist/
 tmp/
-tools/ffmpeg/windows-x64/
-tools/ffmpeg/linux-x64/
-tools/ffmpeg/darwin-x64/
-tools/ffmpeg/darwin-arm64/
+tools/ffmpeg/windows-*/
+tools/ffmpeg/linux-*/
+tools/ffmpeg/darwin-*/
 tools/ffmpeg/*.zip
+tools/ffmpeg/*.tar.*
 
 # Go
 *.exe

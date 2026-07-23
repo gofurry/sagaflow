@@ -5,8 +5,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$target = Join-Path $root "windows-x64"
+$target = Join-Path $PSScriptRoot "windows-amd64"
 $archive = Join-Path ([System.IO.Path]::GetTempPath()) "sagaflow-ffmpeg-release-essentials.zip"
 $expanded = Join-Path ([System.IO.Path]::GetTempPath()) ("sagaflow-ffmpeg-" + [guid]::NewGuid().ToString("N"))
 
@@ -23,7 +22,7 @@ try {
     $ffmpeg = Get-ChildItem -LiteralPath $expanded -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
     $ffprobe = Get-ChildItem -LiteralPath $expanded -Recurse -Filter "ffprobe.exe" | Select-Object -First 1
     if (-not $ffmpeg -or -not $ffprobe) {
-        throw "Downloaded archive does not contain ffmpeg.exe and ffprobe.exe"
+        throw "Downloaded archive does not contain ffmpeg.exe and ffprobe.exe."
     }
 
     New-Item -ItemType Directory -Force -Path $target | Out-Null
@@ -38,7 +37,7 @@ try {
     }
 
     & (Join-Path $target "ffmpeg.exe") -version | Select-Object -First 1
-    Write-Host "Installed to $target"
+    Write-Host "Installed the local development toolchain at $target"
 }
 finally {
     Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue

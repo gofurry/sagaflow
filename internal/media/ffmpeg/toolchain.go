@@ -74,7 +74,7 @@ func Discover() *Toolchain {
 	if ffmpegErr == nil && ffprobeErr == nil {
 		return newToolchain(ffmpegPath, ffprobePath, "path")
 	}
-	message := "未找到 FFmpeg；请将 ffmpeg 和 ffprobe 放在 SagaFlow 同目录"
+	message := fmt.Sprintf("未找到 FFmpeg；请将 %s 和 %s 放在 SagaFlow 同目录或系统 PATH", ffmpegName, ffprobeName)
 	return &Toolchain{status: Status{Message: message}}
 }
 

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AudioOutlined,
   CameraOutlined,
-  CheckCircleOutlined,
   ColumnWidthOutlined,
   CompressOutlined,
   DeleteOutlined,
@@ -13,7 +12,6 @@ import {
   ReloadOutlined,
   ScissorOutlined,
   StopOutlined,
-  WarningOutlined,
 } from '@ant-design/icons'
 import { App, Button, Input, InputNumber, Modal, Progress, Select, Slider, Switch } from 'antd'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -146,11 +144,6 @@ export function LocalToolsPage({ onError, project }: { onError: (error: unknown)
         {toolOrder.map((item) => <button aria-selected={tool === item} className={tool === item ? 'active' : ''} key={item} onClick={() => switchTool(item)} role="tab" type="button">
           {toolMeta[item].icon}<strong>{toolMeta[item].label}</strong>
         </button>)}
-      </div>
-
-      <div className={`local-tool-runtime${statusQuery.data?.available ? ' ready' : ' missing'}`}>
-        {statusQuery.data?.available ? <CheckCircleOutlined/> : <WarningOutlined/>}
-        <strong>{statusQuery.data?.available ? 'FFmpeg 已就绪' : statusQuery.data?.message ?? '正在检查本地工具…'}</strong>
       </div>
 
       <div className="local-tool-workbench">

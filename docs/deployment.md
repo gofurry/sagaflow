@@ -1,8 +1,18 @@
 # 部署
 
-SagaFlow 个人版只需要一个二进制和一个可写数据目录。模型服务可以在同机或网络中独立运行。
+SagaFlow 个人版只运行一个应用进程，并使用一个可写数据目录。
+本地媒体工具还需要当前平台对应的 FFmpeg/FFprobe；模型服务可以在
+同机或网络中独立运行。
 
 ## Linux + systemd
+
+先安装 FFmpeg。SagaFlow 的 Linux 构建会从系统 `PATH` 发现
+`ffmpeg` 和 `ffprobe`：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ffmpeg
+```
 
 构建并放置二进制：
 
@@ -62,6 +72,22 @@ docker compose logs -f
 ```
 
 macOS/Linux 终端去掉 `.exe`。命令行窗口关闭后服务停止；如需长期运行，Linux 使用 systemd，NAS 可以使用 Docker。
+
+正式发布包应把当前平台和架构对应的 FFmpeg/FFprobe 放在 SagaFlow
+二进制同目录。源码构建时，Windows amd64 可以运行：
+
+```powershell
+.\tools\ffmpeg\install-windows.ps1
+```
+
+macOS 可以通过 Homebrew 安装：
+
+```bash
+brew install ffmpeg
+```
+
+发布目录的跨平台约定和打包脚本见
+[`tools/ffmpeg/README.md`](../tools/ffmpeg/README.md)。
 
 ## 运行配置
 
