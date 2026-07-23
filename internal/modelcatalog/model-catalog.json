@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "catalog_version": "2026.07.23.3",
+  "catalog_version": "2026.07.23.4",
   "published_at": "2026-07-23T00:00:00+08:00",
   "profiles": {
     "siliconflow-chat": {
@@ -383,6 +383,56 @@
       "default_parameters": {"with_audio": false, "duration": 4, "size": "1280x720"},
       "support_status": "compatible",
       "documentation_url": "https://docs.bigmodel.cn/cn/guide/models/video-generation/vidu"
+    },
+    "moonshot-k3": {
+      "task": "chat",
+      "capability": "text",
+      "input_modalities": ["text", "image", "video"],
+      "features": ["chat", "thinking", "structured_output", "vision", "video_understanding", "long_context", "tools"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "max_completion_tokens": {"type": "integer", "title": "最大输出 Token", "minimum": 1, "maximum": 1048576},
+          "reasoning_effort": {"type": "string", "title": "推理强度", "enum": ["low", "high", "max"]},
+          "response_format": {"type": "string", "title": "输出格式", "enum": ["text", "json_object"]}
+        }
+      },
+      "default_parameters": {"max_completion_tokens": 8192, "reasoning_effort": "low"},
+      "support_status": "verified",
+      "documentation_url": "https://platform.kimi.com/docs/guide/kimi-k3-quickstart"
+    },
+    "moonshot-k2.6": {
+      "task": "chat",
+      "capability": "text",
+      "input_modalities": ["text", "image", "video"],
+      "features": ["chat", "thinking", "structured_output", "vision", "video_understanding", "long_context", "tools"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "max_tokens": {"type": "integer", "title": "最大输出 Token", "minimum": 1, "maximum": 32768},
+          "thinking": {"type": "string", "title": "思考模式", "enum": ["disabled", "enabled"]},
+          "response_format": {"type": "string", "title": "输出格式", "enum": ["text", "json_object"]}
+        }
+      },
+      "default_parameters": {"max_tokens": 8192, "thinking": "disabled"},
+      "support_status": "verified",
+      "documentation_url": "https://platform.kimi.com/docs/guide/kimi-k2-6-quickstart"
+    },
+    "moonshot-k2.7-code": {
+      "task": "chat",
+      "capability": "text",
+      "input_modalities": ["text", "image", "video"],
+      "features": ["chat", "thinking", "vision", "video_understanding", "long_context", "tools", "coding"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "max_tokens": {"type": "integer", "title": "最大输出 Token", "minimum": 1, "maximum": 32768},
+          "response_format": {"type": "string", "title": "输出格式", "enum": ["text", "json_object"]}
+        }
+      },
+      "default_parameters": {"max_tokens": 8192},
+      "support_status": "compatible",
+      "documentation_url": "https://platform.kimi.com/docs/guide/kimi-k2-7-code-quickstart"
     },
     "tencent-tokenhub-chat": {
       "task": "chat",
@@ -800,6 +850,33 @@
       "provider_code": "tencent_tokenhub",
       "model_id": "hy-mt2-pro",
       "display_name": "Hunyuan MT 2 Pro",
+      "enabled": false
+    },
+    {
+      "profile": "moonshot-k3",
+      "provider_code": "moonshot",
+      "model_id": "kimi-k3",
+      "display_name": "Kimi K3"
+    },
+    {
+      "profile": "moonshot-k2.6",
+      "provider_code": "moonshot",
+      "model_id": "kimi-k2.6",
+      "display_name": "Kimi K2.6"
+    },
+    {
+      "profile": "moonshot-k2.7-code",
+      "provider_code": "moonshot",
+      "model_id": "kimi-k2.7-code",
+      "display_name": "Kimi K2.7 Code",
+      "enabled": false
+    },
+    {
+      "profile": "moonshot-k2.7-code",
+      "provider_code": "moonshot",
+      "model_id": "kimi-k2.7-code-highspeed",
+      "display_name": "Kimi K2.7 Code Highspeed",
+      "features": ["chat", "thinking", "vision", "video_understanding", "long_context", "tools", "coding", "fast"],
       "enabled": false
     }
   ]

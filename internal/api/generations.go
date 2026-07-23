@@ -292,7 +292,7 @@ func (s *Server) validateGenerationReferences(c fiber.Ctx, projectID uuid.UUID, 
 
 func providerRequiresRemoteReferences(adapterCode string) bool {
 	switch adapterCode {
-	case service.ProviderOllama, service.ProviderComfyUI, service.ProviderSiliconFlow, service.ProviderZhipu, service.ProviderTencentTokenHub:
+	case service.ProviderOllama, service.ProviderComfyUI, service.ProviderSiliconFlow, service.ProviderZhipu, service.ProviderTencentTokenHub, service.ProviderMoonshot:
 		return false
 	default:
 		return true

@@ -22,6 +22,7 @@ const (
 	ProviderSiliconFlow     = "siliconflow"
 	ProviderZhipu           = "zhipu"
 	ProviderTencentTokenHub = "tencent_tokenhub"
+	ProviderMoonshot        = "moonshot"
 	ProviderOllama          = "ollama"
 	ProviderComfyUI         = "comfyui"
 	ProviderOpenAIChat      = "openai_chat"

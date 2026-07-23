@@ -44,6 +44,7 @@ func TestSyncCreatesVersionedBuiltinsIdempotently(t *testing.T) {
 	var arkModels int
 	var bailianModels int
 	var tencentModels int
+	var moonshotModels int
 	arkThinkingDefaults := make(map[string]string)
 	deepSeekModels := make(map[string]bool)
 	for _, model := range models {
@@ -66,6 +67,9 @@ func TestSyncCreatesVersionedBuiltinsIdempotently(t *testing.T) {
 		if model.ProviderCode == "tencent_tokenhub" {
 			tencentModels++
 		}
+		if model.ProviderCode == "moonshot" {
+			moonshotModels++
+		}
 	}
 	if arkModels != 12 {
 		t.Fatalf("expected twelve unified Ark models, got %d", arkModels)
@@ -83,5 +87,8 @@ func TestSyncCreatesVersionedBuiltinsIdempotently(t *testing.T) {
 	}
 	if tencentModels != 11 {
 		t.Fatalf("expected eleven TokenHub models, got %d", tencentModels)
+	}
+	if moonshotModels != 4 {
+		t.Fatalf("expected four Moonshot models, got %d", moonshotModels)
 	}
 }

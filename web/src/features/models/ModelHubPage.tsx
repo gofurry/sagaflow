@@ -346,7 +346,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
                   options={Array.from({ length: 8 }, (_, index) => ({ value: index + 1, label: `${index + 1} 个任务` }))}
                   value={providerMaxConcurrency(provider)}
                 /></div>}
-                {(provider.adapter_code === 'ollama' || provider.adapter_code === 'siliconflow' || provider.adapter_code === 'tencent_tokenhub') && <div className="provider-connection-actions"><span>{provider.adapter_code === 'ollama' ? 'Ollama 服务' : provider.adapter_code === 'siliconflow' ? '硅基流动服务' : '腾讯云 TokenHub'}</span><div>
+                {(provider.adapter_code === 'ollama' || provider.adapter_code === 'siliconflow' || provider.adapter_code === 'tencent_tokenhub' || provider.adapter_code === 'moonshot') && <div className="provider-connection-actions"><span>{providerConnectionLabel(provider.adapter_code)}</span><div>
                   <em className={`provider-health ${providerHealth[provider.id] ?? 'unknown'}`}>{providerHealth[provider.id] === 'online' ? '已连接' : providerHealth[provider.id] === 'offline' ? '未检测到服务' : '尚未检测'}</em>
                   <Button icon={<CheckCircleOutlined/>} loading={testProvider.isPending && testProvider.variables === provider.id} onClick={() => testProvider.mutate(provider.id)} size="small">测试连接</Button>
                   <Button icon={<SyncOutlined/>} loading={discoverModels.isPending && discoverModels.variables?.provider.id === provider.id} onClick={() => discoverModels.mutate({ provider })} size="small" type="primary">同步模型</Button>
@@ -430,7 +430,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
           <Col span={12}><Form.Item label="显示名称" name="display_name" rules={[{ required: true }]}><Input placeholder="例如 本机官方 ComfyUI"/></Form.Item></Col>
         </Row>
         <Row gutter={12}>
-          <Col span={12}><Form.Item label="Adapter" name="adapter_code" rules={[{ required: true }]}><Select onChange={(value) => providerForm.setFieldsValue(providerDefaults(value))} options={['ollama', 'comfyui', 'siliconflow', 'tencent_tokenhub', 'zhipu', 'openai_chat', 'openai_responses', 'deepseek', 'volcengine', 'minimax', 'aliyun_bailian'].map((value) => ({ value, label: value }))}/></Form.Item></Col>
+          <Col span={12}><Form.Item label="Adapter" name="adapter_code" rules={[{ required: true }]}><Select onChange={(value) => providerForm.setFieldsValue(providerDefaults(value))} options={['ollama', 'comfyui', 'siliconflow', 'tencent_tokenhub', 'moonshot', 'zhipu', 'openai_chat', 'openai_responses', 'deepseek', 'volcengine', 'minimax', 'aliyun_bailian'].map((value) => ({ value, label: value }))}/></Form.Item></Col>
           <Col span={12}><Form.Item label="认证方式" name="auth_type" rules={[{ required: true }]}><Select options={[{ value: 'none', label: '无需认证' }, { value: 'api_key', label: 'API Key' }, { value: 'bearer', label: 'Bearer Token' }]}/></Form.Item></Col>
         </Row>
         <Row gutter={12}>
@@ -463,7 +463,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
     <Modal cancelText="取消" confirmLoading={syncModels.isPending} okButtonProps={{ disabled: !discoveryProvider }} okText="同步所选模型" onCancel={() => { setDiscovery(null); setDiscoveryProvider(null) }} onOk={() => discoveryProvider && syncModels.mutate({ providerID: discoveryProvider.id, modelIDs: selectedRemoteModels })} open={!!discovery && !!discoveryProvider} title={discoveryProvider ? `同步 ${discoveryProvider.display_name} 中的模型` : '同步模型'} width={760}>
       {discovery && discoveryProvider && <div className="ollama-discovery">
         {isCloudDiscovery(discovery)
-          ? <div className="ollama-server-summary"><span>{discovery.server.provider === 'siliconflow' ? '硅基流动在线目录' : '腾讯云 TokenHub 在线目录'}</span><span>{discovery.server.model_count} 个已支持模型</span><span>{discovery.server.provider === 'siliconflow' ? '动态兼容模型可按需导入' : '只同步 SagaFlow 内置的腾讯模型与下线状态'}</span></div>
+          ? <div className="ollama-server-summary"><span>{cloudDiscoveryTitle(discovery.server.provider)}</span><span>{discovery.server.model_count} 个已支持模型</span><span>{cloudDiscoveryNote(discovery.server.provider)}</span></div>
           : <div className="ollama-server-summary"><span>Ollama {discovery.server.version}</span><span>{discovery.server.model_count} 个已安装</span><span>{discovery.server.running_count} 个已加载</span></div>}
         <Checkbox.Group onChange={(values) => setSelectedRemoteModels(values as string[])} value={selectedRemoteModels}>
           {discovery.models.map((remote) => {
@@ -531,10 +531,22 @@ function providerDefaults(value: string) {
     case 'ollama': return { base_url: 'http://127.0.0.1:11434', capabilities: ['text'], max_concurrency: 1, auth_type: 'none' }
     case 'siliconflow': return { base_url: 'https://api.siliconflow.cn/v1', capabilities: ['text', 'image', 'audio', 'video', 'multimodal'], auth_type: 'api_key' }
     case 'tencent_tokenhub': return { base_url: 'https://tokenhub.tencentmaas.com/v1', capabilities: ['text', 'image', 'video', 'multimodal'], auth_type: 'api_key' }
+    case 'moonshot': return { base_url: 'https://api.moonshot.cn/v1', capabilities: ['text', 'multimodal'], auth_type: 'api_key' }
     case 'zhipu': return { base_url: 'https://open.bigmodel.cn/api/paas/v4', capabilities: ['text', 'image', 'audio', 'video', 'multimodal'], auth_type: 'api_key' }
     case 'aliyun_bailian': return { base_url: 'https://dashscope.aliyuncs.com', capabilities: ['text', 'image', 'audio', 'video'], auth_type: 'api_key' }
     default: return {}
   }
+}
+function providerConnectionLabel(adapter: string) {
+  return ({ ollama: 'Ollama 服务', siliconflow: '硅基流动服务', tencent_tokenhub: '腾讯云 TokenHub', moonshot: 'Kimi · Moonshot' } as Record<string, string>)[adapter] ?? adapter
+}
+function cloudDiscoveryTitle(provider: string) {
+  return ({ siliconflow: '硅基流动在线目录', tencent_tokenhub: '腾讯云 TokenHub 在线目录', moonshot: 'Kimi 在线目录' } as Record<string, string>)[provider] ?? '在线模型目录'
+}
+function cloudDiscoveryNote(provider: string) {
+  if (provider === 'siliconflow') return '动态兼容模型可按需导入'
+  if (provider === 'moonshot') return '同步 SagaFlow 内置 Kimi 型号与当前账号可用状态'
+  return '只同步 SagaFlow 内置的腾讯模型与下线状态'
 }
 function providerMaxConcurrency(provider: ModelProvider) {
   const value = Number(provider.metadata.max_concurrency)

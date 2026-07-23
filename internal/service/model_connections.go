@@ -9,6 +9,7 @@ import (
 
 	"github.com/gofurry/sagaflow/internal/inference"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/comfyui"
+	"github.com/gofurry/sagaflow/internal/inference/adapters/moonshot"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/ollama"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/siliconflow"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/tencenttokenhub"
@@ -23,6 +24,7 @@ type ModelConnectionService struct {
 	comfyui     *comfyui.Driver
 	siliconflow *siliconflow.Driver
 	tencent     *tencenttokenhub.Driver
+	moonshot    *moonshot.Driver
 }
 
 type ModelSyncResult struct {
@@ -32,13 +34,13 @@ type ModelSyncResult struct {
 	Updated  int        `json:"updated"`
 }
 
-func NewModelConnectionService(store *db.Store, credentials *CredentialService, ollamaDriver *ollama.Driver, comfyDriver *comfyui.Driver, siliconFlowDriver *siliconflow.Driver, tencentDriver *tencenttokenhub.Driver) (*ModelConnectionService, error) {
-	if store == nil || credentials == nil || ollamaDriver == nil || comfyDriver == nil || siliconFlowDriver == nil || tencentDriver == nil {
+func NewModelConnectionService(store *db.Store, credentials *CredentialService, ollamaDriver *ollama.Driver, comfyDriver *comfyui.Driver, siliconFlowDriver *siliconflow.Driver, tencentDriver *tencenttokenhub.Driver, moonshotDriver *moonshot.Driver) (*ModelConnectionService, error) {
+	if store == nil || credentials == nil || ollamaDriver == nil || comfyDriver == nil || siliconFlowDriver == nil || tencentDriver == nil || moonshotDriver == nil {
 		return nil, fmt.Errorf("model connection service dependencies are required")
 	}
 	return &ModelConnectionService{
 		store: store, credentials: credentials, ollama: ollamaDriver,
-		comfyui: comfyDriver, siliconflow: siliconFlowDriver, tencent: tencentDriver,
+		comfyui: comfyDriver, siliconflow: siliconFlowDriver, tencent: tencentDriver, moonshot: moonshotDriver,
 	}, nil
 }
 
@@ -79,6 +81,17 @@ func (s *ModelConnectionService) Test(ctx context.Context, providerID uuid.UUID)
 		return server, nil
 	case ProviderTencentTokenHub:
 		server, probeErr := s.tencent.Probe(ctx, runtime)
+		if probeErr != nil {
+			return nil, providerConnectionError(provider)
+		}
+		if err := s.updateGenericMetadata(ctx, provider, map[string]any{
+			"model_count": server.ModelCount, "last_checked_at": server.LastCheckedAt,
+		}); err != nil {
+			return nil, err
+		}
+		return server, nil
+	case ProviderMoonshot:
+		server, probeErr := s.moonshot.Probe(ctx, runtime)
 		if probeErr != nil {
 			return nil, providerConnectionError(provider)
 		}
@@ -139,6 +152,17 @@ func (s *ModelConnectionService) Discover(ctx context.Context, providerID uuid.U
 			return nil, err
 		}
 		return discovery, nil
+	case ProviderMoonshot:
+		discovery, discoverErr := s.moonshot.Discover(ctx, runtime)
+		if discoverErr != nil {
+			return nil, providerConnectionError(provider)
+		}
+		if err := s.updateGenericMetadata(ctx, provider, map[string]any{
+			"model_count": discovery.Server.ModelCount, "last_checked_at": discovery.Server.LastCheckedAt,
+		}); err != nil {
+			return nil, err
+		}
+		return discovery, nil
 	default:
 		return nil, fmt.Errorf("%w: discovery is unavailable for adapter %s", ErrInvalidInput, provider.AdapterCode)
 	}
@@ -156,9 +180,69 @@ func (s *ModelConnectionService) Sync(ctx context.Context, providerID uuid.UUID,
 		return s.syncSiliconFlow(ctx, provider, runtime, selectedModelIDs)
 	case ProviderTencentTokenHub:
 		return s.syncTencentTokenHub(ctx, provider, runtime)
+	case ProviderMoonshot:
+		return s.syncMoonshot(ctx, provider, runtime)
 	default:
 		return ModelSyncResult{}, fmt.Errorf("%w: model synchronization is unavailable for adapter %s", ErrInvalidInput, provider.AdapterCode)
 	}
+}
+
+func (s *ModelConnectionService) syncMoonshot(ctx context.Context, provider db.ModelProvider, runtime inference.Runtime) (ModelSyncResult, error) {
+	discovery, err := s.moonshot.Discover(ctx, runtime)
+	if err != nil {
+		return ModelSyncResult{}, providerConnectionError(provider)
+	}
+	if err := s.updateGenericMetadata(ctx, provider, map[string]any{
+		"model_count": discovery.Server.ModelCount, "last_checked_at": discovery.Server.LastCheckedAt,
+	}); err != nil {
+		return ModelSyncResult{}, err
+	}
+	existing, err := s.store.ListModelsByProvider(ctx, provider.ID)
+	if err != nil {
+		return ModelSyncResult{}, err
+	}
+	existingByKey := make(map[string]db.Model, len(existing))
+	for _, model := range existing {
+		existingByKey[model.ModelID+"\x00"+model.Capability] = model
+	}
+	availableKeys := make(map[string]struct{}, len(discovery.Models))
+	result := ModelSyncResult{Server: discovery.Server, Models: make([]db.Model, 0, len(discovery.Models))}
+	for _, discovered := range discovery.Models {
+		key := discovered.Name + "\x00" + discovered.Capability
+		availableKeys[key] = struct{}{}
+		model, ok := existingByKey[key]
+		if !ok {
+			// The versioned catalog owns Kimi schemas and defaults. Discovery
+			// only updates known entries and never imports arbitrary IDs.
+			continue
+		}
+		metadata := metadataMap(model.Metadata)
+		metadata["last_seen_at"] = time.Now().UTC()
+		metadata["live_status"] = discovered.RemoteStatus
+		metadata["context_length"] = discovered.ContextLength
+		model.Available = true
+		model.Metadata = db.JSON(metadata)
+		updated, updateErr := s.store.UpdateModel(ctx, model)
+		if updateErr != nil {
+			return ModelSyncResult{}, updateErr
+		}
+		result.Models = append(result.Models, updated)
+		result.Updated++
+	}
+	for _, model := range existing {
+		if _, available := availableKeys[model.ModelID+"\x00"+model.Capability]; available || !model.Available {
+			continue
+		}
+		metadata := metadataMap(model.Metadata)
+		metadata["live_status"] = "missing"
+		metadata["live_message"] = "当前 Kimi 账号不可见该模型；可能尚未充值解锁、没有权限或模型已经停止开放"
+		model.Available = false
+		model.Metadata = db.JSON(metadata)
+		if _, err := s.store.UpdateModel(ctx, model); err != nil {
+			return ModelSyncResult{}, err
+		}
+	}
+	return result, nil
 }
 
 func (s *ModelConnectionService) syncTencentTokenHub(ctx context.Context, provider db.ModelProvider, runtime inference.Runtime) (ModelSyncResult, error) {

@@ -13,6 +13,7 @@ import (
 	"github.com/gofurry/sagaflow/internal/inference/adapters/comfyui"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/deepseek"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/minimax"
+	"github.com/gofurry/sagaflow/internal/inference/adapters/moonshot"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/ollama"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/openaicompat"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/siliconflow"
@@ -68,6 +69,7 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	siliconFlowDriver := siliconflow.New(siliconflow.Config{HTTPClient: httpClient})
 	zhipuDriver := zhipu.New(zhipu.Config{HTTPClient: httpClient})
 	tencentTokenHubDriver := tencenttokenhub.New(tencenttokenhub.Config{HTTPClient: httpClient})
+	moonshotDriver := moonshot.New(httpClient)
 	openAIChatDriver := openaicompat.NewChat(httpClient)
 	openAIResponsesDriver := openaicompat.NewResponses(httpClient)
 	gateway, err := inference.NewGateway(map[string]inference.Driver{
@@ -78,6 +80,7 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		service.ProviderSiliconFlow:     siliconFlowDriver,
 		service.ProviderZhipu:           zhipuDriver,
 		service.ProviderTencentTokenHub: tencentTokenHubDriver,
+		service.ProviderMoonshot:        moonshotDriver,
 		service.ProviderOllama:          ollama.New(httpClient),
 		service.ProviderComfyUI:         comfyDriver,
 		service.ProviderOpenAIChat:      openAIChatDriver,
@@ -96,7 +99,7 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	}
 	defer jobs.Close()
 	voices := service.NewVoiceService(store, credentials, objectStore, log.Named("voices"))
-	modelConnections, err := service.NewModelConnectionService(store, credentials, ollama.New(httpClient), comfyDriver, siliconFlowDriver, tencentTokenHubDriver)
+	modelConnections, err := service.NewModelConnectionService(store, credentials, ollama.New(httpClient), comfyDriver, siliconFlowDriver, tencentTokenHubDriver, moonshotDriver)
 	if err != nil {
 		return err
 	}

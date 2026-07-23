@@ -303,7 +303,8 @@ func providerRequiresRemoteInput(adapterCode string) bool {
 		adapterCode != ProviderComfyUI &&
 		adapterCode != ProviderSiliconFlow &&
 		adapterCode != ProviderZhipu &&
-		adapterCode != ProviderTencentTokenHub
+		adapterCode != ProviderTencentTokenHub &&
+		adapterCode != ProviderMoonshot
 }
 
 func (s *GenerationService) referenceURL(ctx context.Context, reference generationReference) (string, error) {

@@ -38,7 +38,10 @@ export interface SiliconFlowDiscovery { server: SiliconFlowServerInfo; models: S
 export interface TencentTokenHubServerInfo { provider: 'tencent_tokenhub'; model_count: number; last_checked_at: string }
 export interface TencentTokenHubModelInfo extends SiliconFlowModelInfo { lifecycle_status: ModelLifecycleStatus; remote_status: string }
 export interface TencentTokenHubDiscovery { server: TencentTokenHubServerInfo; models: TencentTokenHubModelInfo[] }
-export type CloudModelDiscovery = SiliconFlowDiscovery | TencentTokenHubDiscovery
+export interface MoonshotServerInfo { provider: 'moonshot'; model_count: number; last_checked_at: string }
+export interface MoonshotModelInfo extends TencentTokenHubModelInfo { context_length: number }
+export interface MoonshotDiscovery { server: MoonshotServerInfo; models: MoonshotModelInfo[] }
+export type CloudModelDiscovery = SiliconFlowDiscovery | TencentTokenHubDiscovery | MoonshotDiscovery
 export type ModelSupportStatus = 'verified' | 'compatible' | 'experimental'
 export type ModelLifecycleStatus = 'active' | 'deprecated' | 'retired'
 export interface ModelSyncResult { server: ConnectionServerInfo; models: Model[]; imported: number; updated: number }
@@ -48,7 +51,7 @@ export interface CatalogImportResult { overlay: CatalogManifestInfo; sync: { cre
 export interface ComfyUIDeviceInfo { name: string; type: string; index: number | null; vram_total: number; vram_free: number }
 export interface ComfyUIServerInfo { version: string; system: Record<string, unknown>; devices: ComfyUIDeviceInfo[]; features: Record<string, unknown>; node_count: number; model_count: number }
 export interface ComfyUIDiscovery { server: ComfyUIServerInfo; nodes: string[]; models: Record<string, string[]> }
-export type ConnectionServerInfo = OllamaServerInfo | ComfyUIServerInfo | SiliconFlowServerInfo | TencentTokenHubServerInfo
+export type ConnectionServerInfo = OllamaServerInfo | ComfyUIServerInfo | SiliconFlowServerInfo | TencentTokenHubServerInfo | MoonshotServerInfo
 export type ConnectionDiscovery = OllamaDiscovery | ComfyUIDiscovery | CloudModelDiscovery
 export interface JSONSchema { type?: string; properties?: Record<string, { type?: string; enum?: unknown[]; minimum?: number; maximum?: number; title?: string; description?: string; format?: string }> }
 export interface ModelPreset { id: ID; model_id: ID; name: string; parameters: Record<string, unknown>; is_default: boolean; created_at: string; updated_at: string }
