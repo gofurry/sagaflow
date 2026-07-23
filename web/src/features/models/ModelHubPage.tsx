@@ -3,7 +3,7 @@ import { ApiOutlined, AudioOutlined, CheckCircleOutlined, CloudServerOutlined, C
 import { App, Button, Checkbox, Col, Empty, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Switch } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
-import type { Capability, Model, ModelProvider, ModelSupportStatus, OllamaDiscovery, PromptPreset, SiliconFlowDiscovery } from '../../api/types'
+import type { Capability, Model, ModelLifecycleStatus, ModelProvider, ModelSupportStatus, OllamaDiscovery, PromptPreset, SiliconFlowDiscovery } from '../../api/types'
 import { FloatingToolbar } from '../../components/FloatingToolbar'
 import { JSONCodeEditor } from '../../components/JSONCodeEditor'
 import { MarkdownEditor, MarkdownPreview } from '../../components/Markdown'
@@ -50,6 +50,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
   const [catalogCapability, setCatalogCapability] = useState<string>()
   const [catalogStatus, setCatalogStatus] = useState<string>()
   const [catalogSupport, setCatalogSupport] = useState<ModelSupportStatus>()
+  const [catalogLifecycle, setCatalogLifecycle] = useState<ModelLifecycleStatus>()
   const [providerHealth, setProviderHealth] = useState<Record<string, 'online' | 'offline'>>({})
   const [providerForm] = Form.useForm()
   const [modelForm] = Form.useForm()
@@ -85,8 +86,9 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
     if (catalogStatus === 'disabled' && model.enabled) return false
     if (catalogStatus === 'unavailable' && model.available) return false
     if (catalogSupport && modelSupportStatus(model) !== catalogSupport) return false
+    if (catalogLifecycle && modelLifecycleStatus(model) !== catalogLifecycle) return false
     return true
-  }), [catalogCapability, catalogProvider, catalogSearch, catalogStatus, catalogSupport, catalogModels])
+  }), [catalogCapability, catalogLifecycle, catalogProvider, catalogSearch, catalogStatus, catalogSupport, catalogModels])
   const filteredPrompts = useMemo(() => prompts.filter((preset) => {
     const keyword = promptSearch.trim().toLocaleLowerCase()
     if (keyword && !`${preset.name} ${preset.description} ${preset.content}`.toLocaleLowerCase().includes(keyword)) return false
@@ -257,6 +259,11 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
               { value: 'compatible', label: '动态兼容' },
               { value: 'experimental', label: '实验性' },
             ]} placeholder="全部支持级别" value={catalogSupport}/>
+            <Select allowClear onChange={setCatalogLifecycle} options={[
+              { value: 'active', label: '正常使用' },
+              { value: 'deprecated', label: '即将弃用' },
+              { value: 'retired', label: '已经下线' },
+            ]} placeholder="全部生命周期" value={catalogLifecycle}/>
             <Select allowClear onChange={setCatalogStatus} options={[{ value: 'enabled', label: '已启用' }, { value: 'disabled', label: '已停用' }, { value: 'unavailable', label: '不可用' }]} placeholder="全部状态" value={catalogStatus}/>
             <span>{filteredModels.length} / {models.length} 个模型</span>
           </div>
@@ -268,7 +275,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
               <div className="model-flat-row model-catalog-row">
                 <button aria-expanded={isExpanded} aria-label={`${isExpanded ? '收起' : '展开'} ${item.display_name}`} className="model-row-expand" onClick={() => setExpandedModelID(isExpanded ? undefined : item.id)} type="button"><DownOutlined/></button>
                 <div className="model-row-primary"><strong>{item.display_name}</strong><code>{item.model_id}</code></div>
-                <span className="model-row-provider">{item.provider_name}{!item.available ? ' · 不可用' : ''}<em className={`model-support-status ${modelSupportStatus(item)}`}>{modelSupportLabel(modelSupportStatus(item))}</em></span>
+                <span className="model-row-provider">{item.provider_name}<em className={`model-support-status ${modelSupportStatus(item)}`}>{modelSupportLabel(modelSupportStatus(item))}</em>{modelLifecycleStatus(item) !== 'active' && <em className={`model-lifecycle-status ${modelLifecycleStatus(item)}`}>{modelLifecycleLabel(modelLifecycleStatus(item))}</em>}</span>
                 <span className={`model-capability ${item.capability}`}>{capabilityLabel(item.capability)}</span>
                 <label className="model-row-switch"><Switch checked={item.enabled} onChange={(enabled) => toggleModel.mutate({ model: item, enabled })}/><span>{item.enabled ? '已启用' : '已停用'}</span></label>
                 <Button icon={<SettingOutlined/>} onClick={() => setPresetModel(item)} size="small">参数预设 {modelPresets.length}</Button>
@@ -279,6 +286,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
                 <ModelDetailGroup empty="仅 Prompt" label="可接收内容" values={item.input_modalities.map((value) => [mediaTypeLabel(value), value])}/>
                 <ModelDetailGroup empty={`${capabilityLabel(item.capability)}生成`} label="原生能力" note="由模型服务报告；“工具调用”尚未接入当前生成流程。" values={item.features.map((value) => [modelFeatureLabel(value), value])}/>
                 <ModelDetailGroup empty="未标注" label="支持级别" note={modelSupportNote(modelSupportStatus(item))} values={[[modelSupportLabel(modelSupportStatus(item)), modelSupportStatus(item)]]}/>
+                <ModelDetailGroup empty="正常使用" label="生命周期" note={modelLifecycleNote(item)} values={[[modelLifecycleLabel(modelLifecycleStatus(item)), modelLifecycleStatus(item)]]}/>
               </div>}
             </article>
           })}
@@ -476,6 +484,29 @@ function modelSupportNote(status: ModelSupportStatus) {
     compatible: '参数来自兼容协议或在线发现；平台变更时可通过目录更新包修正，无需升级二进制。',
     experimental: '已识别到模型，但能力或参数尚未完整验证，建议先做低成本调用。',
   } as const)[status]
+}
+function modelLifecycleStatus(model: Model): ModelLifecycleStatus {
+  const status = model.metadata.lifecycle_status
+  return status === 'deprecated' || status === 'retired' ? status : 'active'
+}
+function modelLifecycleLabel(status: ModelLifecycleStatus) {
+  return ({ active: '正常使用', deprecated: '即将弃用', retired: '已经下线' } as const)[status]
+}
+function modelLifecycleNote(model: Model) {
+  const status = modelLifecycleStatus(model)
+  const parts = [
+    status === 'active' ? '平台仍在正常提供该模型。' : status === 'deprecated' ? '模型仍可调用，但不建议用于新项目。' : '模型已停止用于新任务，历史记录和参数预设会继续保留。',
+    typeof model.metadata.lifecycle_message === 'string' ? model.metadata.lifecycle_message : '',
+    typeof model.metadata.sunset_at === 'string' && model.metadata.sunset_at ? `预计下线：${new Date(model.metadata.sunset_at).toLocaleDateString()}` : '',
+    replacementLabel(model),
+  ]
+  return parts.filter(Boolean).join(' ')
+}
+function replacementLabel(model: Model) {
+  const replacement = model.metadata.replacement
+  if (!replacement || typeof replacement !== 'object') return ''
+  const value = replacement as Record<string, unknown>
+  return typeof value.model_id === 'string' && value.model_id ? `建议迁移到 ${value.model_id}。` : ''
 }
 function isSiliconFlowDiscovery(discovery: OllamaDiscovery | SiliconFlowDiscovery): discovery is SiliconFlowDiscovery {
   return 'provider' in discovery.server

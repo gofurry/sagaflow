@@ -11,7 +11,7 @@ import (
 )
 
 const validManifest = `{
-  "schema_version": 1,
+  "schema_version": 2,
   "catalog_version": "2026.07.23.1",
   "published_at": "2026-07-23T12:00:00Z",
   "profiles": {
@@ -28,7 +28,16 @@ const validManifest = `{
     "profile": "chat",
     "provider_code": "example",
     "model_id": "example/chat",
-    "display_name": "Example Chat"
+    "display_name": "Example Chat",
+    "lifecycle_status": "deprecated",
+    "deprecated_at": "2026-07-01T00:00:00Z",
+    "sunset_at": "2026-12-01T00:00:00Z",
+    "replacement": {
+      "provider_code": "example",
+      "model_id": "example/chat-next",
+      "capability": "text"
+    },
+    "lifecycle_message": "Use the next model"
   }]
 }`
 
@@ -51,18 +60,65 @@ func TestDecodeManifestResolvesProfiles(t *testing.T) {
 	if !strings.Contains(string(model.Metadata), `"support_status":"compatible"`) {
 		t.Fatalf("expected compatible metadata, got %s", model.Metadata)
 	}
+	if !strings.Contains(string(model.Metadata), `"lifecycle_status":"deprecated"`) || !model.Available {
+		t.Fatalf("expected available deprecated model metadata, got %s", model.Metadata)
+	}
 }
 
 func TestDecodeManifestRejectsUnknownFieldsAndStatus(t *testing.T) {
 	for name, value := range map[string]string{
-		"unknown field":  strings.Replace(validManifest, `"models":`, `"unexpected":true,"models":`, 1),
-		"unknown status": strings.Replace(validManifest, `"compatible"`, `"untested"`, 1),
+		"unknown field":     strings.Replace(validManifest, `"models":`, `"unexpected":true,"models":`, 1),
+		"unknown status":    strings.Replace(validManifest, `"compatible"`, `"untested"`, 1),
+		"unknown lifecycle": strings.Replace(validManifest, `"deprecated"`, `"abandoned"`, 1),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := DecodeManifest(strings.NewReader(value)); err == nil {
 				t.Fatal("expected validation error")
 			}
 		})
+	}
+}
+
+func TestDecodeManifestKeepsVersionOneActiveByDefault(t *testing.T) {
+	legacy := strings.Replace(validManifest, `"schema_version": 2`, `"schema_version": 1`, 1)
+	legacy = strings.Replace(legacy, `,
+    "lifecycle_status": "deprecated",
+    "deprecated_at": "2026-07-01T00:00:00Z",
+    "sunset_at": "2026-12-01T00:00:00Z",
+    "replacement": {
+      "provider_code": "example",
+      "model_id": "example/chat-next",
+      "capability": "text"
+    },
+    "lifecycle_message": "Use the next model"`, "", 1)
+	manifest, err := DecodeManifest(strings.NewReader(legacy))
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions, err := manifestDefinitions(manifest, "external")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(definitions[0].Model.Metadata), `"lifecycle_status":"active"`) {
+		t.Fatalf("expected version one model to default active, got %s", definitions[0].Model.Metadata)
+	}
+}
+
+func TestRetiredManifestModelBecomesUnavailable(t *testing.T) {
+	retired := strings.Replace(validManifest, `"lifecycle_status": "deprecated"`, `"lifecycle_status": "retired"`, 1)
+	manifest, err := DecodeManifest(strings.NewReader(retired))
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions, err := manifestDefinitions(manifest, "external")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if definitions[0].Model.Available {
+		t.Fatal("expected retired model to be unavailable")
+	}
+	if !definitions[0].Model.Enabled {
+		t.Fatal("retiring a model must not erase its enabled preference")
 	}
 }
 

@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	ManifestSchemaVersion = 1
+	ManifestSchemaVersion = 2
 	DefaultManifestURL    = "https://github.com/gofurry/sagaflow/releases/latest/download/model-catalog.json"
 	maxManifestSize       = int64(4 << 20)
 )
@@ -61,6 +61,17 @@ type ManifestModel struct {
 	SupportStatus     string          `json:"support_status,omitempty"`
 	DocumentationURL  string          `json:"documentation_url,omitempty"`
 	Enabled           *bool           `json:"enabled,omitempty"`
+	LifecycleStatus   string          `json:"lifecycle_status,omitempty"`
+	DeprecatedAt      string          `json:"deprecated_at,omitempty"`
+	SunsetAt          string          `json:"sunset_at,omitempty"`
+	Replacement       *ModelReference `json:"replacement,omitempty"`
+	LifecycleMessage  string          `json:"lifecycle_message,omitempty"`
+}
+
+type ModelReference struct {
+	ProviderCode string `json:"provider_code"`
+	ModelID      string `json:"model_id"`
+	Capability   string `json:"capability"`
 }
 
 type ManifestInfo struct {
@@ -110,7 +121,7 @@ func DecodeManifest(reader io.Reader) (Manifest, error) {
 }
 
 func ValidateManifest(manifest Manifest) error {
-	if manifest.SchemaVersion != ManifestSchemaVersion {
+	if manifest.SchemaVersion < 1 || manifest.SchemaVersion > ManifestSchemaVersion {
 		return fmt.Errorf("unsupported model catalog schema_version %d", manifest.SchemaVersion)
 	}
 	if strings.TrimSpace(manifest.CatalogVersion) == "" {
@@ -144,11 +155,41 @@ func ValidateManifest(manifest Manifest) error {
 		if err := validateResolvedModel(resolved); err != nil {
 			return fmt.Errorf("model %d: %w", index, err)
 		}
+		if err := validateLifecycle(resolved); err != nil {
+			return fmt.Errorf("model %d: %w", index, err)
+		}
 		key := definitionKey(resolved.ProviderCode, resolved.ModelID, resolved.Capability)
 		if _, exists := seen[key]; exists {
 			return fmt.Errorf("model %d duplicates %s", index, key)
 		}
 		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func validateLifecycle(item ManifestModel) error {
+	switch item.LifecycleStatus {
+	case "active", "deprecated", "retired":
+	default:
+		return fmt.Errorf("unsupported lifecycle_status %q", item.LifecycleStatus)
+	}
+	for field, value := range map[string]string{"deprecated_at": item.DeprecatedAt, "sunset_at": item.SunsetAt} {
+		if value == "" {
+			continue
+		}
+		if _, err := time.Parse(time.RFC3339, value); err != nil {
+			return fmt.Errorf("%s must be RFC3339: %w", field, err)
+		}
+	}
+	if item.Replacement != nil {
+		if strings.TrimSpace(item.Replacement.ProviderCode) == "" || strings.TrimSpace(item.Replacement.ModelID) == "" {
+			return errors.New("replacement provider_code and model_id are required")
+		}
+		switch item.Replacement.Capability {
+		case "text", "image", "audio", "video":
+		default:
+			return fmt.Errorf("replacement has unsupported capability %q", item.Replacement.Capability)
+		}
 	}
 	return nil
 }
@@ -182,36 +223,38 @@ func validateResolvedModel(item ManifestModel) error {
 }
 
 func resolveManifestModel(manifest Manifest, item ManifestModel) (ManifestModel, error) {
-	if item.Profile == "" {
-		return item, nil
+	if item.Profile != "" {
+		profile, ok := manifest.Profiles[item.Profile]
+		if !ok {
+			return ManifestModel{}, fmt.Errorf("unknown profile %q", item.Profile)
+		}
+		if item.Capability == "" {
+			item.Capability = profile.Capability
+		}
+		if item.Task == "" {
+			item.Task = profile.Task
+		}
+		if item.InputModalities == nil {
+			item.InputModalities = profile.InputModalities
+		}
+		if item.Features == nil {
+			item.Features = profile.Features
+		}
+		if len(item.ParameterSchema) == 0 {
+			item.ParameterSchema = profile.ParameterSchema
+		}
+		if len(item.DefaultParameters) == 0 {
+			item.DefaultParameters = profile.DefaultParameters
+		}
+		if item.SupportStatus == "" {
+			item.SupportStatus = profile.SupportStatus
+		}
+		if item.DocumentationURL == "" {
+			item.DocumentationURL = profile.DocumentationURL
+		}
 	}
-	profile, ok := manifest.Profiles[item.Profile]
-	if !ok {
-		return ManifestModel{}, fmt.Errorf("unknown profile %q", item.Profile)
-	}
-	if item.Capability == "" {
-		item.Capability = profile.Capability
-	}
-	if item.Task == "" {
-		item.Task = profile.Task
-	}
-	if item.InputModalities == nil {
-		item.InputModalities = profile.InputModalities
-	}
-	if item.Features == nil {
-		item.Features = profile.Features
-	}
-	if len(item.ParameterSchema) == 0 {
-		item.ParameterSchema = profile.ParameterSchema
-	}
-	if len(item.DefaultParameters) == 0 {
-		item.DefaultParameters = profile.DefaultParameters
-	}
-	if item.SupportStatus == "" {
-		item.SupportStatus = profile.SupportStatus
-	}
-	if item.DocumentationURL == "" {
-		item.DocumentationURL = profile.DocumentationURL
+	if item.LifecycleStatus == "" {
+		item.LifecycleStatus = "active"
 	}
 	return item, nil
 }
@@ -235,13 +278,18 @@ func manifestDefinitions(manifest Manifest, source string) ([]Definition, error)
 				DisplayName: resolved.DisplayName, Capability: resolved.Capability,
 				InputModalities: resolved.InputModalities, Features: resolved.Features,
 				ParameterSchema: resolved.ParameterSchema, DefaultParameters: resolved.DefaultParameters,
-				Enabled: enabled, Available: true,
+				Enabled: enabled, Available: resolved.LifecycleStatus != "retired",
 				Metadata: db.JSON(map[string]any{
 					"source": "builtin", "catalog_source": source,
 					"catalog_version":   manifest.CatalogVersion,
 					"support_status":    resolved.SupportStatus,
 					"task":              resolved.Task,
 					"documentation_url": resolved.DocumentationURL,
+					"lifecycle_status":  resolved.LifecycleStatus,
+					"deprecated_at":     resolved.DeprecatedAt,
+					"sunset_at":         resolved.SunsetAt,
+					"replacement":       resolved.Replacement,
+					"lifecycle_message": resolved.LifecycleMessage,
 				}),
 			},
 		})
