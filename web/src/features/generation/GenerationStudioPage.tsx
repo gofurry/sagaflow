@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AppstoreOutlined, AudioOutlined, BarsOutlined, FileTextOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined, VideoCameraOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, AudioOutlined, BarsOutlined, CloudOutlined, FileTextOutlined, HddOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined, VideoCameraOutlined } from '@ant-design/icons'
 import { App, AutoComplete, Button, Input, Select, Steps } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
-import type { Asset, Capability, CanvasEdgeDTO, CanvasNodeDTO, Episode, GenerationJob, MediaType, Model, ModelPreset, ModelProvider, Project, WorkflowCompatibility, WorkflowTemplate } from '../../api/types'
+import type { Asset, AssetRemoteExport, Capability, CanvasEdgeDTO, CanvasNodeDTO, Episode, GenerationJob, MediaType, Model, ModelPreset, ModelProvider, Project, WorkflowCompatibility, WorkflowTemplate } from '../../api/types'
 import { FloatingToolbar } from '../../components/FloatingToolbar'
 import { MarkdownEditor } from '../../components/Markdown'
 import { ModelParameterEditor } from '../../components/ModelParameterEditor'
 import { GenerationReferencePicker, type GenerationReferenceDraft } from './GenerationReferencePicker'
 import { StagedAssetGallery, type ResultViewMode } from './StagedAssetGallery'
+import { assetExportLabel, preferredAssetExport, usableAssetExports } from '../assets/storage'
 
 type GenerationCapability = Extract<Capability, 'text' | 'image' | 'audio' | 'video'>
 interface GenerationDraft {
@@ -24,6 +25,7 @@ interface GenerationDraft {
   parameters: Record<string, unknown>
   parametersCustomized: boolean
   inputReferences: GenerationReferenceDraft[]
+  remoteExportIDs: Record<string, string>
 }
 
 interface CreateJobVariables {
@@ -40,7 +42,7 @@ const capabilityMeta: Record<GenerationCapability, { label: string; references: 
 }
 const BASE_PARAMETERS = '__model_base__'
 const CUSTOM_PARAMETERS = '__custom__'
-const emptyDraft = (): GenerationDraft => ({ outputName: '', prompt: '', parameters: {}, parametersCustomized: false, inputReferences: [] })
+const emptyDraft = (): GenerationDraft => ({ outputName: '', prompt: '', parameters: {}, parametersCustomized: false, inputReferences: [], remoteExportIDs: {} })
 
 export function GenerationStudioPage({ episode, onError, project }: { episode: Episode | null; onError: (error: unknown) => void; project: Project }) {
   const queryClient = useQueryClient()
@@ -62,6 +64,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
   const presetsQuery = useQuery({ queryKey: ['presets'], queryFn: () => api.presets() })
   const promptsQuery = useQuery({ queryKey: ['prompt-presets'], queryFn: () => api.promptPresets() })
   const assetsQuery = useQuery({ queryKey: ['assets', project.id], queryFn: () => api.assets(project.id) })
+  const assetExportsQuery = useQuery({ queryKey: ['asset-exports', 'project', project.id], queryFn: () => api.projectAssetExports(project.id) })
   const groupsQuery = useQuery({ queryKey: ['asset-groups', project.id], queryFn: () => api.assetGroups(project.id) })
   const stagedSummaryQuery = useQuery({ queryKey: ['staged-summary', project.id], queryFn: () => api.stagedAssetSummary(project.id) })
   const voicesQuery = useQuery({ queryKey: ['voice-profiles'], queryFn: api.voiceProfiles })
@@ -86,6 +89,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
     ? targetDefinition.input_modalities.filter((item): item is MediaType => item !== 'text')
     : capabilityMeta[capability].references, [capability, targetDefinition])
   const requiresPublishedAssets = draft.targetKind === 'model' && !!model && requiresPublishedReferences(model, providers)
+  const assetExports = useMemo(() => assetExportsQuery.data ?? [], [assetExportsQuery.data])
   const modelPresets = useMemo(() => allPresets.filter((preset) => preset.model_id === draft.modelID), [allPresets, draft.modelID])
   const prompts = useMemo(() => (promptsQuery.data ?? []).filter((preset) => preset.capability === capability), [capability, promptsQuery.data])
   const allJobs = useMemo(() => jobsQuery.data ?? [], [jobsQuery.data])
@@ -101,6 +105,12 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
   const unsupportedVideoReferences = useMemo(() => targetDefinition && capability === 'video'
     ? videoReferences.filter((asset) => !allowedReferences.includes(asset.media_type))
     : [], [allowedReferences, capability, targetDefinition, videoReferences])
+  const missingVideoReferences = useMemo(() => requiresPublishedAssets
+    ? videoReferences.filter((asset) => !preferredAssetExport(assetExports, asset.id))
+    : [], [assetExports, requiresPublishedAssets, videoReferences])
+  const missingDraftReferences = useMemo(() => requiresPublishedAssets
+    ? draft.inputReferences.filter((reference) => reference.source === 'asset' && !preferredAssetExport(assetExports, reference.id))
+    : [], [assetExports, draft.inputReferences, requiresPublishedAssets])
   const videoNotes = useMemo(() => selectedShot ? canvasNotes(selectedShot, canvasQuery.data?.nodes ?? [], canvasQuery.data?.edges ?? []) : [], [canvasQuery.data?.edges, canvasQuery.data?.nodes, selectedShot])
   const selectedJobID = selectedJobIDs[capability]
   const selectedJob = selectedJobID ? jobs.find((job) => job.id === selectedJobID) : undefined
@@ -159,7 +169,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
       const next = models.find((item) => item.id === firstID)
       if (!next) return
       const defaultPreset = defaultModelPreset(allPresets, next)
-      const inputReferences = compatibleDraftReferences(draft.inputReferences, next.input_modalities, requiresPublishedReferences(next, providers))
+      const inputReferences = compatibleDraftReferences(draft.inputReferences, next.input_modalities, requiresPublishedReferences(next, providers), assetExports)
       discardTemporaryReferences(draft.inputReferences, inputReferences)
       updateDraft({
         targetKind: 'model', modelID: next.id, workflowID: undefined, providerID: undefined,
@@ -171,7 +181,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
     }
     const next = readyWorkflowTargets.find((item) => item.workflow.id === firstID && item.provider.id === secondID)
     if (!next) return
-    const inputReferences = compatibleDraftReferences(draft.inputReferences, next.workflow.input_modalities, false)
+    const inputReferences = compatibleDraftReferences(draft.inputReferences, next.workflow.input_modalities, false, assetExports)
     discardTemporaryReferences(draft.inputReferences, inputReferences)
     updateDraft({
       targetKind: 'workflow', modelID: undefined, modelPresetID: undefined, workflowID: next.workflow.id, providerID: next.provider.id,
@@ -193,7 +203,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
     }
     const recommended = preset.model_preset_id ? allPresets.find((item) => item.id === preset.model_preset_id && item.model_id === nextModel.id) : undefined
     const nextPreset = recommended ?? defaultModelPreset(allPresets, nextModel)
-    const inputReferences = compatibleDraftReferences(draft.inputReferences, nextModel.input_modalities, requiresPublishedReferences(nextModel, providers))
+    const inputReferences = compatibleDraftReferences(draft.inputReferences, nextModel.input_modalities, requiresPublishedReferences(nextModel, providers), assetExports)
     discardTemporaryReferences(draft.inputReferences, inputReferences)
     updateDraft({
       promptPresetID: preset.id,
@@ -225,6 +235,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
       outputName: shot.data.title,
       prompt: shot.data.body ?? '',
       inputReferences: [],
+      remoteExportIDs: {},
     })
   }
   const appendVideoNotes = () => {
@@ -236,6 +247,8 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
     if (capability === 'video' && (!episode || !draft.shotID)) return message.warning('请先选择当前分集的视频分镜')
     if (!draft.targetKind || (draft.targetKind === 'model' ? !draft.modelID : !draft.workflowID || !draft.providerID)) return message.warning('请先选择生成目标')
     if (capability === 'video' && unsupportedVideoReferences.length > 0) return message.warning('画布包含当前生成目标不支持的参考类型，请更换目标或调整参考连线')
+    if (capability === 'video' && missingVideoReferences.length > 0) return message.warning('部分画布参考还没有可用的 S3 副本，请先到资产页发布')
+    if (capability !== 'video' && missingDraftReferences.length > 0) return message.warning('部分参考还没有可用的 S3 副本，请先到资产页发布')
     if (!draft.prompt.trim()) return message.warning('请输入 Prompt')
     createJob.mutate({
       capability,
@@ -252,7 +265,18 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
         output_name: draft.outputName.trim() || undefined,
         prompt: draft.prompt,
         parameters: draft.parameters,
-        input_references: capability === 'video' ? undefined : draft.inputReferences.map(({ source, id }) => ({ source, id })),
+        input_references: capability === 'video'
+          ? videoReferences.map((asset) => {
+              const available = usableAssetExports(assetExports, asset.id)
+              const selected = available.find((item) => item.id === draft.remoteExportIDs[asset.id]) ?? available[0]
+              return { source: 'asset' as const, id: asset.id, remote_export_id: requiresPublishedAssets ? selected?.id : undefined }
+            })
+          : draft.inputReferences.map(({ source, id, remote_export_id }) => {
+              const selected = source === 'asset'
+                ? usableAssetExports(assetExports, id).find((item) => item.id === remote_export_id) ?? preferredAssetExport(assetExports, id)
+                : undefined
+              return { source, id, remote_export_id: requiresPublishedAssets ? selected?.id : undefined }
+            }),
       },
     })
   }
@@ -277,7 +301,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
 
   return <div className="page page-generation">
     <FloatingToolbar ariaLabel="生成工具栏" items={[
-      { key: 'run', label: `开始生成${capabilityMeta[capability].label}`, icon: <ThunderboltOutlined/>, active: true, disabled: !selectedTargetKey || !draft.prompt.trim() || (capability === 'video' && (!draft.shotID || unsupportedVideoReferences.length > 0)), loading: createJob.isPending, onClick: run },
+      { key: 'run', label: `开始生成${capabilityMeta[capability].label}`, icon: <ThunderboltOutlined/>, active: true, disabled: !selectedTargetKey || !draft.prompt.trim() || missingDraftReferences.length > 0 || (capability === 'video' && (!draft.shotID || unsupportedVideoReferences.length > 0 || missingVideoReferences.length > 0)), loading: createJob.isPending, onClick: run },
       { key: 'new', label: '新建生成', icon: <PlusOutlined/>, onClick: resetDraft },
       { key: 'refresh', label: '刷新任务与结果', icon: <ReloadOutlined/>, loading: refreshing, onClick: () => void refresh() },
     ]}/>
@@ -344,6 +368,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
         {capability !== 'video' && allowedReferences.length > 0 && <GenerationReferencePicker
           allowedMedia={allowedReferences}
           assets={assetsQuery.data ?? []}
+          exports={assetExports}
           groups={groupsQuery.data ?? []}
           onChange={(inputReferences) => updateDraft({ inputReferences })}
           onError={onError}
@@ -353,11 +378,28 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
         />}
         {capability === 'video' && selectedShot && <div className="generation-canvas-references">
           <div className="generation-canvas-reference-heading"><div><strong>画布参考</strong><span>参考关系来自画布，返回画布修改连线</span></div>{videoNotes.length > 0 && <Button onClick={appendVideoNotes} size="small">将关联备注加入 Prompt</Button>}</div>
-          {videoReferences.length ? <div className="generation-canvas-reference-grid">{videoReferences.map((asset) => <div className={unsupportedVideoReferences.some((item) => item.id === asset.id) ? 'unsupported' : ''} key={asset.id}>
-            <GenerationAssetPreview asset={asset}/><span>{asset.name}</span>
-          </div>)}</div> : <p className="generation-canvas-reference-empty">这个分镜还没有连接参考资产，可以无参考生成。</p>}
+          {videoReferences.length ? <div className="generation-canvas-reference-grid">{videoReferences.map((asset) => {
+            const available = usableAssetExports(assetExports, asset.id)
+            const selectedExport = available.find((item) => item.id === draft.remoteExportIDs[asset.id]) ?? available[0]
+            const unsupported = unsupportedVideoReferences.some((item) => item.id === asset.id)
+            return <div className={unsupported ? 'unsupported' : ''} key={asset.id}>
+              <GenerationAssetPreview asset={asset}/><span>{asset.name}</span>
+              {requiresPublishedAssets
+                ? available.length
+                  ? <div className="reference-transport remote"><CloudOutlined/><Select
+                      onChange={(remoteExportID) => updateDraft({ remoteExportIDs: { ...draft.remoteExportIDs, [asset.id]: remoteExportID } })}
+                      options={available.map((item) => ({ value: item.id, label: `${assetExportLabel(item)}${item.connection_is_default ? ' · 默认' : ''}` }))}
+                      popupMatchSelectWidth={220}
+                      size="small"
+                      value={selectedExport?.id}
+                    /></div>
+                  : <div className="reference-transport missing"><CloudOutlined/><span>缺少可用的 S3 副本</span></div>
+                : <div className="reference-transport local"><HddOutlined/><span>本地文件直传</span></div>}
+            </div>
+          })}</div> : <p className="generation-canvas-reference-empty">这个分镜还没有连接参考资产，可以无参考生成。</p>}
           {unsupportedVideoReferences.length > 0 && <p className="generation-reference-warning">当前目标不支持 {unsupportedVideoReferences.map((asset) => asset.name).join('、')} 的媒体类型，请返回画布调整参考连线或更换生成目标。</p>}
           {requiresPublishedAssets && videoReferences.length > 0 && <p className="generation-reference-notice">当前云模型要求这些参考资产已在“资产”页手动发布到 S3。</p>}
+          {missingVideoReferences.length > 0 && <p className="generation-reference-warning">缺少 S3 副本：{missingVideoReferences.map((asset) => asset.name).join('、')}。请先到资产页发布，再返回这里选择公网副本。</p>}
           {videoNotes.length > 0 && <div className="generation-linked-notes">{videoNotes.map((note) => <span key={note.id}>{note.data.title}</span>)}</div>}
         </div>}
         {voiceParameterKey && model && <label className="generation-voice-field">
@@ -408,8 +450,15 @@ function requiresPublishedReferences(model: Model, providers: ModelProvider[]) {
   return !adapterCode || !['ollama', 'comfyui', 'siliconflow', 'zhipu', 'tencent_tokenhub', 'moonshot'].includes(adapterCode)
 }
 
-function compatibleDraftReferences(references: GenerationReferenceDraft[], inputModalities: MediaType[], publishedOnly: boolean) {
-  return references.filter((reference) => inputModalities.includes(reference.mediaType) && (!publishedOnly || reference.source === 'asset'))
+function compatibleDraftReferences(references: GenerationReferenceDraft[], inputModalities: MediaType[], publishedOnly: boolean, exports: AssetRemoteExport[]) {
+  return references
+    .filter((reference) => inputModalities.includes(reference.mediaType) && (!publishedOnly || reference.source === 'asset'))
+    .map((reference) => {
+      if (!publishedOnly || reference.source !== 'asset') return { ...reference, remote_export_id: undefined }
+      const available = usableAssetExports(exports, reference.id)
+      const selected = available.find((item) => item.id === reference.remote_export_id) ?? available[0]
+      return { ...reference, remote_export_id: selected?.id }
+    })
 }
 
 function discardTemporaryReferences(previous: GenerationReferenceDraft[], retained: GenerationReferenceDraft[]) {

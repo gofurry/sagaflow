@@ -1,14 +1,15 @@
 import { useMemo, useState, type CSSProperties, type MouseEvent } from 'react'
-import { AppstoreOutlined, AudioOutlined, BarsOutlined, CaretDownOutlined, CaretRightOutlined, CloudUploadOutlined, CompressOutlined, DeleteOutlined, EditOutlined, ExpandOutlined, EyeOutlined, FileImageOutlined, FileTextOutlined, InboxOutlined, PlusOutlined, ReloadOutlined, UploadOutlined, VideoCameraOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, AudioOutlined, BarsOutlined, CaretDownOutlined, CaretRightOutlined, CloudOutlined, CloudUploadOutlined, CompressOutlined, DeleteOutlined, EditOutlined, ExpandOutlined, EyeOutlined, FileImageOutlined, FileTextOutlined, HddOutlined, InboxOutlined, PlusOutlined, ReloadOutlined, UploadOutlined, VideoCameraOutlined } from '@ant-design/icons'
 import { App, Button, Form, Input, Modal, Popconfirm, Select, Skeleton, Tag, Tooltip, Upload } from 'antd'
 import type { UploadFile } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
-import type { Asset, AssetGroup, AssetKind, AssetStatus, Episode, MediaType, Project } from '../../api/types'
+import type { Asset, AssetGroup, AssetKind, AssetRemoteExport, AssetStatus, Episode, MediaType, Project } from '../../api/types'
 import { FloatingToolbar } from '../../components/FloatingToolbar'
 import { MaterialViewerModal } from '../../components/MaterialViewerModal'
 import { StagedAssetGallery, type ResultViewMode } from '../generation/StagedAssetGallery'
 import { EpisodeVideoLibrary } from './EpisodeVideoLibrary'
+import { assetExportLabel, groupAssetExports } from './storage'
 
 const kindMeta: Record<AssetKind, { label: string; color: string }> = {
   character: { label: '人物', color: '#c8753f' },
@@ -75,8 +76,10 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
   const stagedSummaryQuery = useQuery({ queryKey: ['staged-summary', project.id], queryFn: () => api.stagedAssetSummary(project.id) })
 	const s3Query = useQuery({ queryKey: ['s3-connections'], queryFn: api.s3Connections })
 	const exportsQuery = useQuery({ queryKey: ['asset-exports', publishingAsset?.id], queryFn: () => api.assetExports(publishingAsset!.id), enabled: !!publishingAsset })
+  const projectExportsQuery = useQuery({ queryKey: ['asset-exports', 'project', project.id], queryFn: () => api.projectAssetExports(project.id) })
   const groups = useMemo(() => groupsQuery.data ?? [], [groupsQuery.data])
   const assets = useMemo(() => assetsQuery.data ?? [], [assetsQuery.data])
+  const exportsByAsset = useMemo(() => groupAssetExports(projectExportsQuery.data ?? []), [projectExportsQuery.data])
   const kindGroups = useMemo(() => groups.filter((group) => group.kind === selectedKind), [groups, selectedKind])
   const kindGroupIDs = useMemo(() => new Set(kindGroups.map((group) => group.id)), [kindGroups])
   const kindAssets = useMemo(() => assets.filter((asset) => !!asset.group_id && kindGroupIDs.has(asset.group_id)), [assets, kindGroupIDs])
@@ -95,6 +98,7 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
       queryClient.invalidateQueries({ queryKey: ['assets', project.id] }),
       queryClient.invalidateQueries({ queryKey: ['staged-assets', project.id] }),
       queryClient.invalidateQueries({ queryKey: ['staged-summary', project.id] }),
+      queryClient.invalidateQueries({ queryKey: ['asset-exports', 'project', project.id] }),
     ])
   }
   const closeGroupModal = () => {
@@ -230,12 +234,12 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
   })
 	const publish = useMutation({
 		mutationFn: () => api.publishAsset(publishingAsset!.id, publishConnectionID!),
-		onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['asset-exports', publishingAsset?.id] }); message.success('已发布公网副本，可作为云模型参考'); setPublishConnectionID(undefined) },
+		onSuccess: async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: ['asset-exports', publishingAsset?.id] }), queryClient.invalidateQueries({ queryKey: ['asset-exports', 'project', project.id] })]); message.success('已发布公网副本，可作为云模型参考'); setPublishConnectionID(undefined) },
 		onError,
 	})
 	const deleteExport = useMutation({
 		mutationFn: api.deleteAssetExport,
-		onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['asset-exports', publishingAsset?.id] }); message.success('远端副本已删除，本地素材不受影响') },
+		onSuccess: async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: ['asset-exports', publishingAsset?.id] }), queryClient.invalidateQueries({ queryKey: ['asset-exports', 'project', project.id] })]); message.success('远端副本已删除，本地素材不受影响') },
 		onError,
 	})
 	const copyExportURL = async (id: string) => {
@@ -245,6 +249,12 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
 			message.success('临时访问链接已复制')
 		} catch (error) { onError(error) }
 	}
+  const openAssetPublisher = (asset: Asset) => {
+    const existing = new Set((exportsByAsset.get(asset.id) ?? []).map((item) => item.connection_id))
+    const available = (s3Query.data ?? []).filter((item) => item.enabled && !existing.has(item.id))
+    setPublishingAsset(asset)
+    setPublishConnectionID((available.find((item) => item.is_default) ?? available[0])?.id)
+  }
 
   const openCreateGroup = (parent: AssetGroup | null = null) => {
     setEditingGroup(null)
@@ -372,7 +382,7 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
       </div>
 
       {videoView
-        ? <EpisodeVideoLibrary episode={episode} onError={onError} projectID={project.id} videos={episodeVideoAssets} viewMode={resultView}/>
+        ? <EpisodeVideoLibrary episode={episode} exportsByAsset={exportsByAsset} onError={onError} onPublish={openAssetPublisher} projectID={project.id} videos={episodeVideoAssets} viewMode={resultView}/>
         : stagingView
         ? <StagedAssetGallery groups={groups} onError={onError} processed={stagingView} projectID={project.id} viewMode={resultView}/>
         : groupsQuery.isLoading || assetsQuery.isLoading
@@ -381,6 +391,7 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
           ? <div className="asset-tree-list">{rootGroups.map((group) => <AssetGroupBranch
               assetPanels={assetPanels}
               assets={kindAssets}
+              exportsByAsset={exportsByAsset}
               depth={0}
               expandedGroups={expandedGroups}
               group={group}
@@ -396,7 +407,7 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
               onUpload={openUpload}
               onAssetDelete={(id) => deleteAsset.mutate(id)}
               onAssetRename={(asset) => { setRenameAsset(asset); setRenameName(asset.name) }}
-			  onAssetPublish={(asset) => { setPublishingAsset(asset); setPublishConnectionID(s3Query.data?.find((item) => item.enabled && item.is_default)?.id) }}
+			  onAssetPublish={openAssetPublisher}
               onAssetView={setViewerAsset}
               selectedID={selectedID}
             />)}</div>
@@ -461,7 +472,7 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
       </Form>
     </Modal>
 
-    <MaterialViewerModal item={viewerAsset} onClose={() => setViewerAsset(null)} open={!!viewerAsset} url={viewerAsset ? api.assetURL(viewerAsset.id) : ''}/>
+    <MaterialViewerModal exports={viewerAsset ? exportsByAsset.get(viewerAsset.id) ?? [] : []} item={viewerAsset} onClose={() => setViewerAsset(null)} open={!!viewerAsset} url={viewerAsset ? api.assetURL(viewerAsset.id) : ''}/>
 
     <Modal cancelText="取消" confirmLoading={rename.isPending} okButtonProps={{ disabled: !renameName.trim() }} okText="保存" onCancel={() => setRenameAsset(null)} onOk={() => rename.mutate()} open={!!renameAsset} title="重命名资产">
       <Input autoFocus maxLength={160} onChange={(event) => setRenameName(event.target.value)} onPressEnter={() => renameName.trim() && rename.mutate()} value={renameName}/>
@@ -472,7 +483,7 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
 	  <Select onChange={setPublishConnectionID} options={s3Query.data?.filter((item) => item.enabled && !exportsQuery.data?.some((exported) => exported.connection_id === item.id)).map((item) => ({ value: item.id, label: `${item.name} · ${item.bucket}` }))} placeholder="选择尚未发布的 S3 连接" style={{ width: '100%' }} value={publishConnectionID}/>
 	  {!s3Query.data?.some((item) => item.enabled) && <p>请先在“设置 → S3 发布”中添加并启用连接。</p>}
 	  <div className="asset-export-list">
-	    {exportsQuery.data?.map((exported) => <div key={exported.id}><div><strong>{s3Query.data?.find((item) => item.id === exported.connection_id)?.name ?? 'S3 连接'}</strong><span>{exported.object_key}</span></div><Button onClick={() => void copyExportURL(exported.id)} size="small" type="text">复制链接</Button><Popconfirm cancelText="取消" description="只删除远端副本，本地素材不会删除。" okButtonProps={{ danger: true }} okText="删除副本" onConfirm={() => deleteExport.mutate(exported.id)} title="删除这个远端副本？"><Button danger loading={deleteExport.isPending && deleteExport.variables === exported.id} size="small" type="text">删除</Button></Popconfirm></div>)}
+	    {exportsQuery.data?.map((exported) => <div key={exported.id}><div><strong>{assetExportLabel(exported)}{exported.connection_is_default ? ' · 默认' : ''}</strong><span>{exported.object_key}</span></div><Button onClick={() => void copyExportURL(exported.id)} size="small" type="text">复制链接</Button><Popconfirm cancelText="取消" description="只删除远端副本，本地素材不会删除。" okButtonProps={{ danger: true }} okText="删除副本" onConfirm={() => deleteExport.mutate(exported.id)} title="删除这个远端副本？"><Button danger loading={deleteExport.isPending && deleteExport.variables === exported.id} size="small" type="text">删除</Button></Popconfirm></div>)}
 	    {!exportsQuery.isLoading && !exportsQuery.data?.length && <span>还没有远端副本</span>}
 	  </div>
 	</Modal>
@@ -483,6 +494,7 @@ interface BranchProps {
   group: AssetGroup
   groups: AssetGroup[]
   assets: Asset[]
+  exportsByAsset: Map<string, AssetRemoteExport[]>
   depth: number
   selectedID: string | null
   expandedGroups: Set<string>
@@ -501,7 +513,7 @@ interface BranchProps {
 	onAssetPublish: (asset: Asset) => void
 }
 
-function AssetGroupBranch({ group, groups, assets, depth, selectedID, expandedGroups, assetPanels, onSelect, onToggleChildren, onToggleAssets, onCreateChild, onUpload, onEdit, onDelete, onStatus, onAssetDelete, onAssetView, onAssetRename, onAssetPublish }: BranchProps) {
+function AssetGroupBranch({ group, groups, assets, exportsByAsset, depth, selectedID, expandedGroups, assetPanels, onSelect, onToggleChildren, onToggleAssets, onCreateChild, onUpload, onEdit, onDelete, onStatus, onAssetDelete, onAssetView, onAssetRename, onAssetPublish }: BranchProps) {
   const children = sortedGroups(groups.filter((item) => item.parent_id === group.id))
   const ownAssets = assets.filter((asset) => asset.group_id === group.id)
   const childrenOpen = expandedGroups.has(group.id)
@@ -537,7 +549,7 @@ function AssetGroupBranch({ group, groups, assets, depth, selectedID, expandedGr
         <div className="asset-node-expanded">
           <div className="asset-node-summary"><span>同一分组可以同时采用多个资产</span><em>{ownAssets.length} 个资产</em></div>
           {ownAssets.length
-            ? <div className="asset-variant-list">{ownAssets.map((asset) => <AssetRow asset={asset} key={asset.id} onDelete={() => onAssetDelete(asset.id)} onPublish={() => onAssetPublish(asset)} onRename={() => onAssetRename(asset)} onStatus={(status) => onStatus(asset.id, status)} onView={() => onAssetView(asset)}/>)}</div>
+            ? <div className="asset-variant-list">{ownAssets.map((asset) => <AssetRow asset={asset} exports={exportsByAsset.get(asset.id) ?? []} key={asset.id} onDelete={() => onAssetDelete(asset.id)} onPublish={() => onAssetPublish(asset)} onRename={() => onAssetRename(asset)} onStatus={(status) => onStatus(asset.id, status)} onView={() => onAssetView(asset)}/>)}</div>
             : <div className="asset-node-no-variants"><span>这个分组还没有资产</span><Button icon={<UploadOutlined/>} onClick={() => onUpload(group)} size="small" type="text">上传资产</Button></div>}
         </div>
       </div>
@@ -546,7 +558,7 @@ function AssetGroupBranch({ group, groups, assets, depth, selectedID, expandedGr
     <div className={`asset-node-region${childrenOpen ? ' open' : ''}`} inert={!childrenOpen}>
       <div className="asset-node-inner">
         {children.map((child) => <AssetGroupBranch
-		  {...{ assetPanels, assets, expandedGroups, groups, onAssetDelete, onAssetPublish, onAssetRename, onAssetView, onCreateChild, onDelete, onEdit, onSelect, onStatus, onToggleAssets, onToggleChildren, onUpload, selectedID }}
+		  {...{ assetPanels, assets, expandedGroups, exportsByAsset, groups, onAssetDelete, onAssetPublish, onAssetRename, onAssetView, onCreateChild, onDelete, onEdit, onSelect, onStatus, onToggleAssets, onToggleChildren, onUpload, selectedID }}
           depth={depth + 1}
           group={child}
           key={child.id}
@@ -556,7 +568,7 @@ function AssetGroupBranch({ group, groups, assets, depth, selectedID, expandedGr
   </div>
 }
 
-function AssetRow({ asset, onStatus, onDelete, onView, onRename, onPublish }: { asset: Asset; onStatus: (status: 'adopted' | 'discarded') => void; onDelete: () => void; onView: () => void; onRename: () => void; onPublish: () => void }) {
+function AssetRow({ asset, exports, onStatus, onDelete, onView, onRename, onPublish }: { asset: Asset; exports: AssetRemoteExport[]; onStatus: (status: 'adopted' | 'discarded') => void; onDelete: () => void; onView: () => void; onRename: () => void; onPublish: () => void }) {
   const status = statusMeta[asset.status]
   return <div className={`asset-variant-row status-${asset.status}`}>
     <AssetPreview asset={asset} onView={onView}/>
@@ -564,11 +576,12 @@ function AssetRow({ asset, onStatus, onDelete, onView, onRename, onPublish }: { 
       <div><button className="asset-name-button" onClick={onView} type="button"><strong>{asset.name}</strong></button><Tag color={status.color}>{status.label}</Tag></div>
       <span>{asset.media_type} · {asset.source === 'generated' ? '模型生成' : '手动上传'} · {formatBytes(asset.file_size_bytes)}</span>
       {asset.provider_code && <small>{asset.provider_code} / {asset.model_identifier}</small>}
+      <div className="asset-storage-badges"><span><HddOutlined/>本地原件</span>{exports.length > 0 && <span className="remote"><CloudOutlined/>S3 × {exports.length}</span>}</div>
     </div>
     <div className="asset-variant-actions">
       <AssetAction icon={<EyeOutlined/>} label="查看内容" onClick={onView}/>
       <AssetAction icon={<EditOutlined/>} label="重命名" onClick={onRename}/>
-	  <AssetAction icon={<CloudUploadOutlined/>} label="发布到 S3" onClick={onPublish}/>
+	  <AssetAction icon={<CloudUploadOutlined/>} label={exports.length ? `管理 ${exports.length} 个 S3 副本` : '发布到 S3'} onClick={onPublish}/>
       {asset.status !== 'adopted' && <AssetAction icon={<FileImageOutlined/>} label={asset.status === 'discarded' ? '重新采用' : '采用'} onClick={() => onStatus('adopted')}/>}
       {asset.status !== 'discarded' && <AssetAction icon={<InboxOutlined/>} label="弃用" onClick={() => onStatus('discarded')}/>}
       <Popconfirm cancelText="取消" description="删除本地资产记录；如有 S3 副本，需要先在发布窗口中单独删除。" okButtonProps={{ danger: true }} okText="永久删除" onConfirm={onDelete} title="确认删除这个资产？">

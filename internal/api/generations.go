@@ -84,9 +84,23 @@ func (s *Server) createGenerationJob(c fiber.Ctx) error {
 		if referenceErr != nil {
 			return referenceErr
 		}
+		canvasReferences := make(map[uuid.UUID]struct{}, len(referenceIDs))
+		for _, referenceID := range referenceIDs {
+			canvasReferences[referenceID] = struct{}{}
+		}
+		requestedExports := make(map[uuid.UUID]*uuid.UUID, len(req.InputReferences))
+		for _, reference := range req.InputReferences {
+			if reference.Source != "asset" {
+				return fmt.Errorf("%w: storyboard references must use assets", service.ErrInvalidInput)
+			}
+			if _, connected := canvasReferences[reference.ID]; !connected {
+				return fmt.Errorf("%w: storyboard reference is not connected to this shot", service.ErrInvalidInput)
+			}
+			requestedExports[reference.ID] = reference.RemoteExportID
+		}
 		req.InputReferences = make([]generationInputReferenceRequest, 0, len(referenceIDs))
 		for _, referenceID := range referenceIDs {
-			req.InputReferences = append(req.InputReferences, generationInputReferenceRequest{Source: "asset", ID: referenceID})
+			req.InputReferences = append(req.InputReferences, generationInputReferenceRequest{Source: "asset", ID: referenceID, RemoteExportID: requestedExports[referenceID]})
 		}
 		req.TargetAssetGroupID = nil
 	} else if req.CanvasNodeID != nil {
@@ -273,15 +287,28 @@ func (s *Server) validateGenerationReferences(c fiber.Ctx, projectID uuid.UUID, 
 				if exportErr != nil {
 					return nil, exportErr
 				}
-				if len(exports) > 0 {
-					remoteExportID = &exports[0].ID
+				for _, exported := range exports {
+					if exported.State == "ready" && exported.ConnectionEnabled && exported.ConnectionIsDefault {
+						exportID := exported.ID
+						remoteExportID = &exportID
+						break
+					}
+				}
+				if remoteExportID == nil {
+					for _, exported := range exports {
+						if exported.State == "ready" && exported.ConnectionEnabled {
+							exportID := exported.ID
+							remoteExportID = &exportID
+							break
+						}
+					}
 				}
 			}
 			if remoteExportID == nil {
 				return nil, fmt.Errorf("%w: publish reference asset %s to S3 before using it with a cloud model", service.ErrInvalidInput, requestedReference.ID)
 			}
 			exported, exportErr := s.store.GetAssetRemoteExport(c.Context(), *remoteExportID)
-			if exportErr != nil || exported.AssetID != requestedReference.ID {
+			if exportErr != nil || exported.AssetID != requestedReference.ID || exported.State != "ready" || !exported.ConnectionEnabled {
 				return nil, fmt.Errorf("%w: remote export does not belong to the reference asset", service.ErrInvalidInput)
 			}
 		}

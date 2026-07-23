@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeftOutlined, ArrowRightOutlined, AudioOutlined, CloseOutlined, FileTextOutlined, FolderOpenOutlined, InboxOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons'
-import { App, Button, Checkbox, Empty, Input, Modal, Spin, Tooltip, Tree } from 'antd'
+import { ArrowLeftOutlined, ArrowRightOutlined, AudioOutlined, CloseOutlined, CloudOutlined, FileTextOutlined, FolderOpenOutlined, HddOutlined, InboxOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons'
+import { App, Button, Checkbox, Empty, Input, Modal, Select, Spin, Tooltip, Tree } from 'antd'
 import type { DataNode } from 'antd/es/tree'
 import { api } from '../../api/client'
-import type { Asset, AssetGroup, GenerationInputReference, GenerationReferenceUpload, MediaType } from '../../api/types'
+import type { Asset, AssetGroup, AssetRemoteExport, GenerationInputReference, GenerationReferenceUpload, MediaType } from '../../api/types'
+import { assetExportLabel, preferredAssetExport, usableAssetExports } from '../assets/storage'
 
 export interface GenerationReferenceDraft extends GenerationInputReference {
   name: string
@@ -13,6 +14,7 @@ export interface GenerationReferenceDraft extends GenerationInputReference {
 export function GenerationReferencePicker({
   projectID,
   assets,
+  exports,
   groups,
   value,
   allowedMedia,
@@ -22,6 +24,7 @@ export function GenerationReferencePicker({
 }: {
   projectID: string
   assets: Asset[]
+  exports: AssetRemoteExport[]
   groups: AssetGroup[]
   value: GenerationReferenceDraft[]
   allowedMedia: MediaType[]
@@ -110,10 +113,17 @@ export function GenerationReferencePicker({
               <Button danger icon={<CloseOutlined/>} onClick={() => void remove(reference)} size="small" type="text"/>
             </div>
           </div>
+          <ReferenceTransport
+            exports={exports}
+            onChange={(remote_export_id) => onChange(value.map((item) => item.source === reference.source && item.id === reference.id ? { ...item, remote_export_id } : item))}
+            reference={reference}
+            requiresPublishedAssets={requiresPublishedAssets}
+          />
         </div>)}</div>
       : <button className="reference-empty" onClick={() => setLibraryOpen(true)} type="button"><InboxOutlined/><span>添加参考素材</span><small>{referenceHint(allowedMedia, requiresPublishedAssets)}</small></button>}
     <AssetReferenceModal
       assets={availableAssets}
+      exports={exports}
       groups={groups}
       onCancel={() => setLibraryOpen(false)}
       onConfirm={(selected) => {
@@ -122,7 +132,8 @@ export function GenerationReferencePicker({
         const retainedAssetIDs = new Set(retained.filter((item) => item.source === 'asset').map((item) => item.id))
         onChange([...retained, ...selected.filter((id) => !retainedAssetIDs.has(id)).flatMap((id) => {
           const asset = byID.get(id)
-          return asset ? [{ source: 'asset' as const, id: asset.id, name: asset.name, mediaType: asset.media_type }] : []
+          const preferred = requiresPublishedAssets ? preferredAssetExport(exports, asset?.id ?? '') : undefined
+          return asset ? [{ source: 'asset' as const, id: asset.id, name: asset.name, mediaType: asset.media_type, remote_export_id: preferred?.id }] : []
         })])
         setLibraryOpen(false)
       }}
@@ -132,7 +143,7 @@ export function GenerationReferencePicker({
   </div>
 }
 
-function AssetReferenceModal({ assets, groups, selected, open, onCancel, onConfirm }: { assets: Asset[]; groups: AssetGroup[]; selected: string[]; open: boolean; onCancel: () => void; onConfirm: (selected: string[]) => void }) {
+function AssetReferenceModal({ assets, exports, groups, selected, open, onCancel, onConfirm }: { assets: Asset[]; exports: AssetRemoteExport[]; groups: AssetGroup[]; selected: string[]; open: boolean; onCancel: () => void; onConfirm: (selected: string[]) => void }) {
   const [groupSearch, setGroupSearch] = useState('')
   const [assetSearch, setAssetSearch] = useState('')
   const [selectedGroup, setSelectedGroup] = useState<string>()
@@ -166,7 +177,7 @@ function AssetReferenceModal({ assets, groups, selected, open, onCancel, onConfi
           ? <div className="reference-library-grid">{visibleAssets.map((asset) => <button className={checked.includes(asset.id) ? 'selected' : ''} key={asset.id} onClick={() => toggle(asset.id, !checked.includes(asset.id))} type="button">
               <div><img alt={asset.name} src={api.assetURL(asset.id)}/><Checkbox checked={checked.includes(asset.id)} onChange={(event) => toggle(asset.id, event.target.checked)} onClick={(event) => event.stopPropagation()}/></div>
               <strong title={asset.name}>{asset.name}</strong>
-              <small>{asset.status === 'adopted' ? '已采用' : '候选资产'}</small>
+              <small>{asset.status === 'adopted' ? '已采用' : '候选资产'} · 本地{usableAssetExports(exports, asset.id).length ? ` · S3 × ${usableAssetExports(exports, asset.id).length}` : ''}</small>
             </button>)}</div>
           : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={selectedGroup ? '当前分组没有可用资产' : '选择左侧分组查看资产'}/>}
       </section>
@@ -190,6 +201,26 @@ function buildTree(groups: AssetGroup[], search: string, groupsWithAssets: Set<s
 function referenceLabel(mediaType: MediaType, index: number) {
   const prefix = ({ image: '图', video: '视频', audio: '音频', text: '文本', file: '文件' } as Record<MediaType, string>)[mediaType]
   return `${prefix} ${index + 1}`
+}
+
+function ReferenceTransport({ exports, reference, requiresPublishedAssets, onChange }: {
+  exports: AssetRemoteExport[]
+  reference: GenerationReferenceDraft
+  requiresPublishedAssets: boolean
+  onChange: (remoteExportID?: string) => void
+}) {
+  if (reference.source === 'upload') return <div className="reference-transport local"><HddOutlined/><span>临时文件直传</span></div>
+  if (!requiresPublishedAssets) return <div className="reference-transport local"><HddOutlined/><span>本地文件直传</span></div>
+  const available = usableAssetExports(exports, reference.id)
+  if (!available.length) return <div className="reference-transport missing"><CloudOutlined/><span>缺少可用的 S3 副本</span></div>
+  const value = available.some((item) => item.id === reference.remote_export_id) ? reference.remote_export_id : available[0].id
+  return <div className="reference-transport remote"><CloudOutlined/><Select
+    onChange={onChange}
+    options={available.map((item) => ({ value: item.id, label: `${assetExportLabel(item)}${item.connection_is_default ? ' · 默认' : ''}` }))}
+    popupMatchSelectWidth={220}
+    size="small"
+    value={value}
+  /></div>
 }
 
 function ReferencePreview({ reference }: { reference: GenerationReferenceDraft }) {

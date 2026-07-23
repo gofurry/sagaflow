@@ -127,11 +127,18 @@ func (s *Store) CreateAssetRemoteExport(ctx context.Context, item AssetRemoteExp
 }
 
 func (s *Store) ListAssetRemoteExports(ctx context.Context, assetID uuid.UUID) ([]AssetRemoteExport, error) {
-	return collectRows[AssetRemoteExport](s.pool.Query(ctx, `SELECT * FROM asset_remote_exports WHERE asset_id=$1 ORDER BY created_at DESC`, assetID))
+	return collectRows[AssetRemoteExport](s.pool.Query(ctx, assetRemoteExportSelect+` WHERE e.asset_id=$1 ORDER BY e.created_at DESC`, assetID))
 }
 
 func (s *Store) GetAssetRemoteExport(ctx context.Context, id uuid.UUID) (AssetRemoteExport, error) {
-	return one[AssetRemoteExport](s.pool.Query(ctx, `SELECT * FROM asset_remote_exports WHERE id=$1`, id))
+	return one[AssetRemoteExport](s.pool.Query(ctx, assetRemoteExportSelect+` WHERE e.id=$1`, id))
+}
+
+func (s *Store) ListProjectAssetRemoteExports(ctx context.Context, projectID uuid.UUID) ([]AssetRemoteExport, error) {
+	return collectRows[AssetRemoteExport](s.pool.Query(ctx, assetRemoteExportSelect+`
+		JOIN assets a ON a.id=e.asset_id
+		WHERE a.project_id=$1 AND a.deleted_at IS NULL
+		ORDER BY e.created_at DESC`, projectID))
 }
 
 func (s *Store) DeleteAssetRemoteExport(ctx context.Context, id uuid.UUID) error {
@@ -143,3 +150,8 @@ func (s *Store) DeleteAssetRemoteExport(ctx context.Context, id uuid.UUID) error
 	}
 	return err
 }
+
+const assetRemoteExportSelect = `
+	SELECT e.*,c.name AS connection_name,c.is_default AS connection_is_default,c.enabled AS connection_enabled
+	FROM asset_remote_exports e
+	JOIN s3_connections c ON c.id=e.connection_id`

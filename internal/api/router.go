@@ -44,6 +44,7 @@ func (s *Server) RegisterRoutes(app *fiber.App) {
 	p.Patch("/asset-groups/:id", s.updateAssetGroup)
 	p.Delete("/asset-groups/:id", s.deleteAssetGroup)
 	p.Get("/projects/:id/assets", s.listAssets)
+	p.Get("/projects/:id/asset-exports", s.listProjectAssetExports)
 	p.Get("/asset-groups/:id/assets", s.listGroupAssets)
 	p.Post("/asset-groups/:id/assets/upload", s.uploadAsset)
 	p.Get("/assets/:id/file", s.getAssetFile)

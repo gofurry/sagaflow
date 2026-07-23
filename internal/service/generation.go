@@ -257,7 +257,7 @@ func (s *GenerationService) loadInputReferences(ctx context.Context, job db.Gene
 				if err != nil {
 					return nil, mapStoreError(err)
 				}
-				if exported.AssetID != asset.ID || exported.State != "ready" {
+				if exported.AssetID != asset.ID || exported.State != "ready" || !exported.ConnectionEnabled {
 					return nil, fmt.Errorf("%w: remote export does not belong to the referenced asset", ErrInvalidInput)
 				}
 			}

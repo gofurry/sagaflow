@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
-import { ApartmentOutlined, ArrowRightOutlined, BorderOutlined, BranchesOutlined, DashOutlined, DeleteOutlined, EditOutlined, FileTextOutlined, FullscreenOutlined, MinusOutlined, RadiusSettingOutlined, ReloadOutlined, SelectOutlined, VideoCameraOutlined } from '@ant-design/icons'
+import { ApartmentOutlined, ArrowRightOutlined, BorderOutlined, BranchesOutlined, CloudOutlined, DashOutlined, DeleteOutlined, EditOutlined, FileTextOutlined, FullscreenOutlined, HddOutlined, MinusOutlined, RadiusSettingOutlined, ReloadOutlined, SelectOutlined, VideoCameraOutlined } from '@ant-design/icons'
 import { App, Button, Input, InputNumber, Modal, Popconfirm, Select, Spin } from 'antd'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -28,10 +28,11 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import { api } from '../../api/client'
-import type { Asset, AssetGroup, CanvasAnnotationDTO, CanvasAnnotationKind, CanvasAnnotationLabelPosition, CanvasDocument, CanvasEdgeData, CanvasEdgeKind, CanvasEdgeRouting, CanvasNodeData, Episode, Project } from '../../api/types'
+import type { Asset, AssetGroup, AssetRemoteExport, CanvasAnnotationDTO, CanvasAnnotationKind, CanvasAnnotationLabelPosition, CanvasDocument, CanvasEdgeData, CanvasEdgeKind, CanvasEdgeRouting, CanvasNodeData, Episode, Project } from '../../api/types'
 import { FloatingToolbar } from '../../components/FloatingToolbar'
 import { MarkdownEditor } from '../../components/Markdown'
 import { MaterialViewerModal } from '../../components/MaterialViewerModal'
+import { groupAssetExports, usableAssetExports } from '../assets/storage'
 
 type FlowNode = Node<CanvasNodeData>
 type FlowEdge = Edge<CanvasEdgeData>
@@ -61,10 +62,11 @@ const nodeTypes = { asset: AssetCanvasNode, video: VideoCanvasNode, note: NoteCa
 const edgeTypes = { canvasConnection: CanvasRelationshipEdge }
 const CanvasContext = createContext<{
   assets: Map<string, Asset>
+  exportsByAsset: Map<string, AssetRemoteExport[]>
   openEdge: (id: string) => void
   removeEdge: (id: string) => void
   updateEdge: (id: string, patch: Partial<CanvasEdgeData>) => void
-}>({ assets: new Map(), openEdge: () => undefined, removeEdge: () => undefined, updateEdge: () => undefined })
+}>({ assets: new Map(), exportsByAsset: new Map(), openEdge: () => undefined, removeEdge: () => undefined, updateEdge: () => undefined })
 
 export function CanvasComposer(props: { project: Project; episode: Episode; onError: (error: unknown) => void }) {
   return <ReactFlowProvider><CanvasInner {...props}/></ReactFlowProvider>
@@ -99,9 +101,11 @@ function CanvasInner({ project, episode, onError }: { project: Project; episode:
   const canvasQuery = useQuery({ queryKey: ['canvas', episode.id], queryFn: () => api.canvas(episode.id) })
   const groupsQuery = useQuery({ queryKey: ['asset-groups', project.id], queryFn: () => api.assetGroups(project.id) })
   const assetsQuery = useQuery({ queryKey: ['assets', project.id], queryFn: () => api.assets(project.id) })
+  const exportsQuery = useQuery({ queryKey: ['asset-exports', 'project', project.id], queryFn: () => api.projectAssetExports(project.id) })
   const groups = useMemo(() => groupsQuery.data ?? [], [groupsQuery.data])
   const assets = useMemo(() => assetsQuery.data ?? [], [assetsQuery.data])
   const assetMap = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets])
+  const exportsByAsset = useMemo(() => groupAssetExports(exportsQuery.data ?? []), [exportsQuery.data])
   const adoptedAssets = useMemo(() => assets.filter((asset) => asset.status === 'adopted' && asset.group_id && asset.media_type !== 'video'), [assets])
 
   const toDocument = useCallback((currentNodes = nodes, currentEdges = edges): CanvasDocument => ({
@@ -386,7 +390,7 @@ function CanvasInner({ project, episode, onError }: { project: Project; episode:
       { key: 'sync', label: '同步已采用资产', icon: <ReloadOutlined/>, onClick: syncAssets },
       { key: 'arrange', label: '自动整理画布', icon: <FullscreenOutlined/>, onClick: arrange },
     ]}/>
-    <CanvasContext.Provider value={{ assets: assetMap, openEdge: setEdgeEditorID, removeEdge, updateEdge }}>
+    <CanvasContext.Provider value={{ assets: assetMap, exportsByAsset, openEdge: setEdgeEditorID, removeEdge, updateEdge }}>
       <ReactFlow
         connectionLineStyle={{ stroke: '#c8753f', strokeWidth: 2.4 }}
         connectionMode={ConnectionMode.Loose}
@@ -460,7 +464,7 @@ function CanvasInner({ project, episode, onError }: { project: Project; episode:
     />
     <CanvasEdgeModal edge={editedEdge} onChange={updateEdge} onClose={() => setEdgeEditorID('')} onDelete={removeEdge}/>
     <CanvasAnnotationModal annotation={editedAnnotation} onChange={updateAnnotation} onClose={() => setAnnotationEditorID('')} onDelete={removeAnnotation}/>
-    <MaterialViewerModal item={viewer} onClose={() => setViewer(null)} open={!!viewer} url={viewer ? api.assetURL(viewer.id) : ''}/>
+    <MaterialViewerModal exports={viewer ? exportsByAsset.get(viewer.id) ?? [] : []} item={viewer} onClose={() => setViewer(null)} open={!!viewer} url={viewer ? api.assetURL(viewer.id) : ''}/>
   </div>
 }
 
@@ -668,8 +672,9 @@ function NodeHandles() {
 }
 
 function AssetCanvasNode({ data, selected }: NodeProps<FlowNode>) {
-  const { assets } = useContext(CanvasContext)
+  const { assets, exportsByAsset } = useContext(CanvasContext)
   const asset = data.asset_id ? assets.get(data.asset_id) : undefined
+  const exportCount = asset ? usableAssetExports(exportsByAsset.get(asset.id) ?? [], asset.id).length : 0
   const textQuery = useQuery({
     queryKey: ['canvas-asset-text', asset?.id],
     queryFn: async () => { const response = await fetch(api.assetURL(asset!.id), { credentials: 'include' }); if (!response.ok) throw new Error('无法读取文本资产'); return response.text() },
@@ -685,20 +690,21 @@ function AssetCanvasNode({ data, selected }: NodeProps<FlowNode>) {
       {asset?.media_type === 'text' && <p>{plainText(textQuery.data ?? '读取 Markdown…').slice(0, 180)}</p>}
       {asset && !['image', 'video', 'audio', 'text'].includes(asset.media_type) && <FileTextOutlined/>}
     </div>
-    <div className="canvas-node-caption"><strong>{asset?.name ?? data.title}</strong><span>{data.group_path || mediaLabel(asset?.media_type ?? data.media_type)}</span></div>
+    <div className="canvas-node-caption"><strong>{asset?.name ?? data.title}</strong><span>{data.group_path || mediaLabel(asset?.media_type ?? data.media_type)}</span><div className="canvas-node-storage"><span><HddOutlined/>本地</span>{exportCount > 0 && <span className="remote"><CloudOutlined/>S3 × {exportCount}</span>}</div></div>
   </article>
 }
 
 function VideoCanvasNode({ data, selected }: NodeProps<FlowNode>) {
-  const { assets } = useContext(CanvasContext)
+  const { assets, exportsByAsset } = useContext(CanvasContext)
   const selectedAsset = data.selected_video_asset_id ? assets.get(data.selected_video_asset_id) : undefined
+  const exportCount = selectedAsset ? usableAssetExports(exportsByAsset.get(selectedAsset.id) ?? [], selectedAsset.id).length : 0
   return <article className={`canvas-content-node canvas-video-node${selected ? ' selected' : ''}`}>
     <NodeHandles/>
     <div className="canvas-shot-number">{String(data.shot_number ?? 0).padStart(2, '0')}</div>
     <div className="canvas-node-media video">
       {selectedAsset ? <video muted preload="metadata" src={api.assetProxyURL(selectedAsset.id)}/> : <VideoCameraOutlined/>}
     </div>
-    <div className="canvas-node-caption"><strong>{data.title}</strong><span>{data.target_duration_seconds ? `${data.target_duration_seconds} 秒` : '未设时长'} · {selectedAsset ? '已选择成片' : '待生成'}</span></div>
+    <div className="canvas-node-caption"><strong>{data.title}</strong><span>{data.target_duration_seconds ? `${data.target_duration_seconds} 秒` : '未设时长'} · {selectedAsset ? '已选择成片' : '待生成'}</span>{selectedAsset && <div className="canvas-node-storage"><span><HddOutlined/>本地</span>{exportCount > 0 && <span className="remote"><CloudOutlined/>S3 × {exportCount}</span>}</div>}</div>
   </article>
 }
 

@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircleOutlined, DeleteOutlined, EditOutlined, EyeOutlined, InboxOutlined, PlayCircleOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, CloudOutlined, CloudUploadOutlined, DeleteOutlined, EditOutlined, EyeOutlined, HddOutlined, InboxOutlined, PlayCircleOutlined } from '@ant-design/icons'
 import { App, Button, Empty, Input, Modal, Pagination, Popconfirm, Skeleton, Tag, Tooltip } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
-import type { Asset, Episode } from '../../api/types'
+import type { Asset, AssetRemoteExport, Episode } from '../../api/types'
 import { MaterialViewerModal } from '../../components/MaterialViewerModal'
 import type { ResultViewMode } from '../generation/StagedAssetGallery'
 
 const PAGE_SIZE = 12
 
-export function EpisodeVideoLibrary({ episode, onError, projectID, videos, viewMode }: {
+export function EpisodeVideoLibrary({ episode, exportsByAsset, onError, onPublish, projectID, videos, viewMode }: {
   episode: Episode | null
+  exportsByAsset: Map<string, AssetRemoteExport[]>
   onError: (error: unknown) => void
+  onPublish: (asset: Asset) => void
   projectID: string
   videos: Asset[]
   viewMode: ResultViewMode
@@ -74,6 +76,7 @@ export function EpisodeVideoLibrary({ episode, onError, projectID, videos, viewM
       {pageItems.map((asset) => {
         const shot = asset.canvas_node_id ? shotMap.get(asset.canvas_node_id) : undefined
         const selected = shot?.data.selected_video_asset_id === asset.id
+        const exports = exportsByAsset.get(asset.id) ?? []
         return <article className={`episode-video-card${selected ? ' selected' : ''}`} key={asset.id}>
           <button className="episode-video-preview" onClick={() => setViewer(asset)} type="button">
             <video muted preload="metadata" src={api.assetProxyURL(asset.id)}/>
@@ -83,11 +86,13 @@ export function EpisodeVideoLibrary({ episode, onError, projectID, videos, viewM
             <div><strong>{asset.name}</strong>{selected && <Tag color="orange" icon={<CheckCircleOutlined/>}>当前镜头</Tag>}</div>
             <span>{shot ? `${String(shot.data.shot_number ?? 0).padStart(2, '0')} · ${shot.data.title}` : '原分镜已删除'}</span>
             <small>{new Date(asset.created_at).toLocaleString('zh-CN')} · {formatBytes(asset.file_size_bytes)}</small>
+            <div className="asset-storage-badges"><span><HddOutlined/>本地原件</span>{exports.length > 0 && <span className="remote"><CloudOutlined/>S3 × {exports.length}</span>}</div>
           </div>
           <div className="episode-video-actions">
             {!selected && asset.status !== 'discarded' && asset.canvas_node_id && <Button icon={<CheckCircleOutlined/>} loading={select.isPending} onClick={() => select.mutate(asset)} size="small" type="primary">设为当前</Button>}
             <Tooltip title="查看视频"><Button icon={<EyeOutlined/>} onClick={() => setViewer(asset)} size="small" type="text"/></Tooltip>
             <Tooltip title="重命名"><Button icon={<EditOutlined/>} onClick={() => { setRenaming(asset); setName(asset.name) }} size="small" type="text"/></Tooltip>
+            <Tooltip title={exports.length ? `管理 ${exports.length} 个 S3 副本` : '发布到 S3'}><Button icon={<CloudUploadOutlined/>} onClick={() => onPublish(asset)} size="small" type="text"/></Tooltip>
             {asset.status === 'adopted'
               ? <Tooltip title="弃用资产"><Button icon={<InboxOutlined/>} onClick={() => status.mutate({ asset, adopted: false })} size="small" type="text"/></Tooltip>
               : <Tooltip title={asset.status === 'discarded' ? '重新采用资产' : '采用资产'}><Button icon={<CheckCircleOutlined/>} onClick={() => status.mutate({ asset, adopted: true })} size="small" type="text"/></Tooltip>}
@@ -99,7 +104,7 @@ export function EpisodeVideoLibrary({ episode, onError, projectID, videos, viewM
       })}
     </div>
     {episodeVideos.length > PAGE_SIZE && <Pagination current={page} onChange={setPage} pageSize={PAGE_SIZE} showSizeChanger={false} total={episodeVideos.length}/>}
-    <MaterialViewerModal item={viewer} onClose={() => setViewer(null)} open={!!viewer} url={viewer ? api.assetURL(viewer.id) : ''}/>
+    <MaterialViewerModal exports={viewer ? exportsByAsset.get(viewer.id) ?? [] : []} item={viewer} onClose={() => setViewer(null)} open={!!viewer} url={viewer ? api.assetURL(viewer.id) : ''}/>
     <Modal cancelText="取消" confirmLoading={rename.isPending} okButtonProps={{ disabled: !name.trim() }} okText="保存" onCancel={() => setRenaming(null)} onOk={() => rename.mutate()} open={!!renaming} title="重命名视频">
       <Input autoFocus maxLength={160} onChange={(event) => setName(event.target.value)} onPressEnter={() => name.trim() && rename.mutate()} value={name}/>
     </Modal>

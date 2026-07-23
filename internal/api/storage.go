@@ -103,6 +103,21 @@ func (s *Server) listAssetExports(c fiber.Ctx) error {
 	return writeOK(c, items)
 }
 
+func (s *Server) listProjectAssetExports(c fiber.Ctx) error {
+	projectID, err := idParam(c, "id")
+	if err != nil {
+		return err
+	}
+	if _, err := s.store.GetProject(c.Context(), projectID); err != nil {
+		return err
+	}
+	items, err := s.store.ListProjectAssetRemoteExports(c.Context(), projectID)
+	if err != nil {
+		return err
+	}
+	return writeOK(c, items)
+}
+
 func (s *Server) publishAsset(c fiber.Ctx) error {
 	assetID, err := idParam(c, "id")
 	if err != nil {

@@ -4,7 +4,20 @@ export interface Account { id: ID; username: string; display_name: string; last_
 export interface Principal { account_id: ID; session_id: ID; username: string; display_name: string }
 export interface CurrentUser { user: Principal }
 export interface S3Connection { id: ID; name: string; provider: string; endpoint: string; public_endpoint: string; region: string; bucket: string; prefix: string; force_path_style: boolean; enabled: boolean; is_default: boolean; created_at: string; updated_at: string }
-export interface AssetRemoteExport { id: ID; asset_id: ID; connection_id: ID; object_key: string; etag: string; public_url: string; state: string; created_at: string; updated_at: string }
+export interface AssetRemoteExport {
+  id: ID
+  asset_id: ID
+  connection_id: ID
+  object_key: string
+  etag: string
+  public_url: string
+  state: string
+  connection_name: string
+  connection_is_default: boolean
+  connection_enabled: boolean
+  created_at: string
+  updated_at: string
+}
 export interface Project { id: ID; title: string; description: string; created_at: string; updated_at: string }
 export interface Episode { id: ID; project_id: ID; episode_number: number; title: string; notes: string; target_duration_seconds: number | null; target_shot_count: number | null; created_at: string; updated_at: string }
 export interface EpisodeScript { id: ID; episode_id: ID; version: number; body: string; note: string; status: AssetStatus; created_at: string }

@@ -55,6 +55,7 @@ export const api = {
   assetURL: (id: ID) => `/api/assets/${id}/file`,
   assetProxyURL: (id: ID) => `/api/assets/${id}/file?proxy=1`,
 	assetExports: (id: ID) => request<AssetRemoteExport[]>(`/assets/${id}/exports`),
+	projectAssetExports: (id: ID) => request<AssetRemoteExport[]>(`/projects/${id}/asset-exports`),
 	publishAsset: (id: ID, connectionID: ID) => request<AssetRemoteExport>(`/assets/${id}/exports`, { method: 'POST', body: body({ connection_id: connectionID }) }),
 	deleteAssetExport: (id: ID) => request<{ deleted: boolean }>(`/asset-exports/${id}`, { method: 'DELETE' }),
 	assetExportURL: (id: ID) => request<{ url: string; expires_at: string }>(`/asset-exports/${id}/url`),

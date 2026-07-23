@@ -448,13 +448,16 @@ type LocalObject struct {
 }
 
 type AssetRemoteExport struct {
-	ID           uuid.UUID `db:"id" json:"id"`
-	AssetID      uuid.UUID `db:"asset_id" json:"asset_id"`
-	ConnectionID uuid.UUID `db:"connection_id" json:"connection_id"`
-	ObjectKey    string    `db:"object_key" json:"object_key"`
-	ETag         string    `db:"etag" json:"etag"`
-	PublicURL    string    `db:"public_url" json:"public_url"`
-	State        string    `db:"state" json:"state"`
-	CreatedAt    time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt    time.Time `db:"updated_at" json:"updated_at"`
+	ID                  uuid.UUID `db:"id" json:"id"`
+	AssetID             uuid.UUID `db:"asset_id" json:"asset_id"`
+	ConnectionID        uuid.UUID `db:"connection_id" json:"connection_id"`
+	ObjectKey           string    `db:"object_key" json:"object_key"`
+	ETag                string    `db:"etag" json:"etag"`
+	PublicURL           string    `db:"public_url" json:"public_url"`
+	State               string    `db:"state" json:"state"`
+	ConnectionName      string    `db:"connection_name" json:"connection_name"`
+	ConnectionIsDefault bool      `db:"connection_is_default" json:"connection_is_default"`
+	ConnectionEnabled   bool      `db:"connection_enabled" json:"connection_enabled"`
+	CreatedAt           time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt           time.Time `db:"updated_at" json:"updated_at"`
 }
