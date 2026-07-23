@@ -197,7 +197,10 @@ func (s *GenerationService) resolveExecutionTarget(ctx context.Context, job db.G
 		if err != nil {
 			return db.ModelProvider{}, inference.Target{}, mapStoreError(err)
 		}
-		return provider, inference.Target{Kind: inference.TargetModel, ID: model.ModelID, Capability: inference.Capability(model.Capability)}, nil
+		return provider, inference.Target{
+			Kind: inference.TargetModel, ID: model.ModelID,
+			Capability: inference.Capability(model.Capability), Spec: model.Metadata,
+		}, nil
 	case "workflow":
 		if job.ProviderID == nil || job.WorkflowTemplateID == nil {
 			return db.ModelProvider{}, inference.Target{}, fmt.Errorf("%w: generation workflow target is missing", ErrInvalidInput)
@@ -296,7 +299,7 @@ func (s *GenerationService) loadInputReferences(ctx context.Context, job db.Gene
 }
 
 func providerRequiresRemoteInput(adapterCode string) bool {
-	return adapterCode != ProviderOllama && adapterCode != ProviderComfyUI
+	return adapterCode != ProviderOllama && adapterCode != ProviderComfyUI && adapterCode != ProviderSiliconFlow
 }
 
 func (s *GenerationService) referenceURL(ctx context.Context, reference generationReference) (string, error) {

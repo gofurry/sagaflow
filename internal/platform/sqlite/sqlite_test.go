@@ -49,6 +49,16 @@ func TestOpenMigratesCleanDatabaseAndEnforcesSingleAccount(t *testing.T) {
 	if bailianProviders != 1 {
 		t.Fatalf("expected built-in Bailian connection, got %d", bailianProviders)
 	}
+	var siliconFlowProviders int
+	if err := database.QueryRow(`
+		SELECT COUNT(*) FROM model_providers
+		WHERE code='siliconflow' AND adapter_code='siliconflow'
+		  AND base_url='https://api.siliconflow.cn/v1' AND auth_type='api_key'`).Scan(&siliconFlowProviders); err != nil {
+		t.Fatal(err)
+	}
+	if siliconFlowProviders != 1 {
+		t.Fatalf("expected built-in SiliconFlow connection, got %d", siliconFlowProviders)
+	}
 	if _, err := database.Exec(`
 		INSERT INTO workflow_templates (
 			id,code,name,capability,input_modalities,workflow,parameter_schema,

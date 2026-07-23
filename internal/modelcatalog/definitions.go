@@ -10,6 +10,14 @@ import (
 const manifestVersion = 5
 
 func Builtins() []Definition {
+	embedded, err := embeddedDefinitions()
+	if err != nil {
+		panic(err)
+	}
+	return mergeDefinitions(compiledBuiltins(), embedded)
+}
+
+func compiledBuiltins() []Definition {
 	return []Definition{
 		model("20000000-0000-0000-0000-000000000001", "deepseek", "deepseek-v4-flash", "DeepSeek V4 Flash", "text",
 			[]string{"text"}, []string{"thinking", "json_output", "1m_context", "fast"}, deepSeekV4Schema(), values("max_tokens", 8192, "thinking", "disabled", "reasoning_effort", "high"),

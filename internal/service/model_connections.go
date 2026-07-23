@@ -10,6 +10,7 @@ import (
 	"github.com/gofurry/sagaflow/internal/inference"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/comfyui"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/ollama"
+	"github.com/gofurry/sagaflow/internal/inference/adapters/siliconflow"
 	"github.com/gofurry/sagaflow/internal/store/db"
 	"github.com/google/uuid"
 )
@@ -19,20 +20,24 @@ type ModelConnectionService struct {
 	credentials *CredentialService
 	ollama      *ollama.Driver
 	comfyui     *comfyui.Driver
+	siliconflow *siliconflow.Driver
 }
 
 type ModelSyncResult struct {
-	Server   ollama.ServerInfo `json:"server"`
-	Models   []db.Model        `json:"models"`
-	Imported int               `json:"imported"`
-	Updated  int               `json:"updated"`
+	Server   any        `json:"server"`
+	Models   []db.Model `json:"models"`
+	Imported int        `json:"imported"`
+	Updated  int        `json:"updated"`
 }
 
-func NewModelConnectionService(store *db.Store, credentials *CredentialService, ollamaDriver *ollama.Driver, comfyDriver *comfyui.Driver) (*ModelConnectionService, error) {
-	if store == nil || credentials == nil || ollamaDriver == nil || comfyDriver == nil {
+func NewModelConnectionService(store *db.Store, credentials *CredentialService, ollamaDriver *ollama.Driver, comfyDriver *comfyui.Driver, siliconFlowDriver *siliconflow.Driver) (*ModelConnectionService, error) {
+	if store == nil || credentials == nil || ollamaDriver == nil || comfyDriver == nil || siliconFlowDriver == nil {
 		return nil, fmt.Errorf("model connection service dependencies are required")
 	}
-	return &ModelConnectionService{store: store, credentials: credentials, ollama: ollamaDriver, comfyui: comfyDriver}, nil
+	return &ModelConnectionService{
+		store: store, credentials: credentials, ollama: ollamaDriver,
+		comfyui: comfyDriver, siliconflow: siliconFlowDriver,
+	}, nil
 }
 
 func (s *ModelConnectionService) Test(ctx context.Context, providerID uuid.UUID) (any, error) {
@@ -56,6 +61,17 @@ func (s *ModelConnectionService) Test(ctx context.Context, providerID uuid.UUID)
 			return nil, providerConnectionError(provider)
 		}
 		if err := s.updateComfyMetadata(ctx, provider, server); err != nil {
+			return nil, err
+		}
+		return server, nil
+	case ProviderSiliconFlow:
+		server, probeErr := s.siliconflow.Probe(ctx, runtime)
+		if probeErr != nil {
+			return nil, providerConnectionError(provider)
+		}
+		if err := s.updateGenericMetadata(ctx, provider, map[string]any{
+			"model_count": server.ModelCount, "last_checked_at": server.LastCheckedAt,
+		}); err != nil {
 			return nil, err
 		}
 		return server, nil
@@ -88,6 +104,17 @@ func (s *ModelConnectionService) Discover(ctx context.Context, providerID uuid.U
 			return nil, err
 		}
 		return discovery, nil
+	case ProviderSiliconFlow:
+		discovery, discoverErr := s.siliconflow.Discover(ctx, runtime)
+		if discoverErr != nil {
+			return nil, providerConnectionError(provider)
+		}
+		if err := s.updateGenericMetadata(ctx, provider, map[string]any{
+			"model_count": discovery.Server.ModelCount, "last_checked_at": discovery.Server.LastCheckedAt,
+		}); err != nil {
+			return nil, err
+		}
+		return discovery, nil
 	default:
 		return nil, fmt.Errorf("%w: discovery is unavailable for adapter %s", ErrInvalidInput, provider.AdapterCode)
 	}
@@ -98,9 +125,17 @@ func (s *ModelConnectionService) Sync(ctx context.Context, providerID uuid.UUID,
 	if err != nil {
 		return ModelSyncResult{}, err
 	}
-	if provider.AdapterCode != ProviderOllama {
-		return ModelSyncResult{}, fmt.Errorf("%w: only Ollama connections synchronize model catalog entries", ErrInvalidInput)
+	switch provider.AdapterCode {
+	case ProviderOllama:
+		return s.syncOllama(ctx, provider, runtime, selectedModelIDs)
+	case ProviderSiliconFlow:
+		return s.syncSiliconFlow(ctx, provider, runtime, selectedModelIDs)
+	default:
+		return ModelSyncResult{}, fmt.Errorf("%w: model synchronization is unavailable for adapter %s", ErrInvalidInput, provider.AdapterCode)
 	}
+}
+
+func (s *ModelConnectionService) syncOllama(ctx context.Context, provider db.ModelProvider, runtime inference.Runtime, selectedModelIDs []string) (ModelSyncResult, error) {
 	discovery, err := s.ollama.Discover(ctx, runtime)
 	if err != nil {
 		return ModelSyncResult{}, providerConnectionError(provider)
@@ -108,7 +143,7 @@ func (s *ModelConnectionService) Sync(ctx context.Context, providerID uuid.UUID,
 	if err := s.updateOllamaMetadata(ctx, provider, discovery.Server); err != nil {
 		return ModelSyncResult{}, err
 	}
-	existing, err := s.store.ListModelsByProvider(ctx, providerID)
+	existing, err := s.store.ListModelsByProvider(ctx, provider.ID)
 	if err != nil {
 		return ModelSyncResult{}, err
 	}
@@ -157,7 +192,7 @@ func (s *ModelConnectionService) Sync(ctx context.Context, providerID uuid.UUID,
 			}
 		}
 		created, createErr := s.store.CreateModel(ctx, db.Model{
-			ProviderID: providerID, ModelID: discovered.Name, DisplayName: discovered.Name,
+			ProviderID: provider.ID, ModelID: discovered.Name, DisplayName: discovered.Name,
 			Capability: "text", InputModalities: discovered.InputModalities, Features: discovered.Features,
 			ParameterSchema: ollamaParameterSchema(discovered.Capabilities), DefaultParameters: ollamaDefaultParameters(),
 			Enabled: true, Available: true, Metadata: metadata,
@@ -170,6 +205,92 @@ func (s *ModelConnectionService) Sync(ctx context.Context, providerID uuid.UUID,
 	}
 	for _, model := range existing {
 		if _, available := availableModelIDs[model.ModelID]; available || !model.Available {
+			continue
+		}
+		model.Available = false
+		if _, err := s.store.UpdateModel(ctx, model); err != nil {
+			return ModelSyncResult{}, err
+		}
+	}
+	return result, nil
+}
+
+func (s *ModelConnectionService) syncSiliconFlow(ctx context.Context, provider db.ModelProvider, runtime inference.Runtime, selectedModelIDs []string) (ModelSyncResult, error) {
+	discovery, err := s.siliconflow.Discover(ctx, runtime)
+	if err != nil {
+		return ModelSyncResult{}, providerConnectionError(provider)
+	}
+	if err := s.updateGenericMetadata(ctx, provider, map[string]any{
+		"model_count": discovery.Server.ModelCount, "last_checked_at": discovery.Server.LastCheckedAt,
+	}); err != nil {
+		return ModelSyncResult{}, err
+	}
+	existing, err := s.store.ListModelsByProvider(ctx, provider.ID)
+	if err != nil {
+		return ModelSyncResult{}, err
+	}
+	selected := make(map[string]struct{}, len(selectedModelIDs))
+	for _, modelID := range selectedModelIDs {
+		if modelID = strings.TrimSpace(modelID); modelID != "" {
+			selected[modelID] = struct{}{}
+		}
+	}
+	selectAll := selectedModelIDs == nil
+	existingByKey := make(map[string]db.Model, len(existing))
+	for _, model := range existing {
+		existingByKey[model.ModelID+"\x00"+model.Capability] = model
+	}
+	result := ModelSyncResult{Server: discovery.Server, Models: make([]db.Model, 0, len(discovery.Models))}
+	availableKeys := make(map[string]struct{}, len(discovery.Models))
+	for _, discovered := range discovery.Models {
+		key := discovered.Name + "\x00" + discovered.Capability
+		availableKeys[key] = struct{}{}
+		if model, ok := existingByKey[key]; ok {
+			metadata := metadataMap(model.Metadata)
+			metadata["last_seen_at"] = time.Now().UTC()
+			metadata["task"] = discovered.Task
+			metadata["discovery_source"] = "siliconflow"
+			if metadata["support_status"] == nil {
+				metadata["support_status"] = discovered.SupportStatus
+			}
+			if metadata["source"] != "builtin" {
+				model.InputModalities = discovered.InputModalities
+				model.Features = discovered.Features
+				model.ParameterSchema = siliconflow.ParameterSchema(discovered)
+				model.DefaultParameters = siliconflow.DefaultParameters(discovered)
+			}
+			model.Available = true
+			model.Metadata = db.JSON(metadata)
+			updated, updateErr := s.store.UpdateModel(ctx, model)
+			if updateErr != nil {
+				return ModelSyncResult{}, updateErr
+			}
+			result.Models = append(result.Models, updated)
+			result.Updated++
+			continue
+		}
+		if !selectAll {
+			if _, ok := selected[discovered.Name]; !ok {
+				continue
+			}
+		}
+		created, createErr := s.store.CreateModel(ctx, db.Model{
+			ProviderID: provider.ID, ModelID: discovered.Name, DisplayName: discovered.DisplayName,
+			Capability: discovered.Capability, InputModalities: discovered.InputModalities, Features: discovered.Features,
+			ParameterSchema: siliconflow.ParameterSchema(discovered), DefaultParameters: siliconflow.DefaultParameters(discovered),
+			Enabled: true, Available: true, Metadata: db.JSON(map[string]any{
+				"source": "discovered", "discovery_source": "siliconflow", "task": discovered.Task,
+				"support_status": discovered.SupportStatus, "last_seen_at": time.Now().UTC(),
+			}),
+		})
+		if createErr != nil {
+			return ModelSyncResult{}, createErr
+		}
+		result.Models = append(result.Models, created)
+		result.Imported++
+	}
+	for _, model := range existing {
+		if _, available := availableKeys[model.ModelID+"\x00"+model.Capability]; available || !model.Available {
 			continue
 		}
 		model.Available = false
@@ -223,6 +344,22 @@ func (s *ModelConnectionService) updateComfyMetadata(ctx context.Context, provid
 	provider.Metadata = db.JSON(metadata)
 	_, err := s.store.UpdateModelProvider(ctx, provider)
 	return err
+}
+
+func (s *ModelConnectionService) updateGenericMetadata(ctx context.Context, provider db.ModelProvider, values map[string]any) error {
+	metadata := metadataMap(provider.Metadata)
+	for key, value := range values {
+		metadata[key] = value
+	}
+	provider.Metadata = db.JSON(metadata)
+	_, err := s.store.UpdateModelProvider(ctx, provider)
+	return err
+}
+
+func metadataMap(raw json.RawMessage) map[string]any {
+	metadata := map[string]any{}
+	_ = json.Unmarshal(raw, &metadata)
+	return metadata
 }
 
 func ollamaDefaultParameters() json.RawMessage {

@@ -1,0 +1,265 @@
+{
+  "schema_version": 1,
+  "catalog_version": "2026.07.23.1",
+  "published_at": "2026-07-23T00:00:00+08:00",
+  "profiles": {
+    "siliconflow-chat": {
+      "task": "chat",
+      "capability": "text",
+      "input_modalities": ["text"],
+      "features": ["chat", "thinking", "structured_output"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "max_tokens": {"type": "integer", "title": "最大输出 Token", "minimum": 1, "maximum": 131072},
+          "temperature": {"type": "number", "title": "温度", "minimum": 0, "maximum": 2},
+          "top_p": {"type": "number", "title": "Top P", "minimum": 0, "maximum": 1},
+          "top_k": {"type": "integer", "title": "Top K", "minimum": 0, "maximum": 1000},
+          "min_p": {"type": "number", "title": "Min P", "minimum": 0, "maximum": 1},
+          "enable_thinking": {"type": "boolean", "title": "启用思考"},
+          "thinking_budget": {"type": "integer", "title": "思考预算", "minimum": 128, "maximum": 32768},
+          "reasoning_effort": {"type": "string", "title": "推理强度", "enum": ["high", "max"]},
+          "response_format": {"type": "string", "title": "返回格式", "enum": ["", "json_object"]}
+        }
+      },
+      "default_parameters": {"max_tokens": 4096, "temperature": 0.7, "enable_thinking": false},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.siliconflow.cn/cn/api-reference/chat-completions/chat-completions"
+    },
+    "siliconflow-image": {
+      "task": "image_generation",
+      "capability": "image",
+      "input_modalities": ["text"],
+      "features": ["image_generation"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "image_size": {"type": "string", "title": "图像尺寸"},
+          "negative_prompt": {"type": "string", "title": "负面 Prompt"},
+          "seed": {"type": "integer", "title": "随机种子", "minimum": 0, "maximum": 9999999999}
+        }
+      },
+      "default_parameters": {"image_size": "1024x1024"},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.siliconflow.cn/cn/api-reference/images/images-generations"
+    },
+    "siliconflow-kolors": {
+      "task": "image_generation",
+      "capability": "image",
+      "input_modalities": ["text"],
+      "features": ["image_generation", "free"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "image_size": {"type": "string", "title": "图像尺寸", "enum": ["1024x1024", "960x1280", "768x1024", "720x1440", "720x1280"]},
+          "negative_prompt": {"type": "string", "title": "负面 Prompt"},
+          "batch_size": {"type": "integer", "title": "生成数量", "minimum": 1, "maximum": 4},
+          "seed": {"type": "integer", "title": "随机种子", "minimum": 0, "maximum": 9999999999},
+          "num_inference_steps": {"type": "integer", "title": "推理步数", "minimum": 1, "maximum": 100},
+          "guidance_scale": {"type": "number", "title": "提示词引导", "minimum": 0, "maximum": 20}
+        }
+      },
+      "default_parameters": {"image_size": "1024x1024", "batch_size": 1, "num_inference_steps": 20, "guidance_scale": 7.5},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.siliconflow.cn/cn/api-reference/images/images-generations"
+    },
+    "siliconflow-qwen-image": {
+      "task": "image_generation",
+      "capability": "image",
+      "input_modalities": ["text"],
+      "features": ["image_generation", "chinese_text"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "image_size": {"type": "string", "title": "图像尺寸", "enum": ["1328x1328", "1664x928", "928x1664", "1472x1140", "1140x1472", "1584x1056", "1056x1584"]},
+          "negative_prompt": {"type": "string", "title": "负面 Prompt"},
+          "seed": {"type": "integer", "title": "随机种子", "minimum": 0, "maximum": 9999999999}
+        }
+      },
+      "default_parameters": {"image_size": "1664x928"},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.siliconflow.cn/cn/api-reference/images/images-generations"
+    },
+    "siliconflow-image-edit": {
+      "task": "image_edit",
+      "capability": "image",
+      "input_modalities": ["text", "image"],
+      "features": ["image_edit", "multi_reference"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "negative_prompt": {"type": "string", "title": "负面 Prompt"},
+          "seed": {"type": "integer", "title": "随机种子", "minimum": 0, "maximum": 9999999999}
+        }
+      },
+      "default_parameters": {},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.siliconflow.cn/cn/api-reference/images/images-generations"
+    },
+    "siliconflow-cosyvoice": {
+      "task": "speech_generation",
+      "capability": "audio",
+      "input_modalities": ["text", "audio"],
+      "features": ["speech_generation", "voice_clone", "dynamic_voice"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "voice": {"type": "string", "title": "音色"},
+          "response_format": {"type": "string", "title": "输出格式", "enum": ["mp3", "wav", "pcm", "opus"]},
+          "sample_rate": {"type": "integer", "title": "采样率", "enum": [8000, 16000, 24000, 32000, 44100, 48000]},
+          "speed": {"type": "number", "title": "语速", "minimum": 0.25, "maximum": 4},
+          "gain": {"type": "number", "title": "增益", "minimum": -10, "maximum": 10},
+          "reference_text": {"type": "string", "title": "参考音频文本"}
+        }
+      },
+      "default_parameters": {"voice": "FunAudioLLM/CosyVoice2-0.5B:alex", "response_format": "mp3", "sample_rate": 44100, "speed": 1, "gain": 0},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.siliconflow.cn/cn/userguide/capabilities/text-to-speech"
+    },
+    "siliconflow-moss": {
+      "task": "speech_generation",
+      "capability": "audio",
+      "input_modalities": ["text", "audio"],
+      "features": ["speech_generation", "voice_clone", "two_speaker_dialogue", "long_audio"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "voice": {"type": "string", "title": "音色"},
+          "response_format": {"type": "string", "title": "输出格式", "enum": ["mp3", "wav", "pcm", "opus"]},
+          "sample_rate": {"type": "integer", "title": "采样率", "enum": [8000, 16000, 24000, 32000, 44100, 48000]},
+          "speed": {"type": "number", "title": "语速", "minimum": 0.25, "maximum": 4},
+          "gain": {"type": "number", "title": "增益", "minimum": -10, "maximum": 10},
+          "max_tokens": {"type": "integer", "title": "最大输出 Token", "minimum": 1, "maximum": 32768},
+          "reference_text": {"type": "string", "title": "参考音频文本"}
+        }
+      },
+      "default_parameters": {"voice": "fnlp/MOSS-TTSD-v0.5:alex", "response_format": "mp3", "sample_rate": 44100, "speed": 1, "gain": 0, "max_tokens": 4096},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.siliconflow.cn/cn/userguide/capabilities/text-to-speech"
+    },
+    "siliconflow-asr": {
+      "task": "speech_recognition",
+      "capability": "text",
+      "input_modalities": ["audio"],
+      "features": ["speech_recognition"],
+      "parameter_schema": {"type": "object", "properties": {}},
+      "default_parameters": {},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.siliconflow.cn/cn/api-reference/audio/create-audio-transcriptions"
+    },
+    "siliconflow-t2v": {
+      "task": "text_to_video",
+      "capability": "video",
+      "input_modalities": ["text"],
+      "features": ["video_generation", "text_to_video"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "image_size": {"type": "string", "title": "视频尺寸", "enum": ["1280x720", "720x1280", "960x960"]},
+          "negative_prompt": {"type": "string", "title": "负面 Prompt"},
+          "seed": {"type": "integer", "title": "随机种子", "minimum": 0}
+        }
+      },
+      "default_parameters": {"image_size": "1280x720"},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.siliconflow.cn/cn/api-reference/videos/videos_submit"
+    },
+    "siliconflow-i2v": {
+      "task": "image_to_video",
+      "capability": "video",
+      "input_modalities": ["text", "image"],
+      "features": ["video_generation", "image_to_video"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "image_size": {"type": "string", "title": "视频尺寸", "enum": ["1280x720", "720x1280", "960x960"]},
+          "negative_prompt": {"type": "string", "title": "负面 Prompt"},
+          "seed": {"type": "integer", "title": "随机种子", "minimum": 0}
+        }
+      },
+      "default_parameters": {"image_size": "1280x720"},
+      "support_status": "compatible",
+      "documentation_url": "https://docs.siliconflow.cn/cn/api-reference/videos/videos_submit"
+    }
+  },
+  "models": [
+    {
+      "profile": "siliconflow-chat",
+      "provider_code": "siliconflow",
+      "model_id": "deepseek-ai/DeepSeek-V4-Flash",
+      "display_name": "DeepSeek V4 Flash · 硅基流动",
+      "features": ["chat", "thinking", "structured_output", "long_context", "fast"]
+    },
+    {
+      "profile": "siliconflow-chat",
+      "provider_code": "siliconflow",
+      "model_id": "Qwen/Qwen3.6-35B-A3B",
+      "display_name": "Qwen3.6 35B A3B · 硅基流动",
+      "input_modalities": ["text", "image"],
+      "features": ["chat", "thinking", "vision", "tools"]
+    },
+    {
+      "profile": "siliconflow-chat",
+      "provider_code": "siliconflow",
+      "model_id": "Qwen/Qwen3-VL-32B-Instruct",
+      "display_name": "Qwen3 VL 32B · 硅基流动",
+      "input_modalities": ["text", "image"],
+      "features": ["chat", "vision", "tools"]
+    },
+    {
+      "profile": "siliconflow-image",
+      "provider_code": "siliconflow",
+      "model_id": "Tongyi-MAI/Z-Image-Turbo",
+      "display_name": "Z-Image Turbo"
+    },
+    {
+      "profile": "siliconflow-qwen-image",
+      "provider_code": "siliconflow",
+      "model_id": "Qwen/Qwen-Image",
+      "display_name": "Qwen Image"
+    },
+    {
+      "profile": "siliconflow-image-edit",
+      "provider_code": "siliconflow",
+      "model_id": "Qwen/Qwen-Image-Edit-2509",
+      "display_name": "Qwen Image Edit 2509"
+    },
+    {
+      "profile": "siliconflow-kolors",
+      "provider_code": "siliconflow",
+      "model_id": "Kwai-Kolors/Kolors",
+      "display_name": "Kolors"
+    },
+    {
+      "profile": "siliconflow-cosyvoice",
+      "provider_code": "siliconflow",
+      "model_id": "FunAudioLLM/CosyVoice2-0.5B",
+      "display_name": "CosyVoice 2"
+    },
+    {
+      "profile": "siliconflow-moss",
+      "provider_code": "siliconflow",
+      "model_id": "fnlp/MOSS-TTSD-v0.5",
+      "display_name": "MOSS TTSD 0.5"
+    },
+    {
+      "profile": "siliconflow-asr",
+      "provider_code": "siliconflow",
+      "model_id": "FunAudioLLM/SenseVoiceSmall",
+      "display_name": "SenseVoice Small",
+      "enabled": false
+    },
+    {
+      "profile": "siliconflow-t2v",
+      "provider_code": "siliconflow",
+      "model_id": "Wan-AI/Wan2.2-T2V-A14B",
+      "display_name": "Wan 2.2 Text to Video"
+    },
+    {
+      "profile": "siliconflow-i2v",
+      "provider_code": "siliconflow",
+      "model_id": "Wan-AI/Wan2.2-I2V-A14B",
+      "display_name": "Wan 2.2 Image to Video"
+    }
+  ]
+}

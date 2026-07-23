@@ -44,7 +44,7 @@ func responsesInput(provider string, request inference.Request) (any, error) {
 
 func copyChatParameters(payload, parameters map[string]any) {
 	for _, key := range []string{
-		"max_tokens", "max_completion_tokens", "temperature", "top_p", "stop", "seed",
+		"max_tokens", "max_completion_tokens", "temperature", "top_p", "top_k", "min_p", "stop", "seed",
 		"frequency_penalty", "presence_penalty", "logprobs", "top_logprobs", "n", "user",
 		"reasoning_effort", "reasoning_split", "enable_thinking", "thinking_budget",
 	} {

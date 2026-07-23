@@ -2,6 +2,7 @@ package modelcatalog
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +25,9 @@ const (
 
 var manifestNamespace = uuid.MustParse("9a794da7-a426-4cb0-b1ca-a613b649e71d")
 
+//go:embed default-manifest.json
+var defaultManifestData []byte
+
 type Manifest struct {
 	SchemaVersion  int                        `json:"schema_version"`
 	CatalogVersion string                     `json:"catalog_version"`
@@ -33,6 +37,7 @@ type Manifest struct {
 }
 
 type ManifestProfile struct {
+	Task              string          `json:"task,omitempty"`
 	Capability        string          `json:"capability"`
 	InputModalities   []string        `json:"input_modalities"`
 	Features          []string        `json:"features"`
@@ -44,6 +49,7 @@ type ManifestProfile struct {
 
 type ManifestModel struct {
 	Profile           string          `json:"profile,omitempty"`
+	Task              string          `json:"task,omitempty"`
 	ProviderCode      string          `json:"provider_code"`
 	ModelID           string          `json:"model_id"`
 	DisplayName       string          `json:"display_name"`
@@ -73,6 +79,14 @@ func LoadManifest(path string) (Manifest, error) {
 	}
 	defer file.Close()
 	return DecodeManifest(io.LimitReader(file, maxManifestSize+1))
+}
+
+func embeddedDefinitions() ([]Definition, error) {
+	manifest, err := DecodeManifest(strings.NewReader(string(defaultManifestData)))
+	if err != nil {
+		return nil, fmt.Errorf("decode embedded model catalog: %w", err)
+	}
+	return manifestDefinitions(manifest, "embedded")
 }
 
 func DecodeManifest(reader io.Reader) (Manifest, error) {
@@ -113,6 +127,7 @@ func ValidateManifest(manifest Manifest) error {
 		}
 		if err := validateResolvedModel(ManifestModel{
 			ProviderCode: "profile", ModelID: name, DisplayName: name,
+			Task:       profile.Task,
 			Capability: profile.Capability, InputModalities: profile.InputModalities,
 			Features: profile.Features, ParameterSchema: profile.ParameterSchema,
 			DefaultParameters: profile.DefaultParameters, SupportStatus: profile.SupportStatus,
@@ -152,6 +167,11 @@ func validateResolvedModel(item ManifestModel) error {
 	default:
 		return fmt.Errorf("unsupported support_status %q", item.SupportStatus)
 	}
+	switch item.Task {
+	case "", "chat", "image_generation", "image_edit", "speech_generation", "speech_recognition", "text_to_video", "image_to_video":
+	default:
+		return fmt.Errorf("unsupported task %q", item.Task)
+	}
 	if len(item.ParameterSchema) == 0 || !json.Valid(item.ParameterSchema) {
 		return errors.New("parameter_schema must be valid JSON")
 	}
@@ -171,6 +191,9 @@ func resolveManifestModel(manifest Manifest, item ManifestModel) (ManifestModel,
 	}
 	if item.Capability == "" {
 		item.Capability = profile.Capability
+	}
+	if item.Task == "" {
+		item.Task = profile.Task
 	}
 	if item.InputModalities == nil {
 		item.InputModalities = profile.InputModalities
@@ -217,6 +240,7 @@ func manifestDefinitions(manifest Manifest, source string) ([]Definition, error)
 					"source": "builtin", "catalog_source": source,
 					"catalog_version":   manifest.CatalogVersion,
 					"support_status":    resolved.SupportStatus,
+					"task":              resolved.Task,
 					"documentation_url": resolved.DocumentationURL,
 				}),
 			},

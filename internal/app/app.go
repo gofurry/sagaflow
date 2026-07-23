@@ -15,6 +15,7 @@ import (
 	"github.com/gofurry/sagaflow/internal/inference/adapters/minimax"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/ollama"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/openaicompat"
+	"github.com/gofurry/sagaflow/internal/inference/adapters/siliconflow"
 	"github.com/gofurry/sagaflow/internal/inference/adapters/volcengine"
 	"github.com/gofurry/sagaflow/internal/modelcatalog"
 	"github.com/gofurry/sagaflow/internal/platform/sqlite"
@@ -62,6 +63,7 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	httpClient := &http.Client{Timeout: 5 * time.Minute}
 	comfyDriver := comfyui.New(comfyui.Config{HTTPClient: httpClient})
 	volcDriver := volcengine.New(volcengine.Config{HTTPClient: httpClient})
+	siliconFlowDriver := siliconflow.New(siliconflow.Config{HTTPClient: httpClient})
 	openAIChatDriver := openaicompat.NewChat(httpClient)
 	openAIResponsesDriver := openaicompat.NewResponses(httpClient)
 	gateway, err := inference.NewGateway(map[string]inference.Driver{
@@ -69,6 +71,7 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		service.ProviderVolcengine:      volcDriver,
 		service.ProviderMiniMax:         minimax.New(httpClient),
 		service.ProviderAliyunBailian:   bailian.New(bailian.Config{HTTPClient: httpClient}),
+		service.ProviderSiliconFlow:     siliconFlowDriver,
 		service.ProviderOllama:          ollama.New(httpClient),
 		service.ProviderComfyUI:         comfyDriver,
 		service.ProviderOpenAIChat:      openAIChatDriver,
@@ -87,7 +90,7 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	}
 	defer jobs.Close()
 	voices := service.NewVoiceService(store, credentials, objectStore, log.Named("voices"))
-	modelConnections, err := service.NewModelConnectionService(store, credentials, ollama.New(httpClient), comfyDriver)
+	modelConnections, err := service.NewModelConnectionService(store, credentials, ollama.New(httpClient), comfyDriver, siliconFlowDriver)
 	if err != nil {
 		return err
 	}
