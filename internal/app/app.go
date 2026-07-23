@@ -36,7 +36,7 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	}
 	defer database.Close()
 	store := db.New(database)
-	if _, err := modelcatalog.Sync(ctx, store); err != nil {
+	if _, err := modelcatalog.SyncFromPath(ctx, store, cfg.ModelCatalogPath()); err != nil {
 		return fmt.Errorf("synchronize built-in model catalog: %w", err)
 	}
 	auth, err := service.NewAuthService(store, cfg.Auth)

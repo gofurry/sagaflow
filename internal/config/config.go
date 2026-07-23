@@ -120,6 +120,8 @@ func (c Config) ObjectDir() string            { return filepath.Join(c.App.DataD
 func (c Config) TempDir() string              { return filepath.Join(c.App.DataDir, "temp") }
 func (c Config) BackupDir() string            { return filepath.Join(c.App.DataDir, "backups") }
 func (c Config) SecretDir() string            { return filepath.Join(c.App.DataDir, "secrets") }
+func (c Config) CatalogDir() string           { return filepath.Join(c.App.DataDir, "catalog") }
+func (c Config) ModelCatalogPath() string     { return filepath.Join(c.CatalogDir(), "model-catalog.json") }
 func (c Config) MasterKeyPath() string        { return filepath.Join(c.SecretDir(), "master.key") }
 
 func (c Config) SessionTTL() time.Duration {
@@ -147,7 +149,7 @@ func (c Config) IsLoopback() bool {
 }
 
 func (c Config) EnsureRuntimeDirs() error {
-	for _, path := range []string{c.App.DataDir, c.ObjectDir(), c.TempDir(), c.BackupDir(), c.SecretDir()} {
+	for _, path := range []string{c.App.DataDir, c.ObjectDir(), c.TempDir(), c.BackupDir(), c.SecretDir(), c.CatalogDir()} {
 		mode := os.FileMode(0o755)
 		if path == c.SecretDir() {
 			mode = 0o700

@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"reflect"
 
 	"github.com/gofurry/sagaflow/internal/store/db"
@@ -24,8 +26,26 @@ type SyncResult struct {
 }
 
 func Sync(ctx context.Context, store *db.Store) (SyncResult, error) {
+	return SyncFromPath(ctx, store, "")
+}
+
+func SyncFromPath(ctx context.Context, store *db.Store, manifestPath string) (SyncResult, error) {
 	if store == nil {
 		return SyncResult{}, fmt.Errorf("model catalog store is required")
+	}
+	definitions := Builtins()
+	if manifestPath != "" {
+		manifest, loadErr := LoadManifest(manifestPath)
+		if loadErr != nil && !errors.Is(loadErr, os.ErrNotExist) {
+			return SyncResult{}, fmt.Errorf("load external model catalog: %w", loadErr)
+		}
+		if loadErr == nil {
+			external, definitionErr := manifestDefinitions(manifest, "external")
+			if definitionErr != nil {
+				return SyncResult{}, definitionErr
+			}
+			definitions = mergeDefinitions(definitions, external)
+		}
 	}
 	providers, err := store.ListModelProviders(ctx)
 	if err != nil {
@@ -47,7 +67,7 @@ func Sync(ctx context.Context, store *db.Store) (SyncResult, error) {
 	}
 
 	result := SyncResult{}
-	for _, definition := range Builtins() {
+	for _, definition := range definitions {
 		provider, ok := providerByCode[definition.ProviderCode]
 		if !ok {
 			return SyncResult{}, fmt.Errorf("built-in model provider %q is missing", definition.ProviderCode)
@@ -83,6 +103,25 @@ func Sync(ctx context.Context, store *db.Store) (SyncResult, error) {
 		result.Updated++
 	}
 	return result, nil
+}
+
+func mergeDefinitions(base, overlays []Definition) []Definition {
+	merged := append([]Definition(nil), base...)
+	indexByKey := make(map[string]int, len(merged))
+	for index, definition := range merged {
+		indexByKey[definitionKey(definition.ProviderCode, definition.Model.ModelID, definition.Model.Capability)] = index
+	}
+	for _, overlay := range overlays {
+		key := definitionKey(overlay.ProviderCode, overlay.Model.ModelID, overlay.Model.Capability)
+		if index, exists := indexByKey[key]; exists {
+			overlay.Model.ID = merged[index].Model.ID
+			merged[index] = overlay
+			continue
+		}
+		indexByKey[key] = len(merged)
+		merged = append(merged, overlay)
+	}
+	return merged
 }
 
 func catalogKey(providerID, modelID, capability string) string {
