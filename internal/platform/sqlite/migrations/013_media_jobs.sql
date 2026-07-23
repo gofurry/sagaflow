@@ -3,7 +3,7 @@ CREATE TABLE media_jobs (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   target_asset_group_id TEXT REFERENCES asset_groups(id) ON DELETE SET NULL,
-  tool TEXT NOT NULL CHECK (tool IN ('inspect','transcode','aspect','audio','trim','merge','subtitle','screenshot')),
+  tool TEXT NOT NULL CHECK (tool IN ('inspect','transcode','aspect','audio','trim','merge','screenshot')),
   source_asset_ids TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(source_asset_ids)),
   output_name TEXT NOT NULL DEFAULT '',
   parameters TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(parameters)),

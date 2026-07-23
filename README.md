@@ -17,7 +17,7 @@ SagaFlow 个人版是一套本地优先的 AI 漫剧生产工作台。项目、�
 - Go 1.26、Fiber 3.4.0、easyhash 1.2.0
 - SQLite（WAL）、持久化进程内任务队列
 - React 19、TypeScript、Vite、Ant Design、React Flow
-- FFmpeg / FFprobe 子进程，用于本地媒体检查、转换、裁切、合片、字幕和截图
+- FFmpeg / FFprobe 子进程，用于本地媒体检查、转换、裁切、合片和截图
 - AWS SDK for Go v2，用于 AWS S3、腾讯云 COS、阿里云 OSS、MinIO 等 S3 兼容服务的手动发布
 
 ## 本机启动
@@ -94,7 +94,7 @@ docker compose up -d
 
 ## 本地媒体工具
 
-“工具”页提供媒体检查、格式转换、画幅适配、音频处理、精确裁切、顺序合片、软/硬字幕和视频截图。所有操作只读取源资产；结果默认进入“未处理”暂存区，也可在提交任务前选择资产分组直接生成候选资产。任务状态保存在 SQLite 中，不依赖外部 worker。
+“工具”页提供媒体检查、格式转换、画幅适配、音频处理、轨道裁切、顺序合片和视频截图。所有操作只读取源资产；结果默认进入“未处理”暂存区，也可在提交任务前选择资产分组直接生成候选资产。任务状态保存在 SQLite 中，不依赖外部 worker。
 
 SagaFlow 会依次查找程序同目录、仓库的 `tools/ffmpeg/<平台-架构>/` 和系统 `PATH`。Windows 开发环境可执行：
 

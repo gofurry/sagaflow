@@ -25,6 +25,21 @@ func (s *Server) mediaToolsStatus(c fiber.Ctx) error {
 	return writeOK(c, s.mediaTools.Status())
 }
 
+func (s *Server) getAssetMediaInfo(c fiber.Ctx) error {
+	if s.mediaTools == nil {
+		return fmt.Errorf("%w: media tools are unavailable", service.ErrInvalidInput)
+	}
+	id, err := idParam(c, "id")
+	if err != nil {
+		return err
+	}
+	info, err := s.mediaTools.InspectAsset(c.Context(), id)
+	if err != nil {
+		return err
+	}
+	return writeOK(c, info)
+}
+
 func (s *Server) createMediaJob(c fiber.Ctx) error {
 	if s.mediaTools == nil || s.mediaQueue == nil {
 		return fmt.Errorf("%w: media tools are unavailable", service.ErrInvalidInput)

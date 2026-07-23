@@ -50,6 +50,7 @@ export const api = {
   mediaToolsStatus: () => request<MediaToolsStatus>('/media-tools/status'),
   mediaJobs: (projectID: ID) => request<MediaJob[]>(`/projects/${projectID}/media-jobs`),
   mediaJob: (id: ID) => request<MediaJob>(`/media-jobs/${id}`),
+  mediaInfo: (id: ID) => request<Record<string, unknown>>(`/assets/${id}/media-info`),
   createMediaJob: (projectID: ID, input: { tool: MediaTool; source_asset_ids: ID[]; target_asset_group_id?: ID; output_name?: string; parameters?: Record<string, unknown> }) => request<MediaJob>(`/projects/${projectID}/media-jobs`, { method: 'POST', body: body(input) }),
   cancelMediaJob: (id: ID) => request<MediaJob>(`/media-jobs/${id}/cancel`, { method: 'POST' }),
   clearCompletedMediaJobs: (projectID: ID) => request<{ deleted: number }>(`/projects/${projectID}/media-jobs/completed`, { method: 'DELETE' }),

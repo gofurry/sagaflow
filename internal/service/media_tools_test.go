@@ -21,8 +21,6 @@ func TestValidateMediaSources(t *testing.T) {
 		{name: "reject image screenshot", tool: "screenshot", types: []string{"image"}, wantErr: true},
 		{name: "merge videos", tool: "merge", types: []string{"video", "video"}},
 		{name: "reject mixed merge", tool: "merge", types: []string{"video", "audio"}, wantErr: true},
-		{name: "soft subtitle", tool: "subtitle", types: []string{"video", "file"}},
-		{name: "reject image subtitle", tool: "subtitle", types: []string{"video", "image"}, wantErr: true},
 		{name: "mute video", tool: "audio", params: mediaParameters{AudioMode: "mute"}, types: []string{"video"}},
 		{name: "reject mute audio", tool: "audio", params: mediaParameters{AudioMode: "mute"}, types: []string{"audio"}, wantErr: true},
 	}

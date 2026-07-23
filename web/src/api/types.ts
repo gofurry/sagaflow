@@ -26,7 +26,7 @@ export type AssetStatus = 'candidate' | 'adopted' | 'discarded'
 export type MediaType = 'image' | 'audio' | 'video' | 'text' | 'file'
 export interface AssetGroup { id: ID; project_id: ID; parent_id: ID | null; kind: AssetKind; name: string; description: string; sort_order: number; created_at: string; updated_at: string }
 export interface Asset { id: ID; project_id: ID; group_id: ID | null; staged_asset_id: ID | null; episode_id: ID | null; canvas_node_id: ID | null; name: string; media_type: MediaType; source: 'upload' | 'generated'; status: AssetStatus; mime_type: string; file_size_bytes: number; storage_backend: string; original_url: string; provider_code: string; model_identifier: string; metadata: Record<string, unknown>; created_at: string; updated_at: string }
-export type MediaTool = 'inspect' | 'transcode' | 'aspect' | 'audio' | 'trim' | 'merge' | 'subtitle' | 'screenshot'
+export type MediaTool = 'inspect' | 'transcode' | 'aspect' | 'audio' | 'trim' | 'merge' | 'screenshot'
 export interface MediaToolsStatus { available: boolean; ffmpeg_path: string; ffprobe_path: string; version: string; source: string; message: string }
 export interface MediaJob {
   id: ID

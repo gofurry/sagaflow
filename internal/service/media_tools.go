@@ -50,7 +50,6 @@ type mediaParameters struct {
 	Fast         bool    `json:"fast"`
 	TimeSeconds  float64 `json:"time_seconds"`
 	ImageFormat  string  `json:"image_format"`
-	SubtitleMode string  `json:"subtitle_mode"`
 }
 
 type mediaOutput struct {
@@ -71,6 +70,29 @@ func (s *MediaToolsService) Status() ffmpeg.Status {
 		return ffmpeg.Status{Message: "FFmpeg 服务未初始化"}
 	}
 	return s.tools.Status()
+}
+
+func (s *MediaToolsService) InspectAsset(ctx context.Context, assetID uuid.UUID) (json.RawMessage, error) {
+	if !s.Status().Available {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidInput, s.Status().Message)
+	}
+	asset, err := s.store.GetAsset(ctx, assetID)
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	if !oneOf(asset.MediaType, "image", "audio", "video") {
+		return nil, fmt.Errorf("%w: 当前资产不支持媒体检查", ErrInvalidInput)
+	}
+	file, _, err := s.storage.Open(ctx, asset.ObjectID)
+	if err != nil {
+		return nil, fmt.Errorf("open source asset: %w", err)
+	}
+	defer file.Close()
+	probe, err := s.tools.Probe(ctx, file.Name())
+	if err != nil {
+		return nil, err
+	}
+	return probe.Raw, nil
 }
 
 func (s *MediaToolsService) Create(ctx context.Context, input CreateMediaJobInput) (db.MediaJob, error) {
@@ -160,13 +182,6 @@ func validateMediaSources(tool string, p mediaParameters, assets []db.Asset) err
 				return fmt.Errorf("顺序合片仅支持视频源")
 			}
 		}
-	case "subtitle":
-		if assets[0].MediaType != "video" {
-			return fmt.Errorf("字幕处理的第一个源必须是视频")
-		}
-		if !oneOf(assets[1].MediaType, "text", "file") {
-			return fmt.Errorf("字幕处理的第二个源必须是字幕文件")
-		}
 	}
 	return nil
 }
@@ -180,10 +195,6 @@ func validateMediaTool(tool string, sourceCount int) error {
 	case "merge":
 		if sourceCount < 2 {
 			return fmt.Errorf("顺序合片至少需要 2 个源资产")
-		}
-	case "subtitle":
-		if sourceCount != 2 {
-			return fmt.Errorf("字幕处理需要视频和字幕 2 个源资产")
 		}
 	case "transcode", "aspect", "audio", "trim", "screenshot":
 		if sourceCount != 1 {
@@ -219,10 +230,6 @@ func validateMediaParameters(tool string, p mediaParameters) error {
 	case "screenshot":
 		if p.TimeSeconds < 0 || !oneOf(p.ImageFormat, "png", "jpg") {
 			return fmt.Errorf("请输入有效的截图时间和格式")
-		}
-	case "subtitle":
-		if !oneOf(p.SubtitleMode, "soft", "burn") {
-			return fmt.Errorf("字幕方式必须为软字幕或烧录字幕")
 		}
 	}
 	return nil
@@ -472,14 +479,6 @@ func (s *MediaToolsService) buildCommand(job db.MediaJob, p mediaParameters, pat
 			args = append(args, h264Args()...)
 		}
 		return mediaOutput{".mp4", "video/mp4", "video"}, args, cleanup, nil
-	case "subtitle":
-		if p.SubtitleMode == "soft" {
-			return mediaOutput{".mp4", "video/mp4", "video"}, []string{"-i", input, "-i", paths[1], "-map", "0", "-map", "1", "-c:v", "copy", "-c:a", "copy", "-c:s", "mov_text", "-metadata:s:s:0", "language=chi", "-movflags", "+faststart"}, cleanup, nil
-		}
-		subtitlePath := escapeSubtitleFilterPath(paths[1])
-		args := []string{"-i", input, "-vf", "subtitles='" + subtitlePath + "'"}
-		args = append(args, h264Args()...)
-		return mediaOutput{".mp4", "video/mp4", "video"}, args, cleanup, nil
 	case "screenshot":
 		extension, mimeType := ".png", "image/png"
 		if p.ImageFormat == "jpg" {
@@ -541,12 +540,4 @@ func redactMediaCommand(args, paths []string, ids []uuid.UUID, outputPath, outpu
 		}
 	}
 	return result
-}
-
-func escapeSubtitleFilterPath(value string) string {
-	value = filepath.ToSlash(value)
-	value = strings.ReplaceAll(value, `\`, `\\`)
-	value = strings.ReplaceAll(value, ":", `\:`)
-	value = strings.ReplaceAll(value, "'", `\'`)
-	return value
 }

@@ -50,6 +50,7 @@ func (s *Server) RegisterRoutes(app *fiber.App) {
 	p.Delete("/projects/:id/media-jobs/completed", s.clearCompletedMediaJobs)
 	p.Get("/media-jobs/:id", s.getMediaJob)
 	p.Post("/media-jobs/:id/cancel", s.cancelMediaJob)
+	p.Get("/assets/:id/media-info", s.getAssetMediaInfo)
 	p.Get("/projects/:id/asset-exports", s.listProjectAssetExports)
 	p.Get("/asset-groups/:id/assets", s.listGroupAssets)
 	p.Post("/asset-groups/:id/assets/upload", s.uploadAsset)
