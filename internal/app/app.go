@@ -24,6 +24,7 @@ import (
 	"github.com/gofurry/sagaflow/internal/modelcatalog"
 	"github.com/gofurry/sagaflow/internal/platform/sqlite"
 	"github.com/gofurry/sagaflow/internal/platform/storage"
+	"github.com/gofurry/sagaflow/internal/promptcatalog"
 	"github.com/gofurry/sagaflow/internal/queue"
 	"github.com/gofurry/sagaflow/internal/service"
 	"github.com/gofurry/sagaflow/internal/store/db"
@@ -43,6 +44,9 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	store := db.New(database)
 	if _, err := modelcatalog.SyncFromPath(ctx, store, cfg.ModelCatalogPath()); err != nil {
 		return fmt.Errorf("synchronize built-in model catalog: %w", err)
+	}
+	if err := promptcatalog.Sync(ctx, store); err != nil {
+		return fmt.Errorf("synchronize built-in prompt catalog: %w", err)
 	}
 	auth, err := service.NewAuthService(store, cfg.Auth)
 	if err != nil {
@@ -99,7 +103,7 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		return err
 	}
 	defer jobs.Close()
-	mediaTools := service.NewMediaToolsService(store, objectStore, mediaffmpeg.Discover(), cfg.TempDir(), log.Named("media-tools"))
+	mediaTools := service.NewMediaToolsService(store, objectStore, mediaffmpeg.Discover(cfg.FFmpegDir()), cfg.TempDir(), log.Named("media-tools"))
 	mediaJobs := queue.NewMediaClient(store, cfg.Jobs, mediaTools.Execute, log.Named("media-jobs"))
 	if err := mediaJobs.Run(ctx); err != nil {
 		return err

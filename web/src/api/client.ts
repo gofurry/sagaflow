@@ -1,4 +1,4 @@
-import type { Account, Asset, AssetGroup, AssetRemoteExport, AuthStatus, CanvasDocument, CanvasNodeDTO, CatalogImportResult, CatalogUpdateStatus, ComfyUIDiscovery, ConnectionServerInfo, CurrentUser, Episode, EpisodeScript, GenerationInputReference, GenerationInvocation, GenerationJob, GenerationReferenceUpload, ID, MediaJob, MediaTool, MediaToolsStatus, Model, ModelPreset, ModelProvider, ModelSyncResult, MoonshotDiscovery, OllamaDiscovery, Project, PromptPreset, ProviderCredential, S3Connection, SiliconFlowDiscovery, StagedAsset, StagedAssetPage, StagedAssetSummary, TencentTokenHubDiscovery, VoiceProfile, WorkflowAnalysis, WorkflowCompatibility, WorkflowTemplate } from './types'
+import type { Account, Asset, AssetGroup, AssetPage, AssetRemoteExport, AssetSummary, AuthStatus, CanvasDocument, CanvasNodeDTO, CatalogImportResult, CatalogUpdateStatus, ComfyUIDiscovery, ConnectionServerInfo, CurrentUser, Episode, EpisodeScript, GenerationInputReference, GenerationInvocation, GenerationJob, GenerationJobPage, GenerationReferenceUpload, ID, MediaJob, MediaJobPage, MediaTool, MediaToolsStatus, Model, ModelPreset, ModelProvider, ModelSyncResult, MoonshotDiscovery, OllamaDiscovery, Project, PromptPreset, ProviderCredential, S3Connection, SiliconFlowDiscovery, StagedAsset, StagedAssetPage, StagedAssetSummary, TencentTokenHubDiscovery, VoiceBinding, VoiceProfile, VoiceProviderCapability, WorkflowAnalysis, WorkflowCompatibility, WorkflowTemplate } from './types'
 
 interface Envelope<T> { data?: T; error?: { code: string; message: string } }
 export class APIError extends Error {
@@ -47,8 +47,14 @@ export const api = {
   updateAssetGroup: (id: ID, input: Partial<AssetGroup>) => request<AssetGroup>(`/asset-groups/${id}`, { method: 'PATCH', body: body(input) }),
   deleteAssetGroup: (id: ID) => request<{ deleted: boolean; asset_count: number }>(`/asset-groups/${id}`, { method: 'DELETE' }),
   assets: (projectID: ID, filters: { group_id?: ID; episode_id?: ID; status?: string; media_type?: string } = {}) => request<Asset[]>(`/projects/${projectID}/assets${query(filters)}`),
+  assetPage: (projectID: ID, filters: { group_id?: ID; episode_id?: ID; status?: string; exclude_status?: string; media_type?: string; media_types?: string; name?: string; group_kind?: string; ungrouped?: number; page?: number; page_size?: number } = {}) => request<AssetPage>(`/projects/${projectID}/assets/page${query(filters)}`),
+  assetSummary: (projectID: ID) => request<AssetSummary>(`/projects/${projectID}/assets/summary`),
+  assetsByIDs: (projectID: ID, ids: ID[]) => request<Asset[]>(`/projects/${projectID}/assets/by-ids${query({ ids: ids.join(',') })}`),
   mediaToolsStatus: () => request<MediaToolsStatus>('/media-tools/status'),
-  mediaJobs: (projectID: ID) => request<MediaJob[]>(`/projects/${projectID}/media-jobs`),
+  installMediaTools: (input: { mode: 'direct' | 'proxy'; proxy_port?: number; proxy_username?: string; proxy_password?: string }) => request<MediaToolsStatus>('/media-tools/install', { method: 'POST', body: body(input) }),
+  cancelMediaToolsInstall: () => request<MediaToolsStatus>('/media-tools/install/cancel', { method: 'POST' }),
+  refreshMediaTools: () => request<MediaToolsStatus>('/media-tools/refresh', { method: 'POST' }),
+  mediaJobs: (projectID: ID, filters: { page?: number; page_size?: number } = {}) => request<MediaJobPage>(`/projects/${projectID}/media-jobs${query(filters)}`),
   mediaJob: (id: ID) => request<MediaJob>(`/media-jobs/${id}`),
   mediaInfo: (id: ID) => request<Record<string, unknown>>(`/assets/${id}/media-info`),
   createMediaJob: (projectID: ID, input: { tool: MediaTool; source_asset_ids: ID[]; target_asset_group_id?: ID; output_name?: string; parameters?: Record<string, unknown> }) => request<MediaJob>(`/projects/${projectID}/media-jobs`, { method: 'POST', body: body(input) }),
@@ -93,11 +99,14 @@ export const api = {
   workflowCompatibilities: (workflowID?: ID, providerID?: ID) => request<WorkflowCompatibility[]>(`/workflow-compatibilities${query({ workflow_template_id: workflowID, provider_id: providerID })}`),
   checkWorkflow: (workflowID: ID, providerID: ID) => request<WorkflowCompatibility>(`/workflow-templates/${workflowID}/check`, { method: 'POST', body: body({ provider_id: providerID }) }),
   voiceProfiles: () => request<VoiceProfile[]>('/voice-profiles'),
+  voiceCapabilities: () => request<VoiceProviderCapability[]>('/voice-capabilities'),
   createVoiceProfile: (form: FormData) => request<VoiceProfile>('/voice-profiles', { method: 'POST', body: form }),
+  createVoiceBinding: (id: ID, input: { model_id: ID; voice_id: string; preview_text?: string; source_url?: string; need_noise_reduction?: boolean; need_volume_normalization?: boolean }) => request<VoiceBinding>(`/voice-profiles/${id}/bindings`, { method: 'POST', body: body(input) }),
   updateVoiceProfile: (id: ID, input: { name: string; description?: string }) => request<VoiceProfile>(`/voice-profiles/${id}`, { method: 'PATCH', body: body(input) }),
   deleteVoiceProfile: (id: ID) => request<{ deleted: boolean }>(`/voice-profiles/${id}`, { method: 'DELETE' }),
+  deleteVoiceBinding: (id: ID) => request<{ deleted: boolean }>(`/voice-bindings/${id}`, { method: 'DELETE' }),
   voiceProfileSourceURL: (id: ID) => `/api/voice-profiles/${id}/source`,
-  voiceProfilePreviewURL: (id: ID) => `/api/voice-profiles/${id}/preview`,
+  voiceBindingPreviewURL: (id: ID) => `/api/voice-bindings/${id}/preview`,
   promptPresets: (capability?: string) => request<PromptPreset[]>(`/prompt-presets${query({ capability })}`),
   createPromptPreset: (input: Partial<PromptPreset>) => request<PromptPreset>('/prompt-presets', { method: 'POST', body: body(input) }),
   updatePromptPreset: (id: ID, input: Partial<PromptPreset>) => request<PromptPreset>(`/prompt-presets/${id}`, { method: 'PATCH', body: body(input) }),
@@ -107,7 +116,7 @@ export const api = {
   activateCredential: (id: ID) => request<ProviderCredential>(`/provider-credentials/${id}/activate`, { method: 'POST' }),
   testCredential: (id: ID) => request<{ available: boolean; message: string }>(`/provider-credentials/${id}/test`, { method: 'POST' }),
   deleteCredential: (id: ID) => request(`/provider-credentials/${id}`, { method: 'DELETE' }),
-  jobs: (projectID: ID, episodeID?: ID) => request<GenerationJob[]>(`/generation-jobs${query({ project_id: projectID, episode_id: episodeID })}`),
+  jobs: (projectID: ID, filters: { episode_id?: ID; status?: string; capability?: string; search?: string; page?: number; page_size?: number } = {}) => request<GenerationJobPage>(`/generation-jobs${query({ project_id: projectID, ...filters })}`),
   job: (id: ID) => request<GenerationJob>(`/generation-jobs/${id}`),
   generationInvocation: (id: ID) => request<GenerationInvocation>(`/generation-jobs/${id}/invocation`),
   createJob: (input: { project_id: ID; episode_id?: ID; canvas_node_id?: ID; target_asset_group_id?: ID; prompt_preset_id?: ID; model_preset_id?: ID; target_kind: 'model' | 'workflow'; provider_id?: ID; model_id?: ID; workflow_template_id?: ID; output_name?: string; prompt: string; parameters?: Record<string, unknown>; input_references?: GenerationInputReference[] }) => request<GenerationJob>('/generation-jobs', { method: 'POST', body: body(input) }),

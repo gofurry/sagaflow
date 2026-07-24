@@ -41,6 +41,9 @@ type Server struct {
 	workflows        *service.WorkflowService
 	storageService   *service.StorageService
 	mediaTools       *service.MediaToolsService
+	uploadSlots      chan struct{}
+	downloadSlots    chan struct{}
+	loginLimiter     *loginRateLimiter
 }
 
 func New(deps Dependencies) *fiber.App {
@@ -48,8 +51,20 @@ func New(deps Dependencies) *fiber.App {
 	if log == nil {
 		log = zap.NewNop()
 	}
-	s := &Server{cfg: deps.Config, log: log, store: deps.Store, queue: deps.Queue, mediaQueue: deps.MediaQueue, storage: deps.Storage, auth: deps.Auth, credentials: deps.Credentials, voices: deps.Voices, modelConnections: deps.ModelConnections, workflows: deps.Workflows, storageService: deps.StorageService, mediaTools: deps.MediaTools}
-	app := fiber.New(fiber.Config{BodyLimit: 512 * 1024 * 1024, ReadTimeout: 10 * time.Minute, ErrorHandler: errorHandler(log)})
+	s := &Server{
+		cfg: deps.Config, log: log, store: deps.Store, queue: deps.Queue, mediaQueue: deps.MediaQueue,
+		storage: deps.Storage, auth: deps.Auth, credentials: deps.Credentials, voices: deps.Voices,
+		modelConnections: deps.ModelConnections, workflows: deps.Workflows, storageService: deps.StorageService,
+		mediaTools: deps.MediaTools, uploadSlots: make(chan struct{}, 2), downloadSlots: make(chan struct{}, 4),
+		loginLimiter: newLoginRateLimiter(),
+	}
+	app := fiber.New(fiber.Config{
+		BodyLimit:                    int(maxUploadSize + (1 << 20)),
+		ReadTimeout:                  10 * time.Minute,
+		StreamRequestBody:            true,
+		DisablePreParseMultipartForm: true,
+		ErrorHandler:                 errorHandler(log),
+	})
 	s.RegisterRoutes(app)
 	return app
 }

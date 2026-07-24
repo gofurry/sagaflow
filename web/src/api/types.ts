@@ -26,8 +26,30 @@ export type AssetStatus = 'candidate' | 'adopted' | 'discarded'
 export type MediaType = 'image' | 'audio' | 'video' | 'text' | 'file'
 export interface AssetGroup { id: ID; project_id: ID; parent_id: ID | null; kind: AssetKind; name: string; description: string; sort_order: number; created_at: string; updated_at: string }
 export interface Asset { id: ID; project_id: ID; group_id: ID | null; staged_asset_id: ID | null; episode_id: ID | null; canvas_node_id: ID | null; name: string; media_type: MediaType; source: 'upload' | 'generated'; status: AssetStatus; mime_type: string; file_size_bytes: number; storage_backend: string; original_url: string; provider_code: string; model_identifier: string; metadata: Record<string, unknown>; created_at: string; updated_at: string }
-export type MediaTool = 'inspect' | 'transcode' | 'aspect' | 'audio' | 'trim' | 'merge' | 'screenshot'
-export interface MediaToolsStatus { available: boolean; ffmpeg_path: string; ffprobe_path: string; version: string; source: string; message: string }
+export type MediaTool = 'inspect' | 'transcode' | 'audio' | 'trim' | 'merge' | 'screenshot'
+export interface MediaToolsStatus {
+  available: boolean
+  ffmpeg_path: string
+  ffprobe_path: string
+  version: string
+  source: string
+  message: string
+  platform: string
+  install_supported: boolean
+  install_version: string
+  install_directory: string
+  download_bytes: number
+  downloaded_bytes: number
+  download_speed_bytes: number
+  eta_seconds: number
+  install_progress: number
+  install_stage: 'connecting' | 'downloading' | 'retrying' | 'extracting' | 'verifying' | 'canceling' | 'canceled' | 'failed' | ''
+  install_mode: 'direct' | 'proxy' | ''
+  installing: boolean
+  can_cancel: boolean
+  manual_downloads: Array<{ name: string; url: string; sha256: string; size: number }>
+  manual_files: string[]
+}
 export interface MediaJob {
   id: ID
   project_id: ID
@@ -126,7 +148,7 @@ export interface WorkflowAnalysis {
 }
 export type WorkflowCompatibilityStatus = 'unknown' | 'ready' | 'missing_nodes' | 'missing_resources' | 'incompatible'
 export interface WorkflowCompatibility { workflow_template_id: ID; provider_id: ID; status: WorkflowCompatibilityStatus; report: { missing_nodes?: string[]; missing_resources?: Array<{ folder: string; name: string }>; required_nodes?: string[]; checked_at?: string }; checked_at: string }
-export interface PromptPreset { id: ID; model_id: ID | null; model_preset_id: ID | null; name: string; description: string; capability: Exclude<Capability, 'multimodal'>; content: string; created_at: string; updated_at: string }
+export interface PromptPreset { id: ID; model_id: ID | null; model_preset_id: ID | null; catalog_key: string; source: 'builtin' | 'user'; catalog_version: string; enabled: boolean; name: string; description: string; capability: Exclude<Capability, 'multimodal'>; content: string; created_at: string; updated_at: string }
 export interface ProviderCredential { id: ID; provider_id: ID; provider_code: string; name: string; key_hint: string; is_active: boolean; created_at: string; updated_at: string; last_used_at: string | null }
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'interrupted'
 export type JobStage = 'queued' | 'requesting' | 'generating' | 'fetching' | 'storing' | 'completed' | 'failed' | 'canceled' | 'interrupted'
@@ -142,6 +164,12 @@ export interface GenerationInvocationEvent { id: ID; invocation_id: ID; sequence
 export interface GenerationInvocation { id: ID; job_id: ID; provider_code: string; model_identifier: string; capability: Capability; credential_id: ID | null; credential_source: string; request_snapshot: InferenceRequestSnapshot; response_snapshot: InferenceResultSnapshot; usage_snapshot: Record<string, unknown>; status: 'running' | 'succeeded' | 'failed'; provider_job_id: string; error_kind: string; error_message: string; error_status_code: number; retryable: boolean; output_staged_asset_ids: ID[]; output_asset_ids: ID[]; started_at: string; finished_at: string | null; duration_ms: number; created_at: string; updated_at: string; events: GenerationInvocationEvent[] }
 export interface StagedAsset { id: ID; job_id: ID | null; project_id: ID; source: 'generated' | 'upload'; name: string; media_type: MediaType; mime_type: string; file_size_bytes: number; content_text: string; original_url: string; provider_code: string; model_identifier: string; parameters_snapshot: Record<string, unknown>; input_snapshot: Record<string, unknown>; metadata: Record<string, unknown>; created_at: string; updated_at: string; asset_id: ID | null; asset_group_id: ID | null; asset_name: string; target_asset_group_id: ID | null; job_status: JobStatus | ''; capability: Capability | ''; prompt: string; error_message: string }
 export interface StagedAssetPage { items: StagedAsset[]; total: number; page: number; page_size: number }
+export interface AssetPage { items: Asset[]; total: number; page: number; page_size: number }
+export interface AssetSummary { total: number; by_group_kind: Record<string, number>; ungrouped_video_total: number }
+export interface GenerationJobPage { items: GenerationJob[]; total: number; page: number; page_size: number }
+export interface MediaJobPage { items: MediaJob[]; total: number; page: number; page_size: number }
 export interface StagedAssetSummary { total: number; unprocessed: number; imported: number; by_capability: Partial<Record<Capability, number>> }
-export interface VoiceProfile { id: ID; provider_id: ID; model_id: ID; provider_code: string; model_identifier: string; name: string; description: string; voice_id: string; status: 'ready' | 'error'; source_name: string; source_mime_type: string; source_file_size_bytes: number; prompt_text: string; preview_mime_type: string; preview_file_size_bytes: number; activated_at: string | null; metadata: Record<string, unknown>; created_at: string; updated_at: string }
+export interface VoiceProviderCapability { provider_code: string; provider_name: string; operations: Array<'clone' | 'design'>; accepted_audio: string[]; max_source_bytes: number; reference_text_required: boolean; clone_requires_public_url: boolean; supports_noise_reduction: boolean; supports_normalization: boolean; voice_id_label: string; voice_id_hint: string }
+export interface VoiceBinding { id: ID; voice_profile_id: ID; provider_id: ID; model_id: ID; provider_code: string; provider_name: string; model_identifier: string; model_name: string; operation: 'clone' | 'design'; voice_id: string; status: 'ready' | 'error'; preview_text: string; preview_mime_type: string; preview_file_size_bytes: number; activated_at: string | null; metadata: Record<string, unknown>; created_at: string; updated_at: string }
+export interface VoiceProfile { id: ID; name: string; description: string; kind: 'clone' | 'design'; source_name: string; source_mime_type: string; source_file_size_bytes: number; reference_text: string; design_prompt: string; metadata: Record<string, unknown>; bindings: VoiceBinding[]; created_at: string; updated_at: string }
 export interface AuthStatus { enabled: boolean; initialized: boolean; authenticated: boolean; user: Principal | null }

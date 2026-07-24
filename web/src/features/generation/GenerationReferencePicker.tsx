@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeftOutlined, ArrowRightOutlined, AudioOutlined, CloseOutlined, CloudOutlined, FileTextOutlined, FolderOpenOutlined, HddOutlined, InboxOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons'
-import { App, Button, Checkbox, Empty, Input, Modal, Select, Spin, Tooltip, Tree } from 'antd'
+import { App, Button, Checkbox, Empty, Input, Modal, Pagination, Select, Spin, Tooltip, Tree } from 'antd'
+import { useQuery } from '@tanstack/react-query'
 import type { DataNode } from 'antd/es/tree'
 import { api } from '../../api/client'
 import type { Asset, AssetGroup, AssetRemoteExport, GenerationInputReference, GenerationReferenceUpload, MediaType } from '../../api/types'
@@ -13,7 +14,6 @@ export interface GenerationReferenceDraft extends GenerationInputReference {
 
 export function GenerationReferencePicker({
   projectID,
-  assets,
   exports,
   groups,
   value,
@@ -23,7 +23,6 @@ export function GenerationReferencePicker({
   onError,
 }: {
   projectID: string
-  assets: Asset[]
   exports: AssetRemoteExport[]
   groups: AssetGroup[]
   value: GenerationReferenceDraft[]
@@ -37,7 +36,6 @@ export function GenerationReferencePicker({
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
   const allowed = useMemo(() => new Set(allowedMedia), [allowedMedia])
-  const availableAssets = useMemo(() => assets.filter((asset) => asset.status !== 'discarded' && allowed.has(asset.media_type)), [allowed, assets])
 
   const remove = async (reference: GenerationReferenceDraft) => {
     onChange(value.filter((item) => !(item.source === reference.source && item.id === reference.id)))
@@ -122,12 +120,12 @@ export function GenerationReferencePicker({
         </div>)}</div>
       : <button className="reference-empty" onClick={() => setLibraryOpen(true)} type="button"><InboxOutlined/><span>添加参考素材</span><small>{referenceHint(allowedMedia, requiresPublishedAssets)}</small></button>}
     <AssetReferenceModal
-      assets={availableAssets}
+      allowedMedia={allowedMedia}
       exports={exports}
       groups={groups}
       onCancel={() => setLibraryOpen(false)}
-      onConfirm={(selected) => {
-        const byID = new Map(availableAssets.map((asset) => [asset.id, asset]))
+      onConfirm={(selected, selectedAssets) => {
+        const byID = new Map(selectedAssets.map((asset) => [asset.id, asset]))
         const retained = value.filter((item) => item.source === 'upload' || selected.includes(item.id))
         const retainedAssetIDs = new Set(retained.filter((item) => item.source === 'asset').map((item) => item.id))
         onChange([...retained, ...selected.filter((id) => !retainedAssetIDs.has(id)).flatMap((id) => {
@@ -138,29 +136,64 @@ export function GenerationReferencePicker({
         setLibraryOpen(false)
       }}
       open={libraryOpen}
+      projectID={projectID}
       selected={value.filter((item) => item.source === 'asset').map((item) => item.id)}
     />
   </div>
 }
 
-function AssetReferenceModal({ assets, exports, groups, selected, open, onCancel, onConfirm }: { assets: Asset[]; exports: AssetRemoteExport[]; groups: AssetGroup[]; selected: string[]; open: boolean; onCancel: () => void; onConfirm: (selected: string[]) => void }) {
+function AssetReferenceModal({ allowedMedia, exports, groups, selected, open, onCancel, onConfirm, projectID }: {
+  allowedMedia: MediaType[]
+  exports: AssetRemoteExport[]
+  groups: AssetGroup[]
+  selected: string[]
+  open: boolean
+  onCancel: () => void
+  onConfirm: (selected: string[], assets: Asset[]) => void
+  projectID: string
+}) {
   const [groupSearch, setGroupSearch] = useState('')
   const [assetSearch, setAssetSearch] = useState('')
   const [selectedGroup, setSelectedGroup] = useState<string>()
   const [checked, setChecked] = useState<string[]>(selected)
+  const [checkedAssets, setCheckedAssets] = useState<Record<string, Asset>>({})
+  const [page, setPage] = useState(1)
+  const deferredAssetSearch = useDeferredValue(assetSearch.trim())
   const selectedKey = selected.join('|')
-  const groupsWithAssets = useMemo(() => new Set(assets.flatMap((asset) => asset.group_id ? [asset.group_id] : [])), [assets])
-  const tree = useMemo(() => buildTree(groups, groupSearch, groupsWithAssets), [groupSearch, groups, groupsWithAssets])
+  const tree = useMemo(() => buildTree(groups, groupSearch), [groupSearch, groups])
+  const assetsQuery = useQuery({
+    queryKey: ['assets', 'generation-reference-picker', projectID, { selectedGroup, allowedMedia, name: deferredAssetSearch, page }],
+    queryFn: () => api.assetPage(projectID, {
+      group_id: selectedGroup,
+      exclude_status: 'discarded',
+      media_types: allowedMedia.join(','),
+      name: deferredAssetSearch || undefined,
+      page,
+      page_size: 24,
+    }),
+    enabled: open && Boolean(selectedGroup),
+    placeholderData: (previous) => previous,
+  })
+  const visibleAssets = assetsQuery.data?.items ?? []
   useEffect(() => {
     if (!open) return
     setChecked(selectedKey ? selectedKey.split('|') : [])
-    const firstGroup = groups.find((group) => groupsWithAssets.has(group.id))
-    setSelectedGroup((current) => current && groups.some((group) => group.id === current) ? current : firstGroup?.id)
-  }, [groups, groupsWithAssets, open, selectedKey])
-  const visibleAssets = assets.filter((asset) => asset.group_id === selectedGroup && asset.name.toLowerCase().includes(assetSearch.trim().toLowerCase()))
-  const toggle = (id: string, next: boolean) => setChecked((current) => next ? [...new Set([...current, id])] : current.filter((item) => item !== id))
+    setCheckedAssets({})
+    setSelectedGroup((current) => current && groups.some((group) => group.id === current) ? current : groups[0]?.id)
+    setPage(1)
+  }, [groups, open, selectedKey])
+  useEffect(() => setPage(1), [assetSearch, selectedGroup])
+  const toggle = (asset: Asset, next: boolean) => {
+    setChecked((current) => next ? [...new Set([...current, asset.id])] : current.filter((item) => item !== asset.id))
+    setCheckedAssets((current) => {
+      const updated = { ...current }
+      if (next) updated[asset.id] = asset
+      else delete updated[asset.id]
+      return updated
+    })
+  }
 
-  return <Modal cancelText="取消" okText={`添加 ${checked.length} 项参考`} onCancel={onCancel} onOk={() => onConfirm(checked)} open={open} title="从资产库添加参考" width={1040}>
+  return <Modal cancelText="取消" okText={`添加 ${checked.length} 项参考`} onCancel={onCancel} onOk={() => onConfirm(checked, Object.values(checkedAssets))} open={open} title="从资产库添加参考" width={1040}>
     <div className="reference-library-modal">
       <aside>
         <Input allowClear onChange={(event) => setGroupSearch(event.target.value)} placeholder="搜索分组" prefix={<SearchOutlined/>} value={groupSearch}/>
@@ -174,18 +207,19 @@ function AssetReferenceModal({ assets, exports, groups, selected, open, onCancel
           <span>已选 {checked.length}</span>
         </div>
         {visibleAssets.length
-          ? <div className="reference-library-grid">{visibleAssets.map((asset) => <button className={checked.includes(asset.id) ? 'selected' : ''} key={asset.id} onClick={() => toggle(asset.id, !checked.includes(asset.id))} type="button">
-              <div><img alt={asset.name} src={api.assetURL(asset.id)}/><Checkbox checked={checked.includes(asset.id)} onChange={(event) => toggle(asset.id, event.target.checked)} onClick={(event) => event.stopPropagation()}/></div>
+          ? <div className="reference-library-grid">{visibleAssets.map((asset) => <button className={checked.includes(asset.id) ? 'selected' : ''} key={asset.id} onClick={() => toggle(asset, !checked.includes(asset.id))} type="button">
+              <div><img alt={asset.name} src={api.assetURL(asset.id)}/><Checkbox checked={checked.includes(asset.id)} onChange={(event) => toggle(asset, event.target.checked)} onClick={(event) => event.stopPropagation()}/></div>
               <strong title={asset.name}>{asset.name}</strong>
               <small>{asset.status === 'adopted' ? '已采用' : '候选资产'} · 本地{usableAssetExports(exports, asset.id).length ? ` · S3 × ${usableAssetExports(exports, asset.id).length}` : ''}</small>
             </button>)}</div>
           : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={selectedGroup ? '当前分组没有可用资产' : '选择左侧分组查看资产'}/>}
+        {(assetsQuery.data?.total ?? 0) > 24 && <Pagination current={page} onChange={setPage} pageSize={24} showSizeChanger={false} total={assetsQuery.data?.total ?? 0}/>}
       </section>
     </div>
   </Modal>
 }
 
-function buildTree(groups: AssetGroup[], search: string, groupsWithAssets: Set<string>): DataNode[] {
+function buildTree(groups: AssetGroup[], search: string): DataNode[] {
   const normalized = search.trim().toLowerCase()
   const byParent = new Map<string | null, AssetGroup[]>()
   groups.forEach((group) => byParent.set(group.parent_id, [...(byParent.get(group.parent_id) ?? []), group]))
@@ -193,7 +227,7 @@ function buildTree(groups: AssetGroup[], search: string, groupsWithAssets: Set<s
     const children = walk(group.id)
     const matches = !normalized || group.name.toLowerCase().includes(normalized) || children.length > 0
     if (!matches) return []
-    return [{ key: group.id, title: <span className="reference-tree-title"><span>{group.name}</span>{groupsWithAssets.has(group.id) && <em>有资产</em>}</span>, children }]
+    return [{ key: group.id, title: <span className="reference-tree-title"><span>{group.name}</span></span>, children }]
   })
   return walk(null)
 }

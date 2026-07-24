@@ -64,13 +64,13 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
   const providerAdapter = Form.useWatch('adapter_code', providerForm) as string | undefined
   const providersQuery = useQuery({ queryKey: ['providers'], queryFn: api.providers })
   const modelsQuery = useQuery({ queryKey: ['models', 'catalog'], queryFn: () => api.models() })
-  const catalogUpdateStatusQuery = useQuery({ queryKey: ['model-catalog-update'], queryFn: api.modelCatalogUpdateStatus })
-  const credentialsQuery = useQuery({ queryKey: ['credentials'], queryFn: () => api.credentials() })
-  const presetsQuery = useQuery({ queryKey: ['presets'], queryFn: () => api.presets() })
-  const promptsQuery = useQuery({ queryKey: ['prompt-presets'], queryFn: () => api.promptPresets() })
-  const voicesQuery = useQuery({ queryKey: ['voice-profiles'], queryFn: api.voiceProfiles })
-  const providers = providersQuery.data ?? []
-  const catalogModels = modelsQuery.data ?? []
+  const catalogUpdateStatusQuery = useQuery({ queryKey: ['model-catalog-update'], queryFn: api.modelCatalogUpdateStatus, enabled: catalogUpdateOpen })
+  const credentialsQuery = useQuery({ queryKey: ['credentials'], queryFn: () => api.credentials(), enabled: section === 'models' && view === 'credentials' })
+  const presetsQuery = useQuery({ queryKey: ['presets'], queryFn: () => api.presets(), enabled: section === 'prompts' || (section === 'models' && view === 'catalog') || Boolean(presetModel) })
+  const promptsQuery = useQuery({ queryKey: ['prompt-presets'], queryFn: () => api.promptPresets(), enabled: section === 'prompts' })
+  const voicesQuery = useQuery({ queryKey: ['voice-profiles'], queryFn: api.voiceProfiles, enabled: section === 'voices' })
+  const providers = useMemo(() => providersQuery.data ?? [], [providersQuery.data])
+  const catalogModels = useMemo(() => modelsQuery.data ?? [], [modelsQuery.data])
   const models = catalogModels
   const credentials = credentialsQuery.data ?? []
   const presets = presetsQuery.data ?? []
@@ -207,6 +207,14 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
       : { capability: 'text', model_id: undefined, model_preset_id: undefined, content: '', description: '' })
     setPromptOpen(true)
   }
+  const duplicatePrompt = (preset: PromptPreset) => {
+    setEditingPrompt(null)
+    promptForm.setFieldsValue({
+      name: `${preset.name} · 副本`, description: preset.description, capability: preset.capability,
+      model_id: preset.model_id ?? undefined, model_preset_id: preset.model_preset_id ?? undefined, content: preset.content,
+    })
+    setPromptOpen(true)
+  }
   const openProviderEditor = (provider?: ModelProvider) => {
     setEditingProvider(provider ?? null)
     providerForm.setFieldsValue(provider ? {
@@ -224,7 +232,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
     setEditingProvider(null)
     providerForm.resetFields()
   }
-  const refreshing = providersQuery.isFetching || modelsQuery.isFetching || credentialsQuery.isFetching || presetsQuery.isFetching || promptsQuery.isFetching
+  const refreshing = providersQuery.isFetching || modelsQuery.isFetching || catalogUpdateStatusQuery.isFetching || credentialsQuery.isFetching || presetsQuery.isFetching || promptsQuery.isFetching || voicesQuery.isFetching
   const refreshCurrent = () => {
     if (section === 'prompts') return refresh(['prompt-presets'], ['models'], ['presets'])
     if (view === 'providers') return refresh(['providers'], ['models'], ['credentials'])
@@ -263,8 +271,8 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
     <section className="model-page-content">
       <div aria-label="模型功能" className="model-hub-tabs" role="tablist">
         <button aria-selected={section === 'models'} className={section === 'models' ? 'active' : ''} onClick={() => setSection('models')} role="tab" type="button"><ApiOutlined/><span>模型</span><em>{models.length}</em></button>
-        <button aria-selected={section === 'prompts'} className={section === 'prompts' ? 'active' : ''} onClick={() => setSection('prompts')} role="tab" type="button"><FileTextOutlined/><span>Prompt 预设</span><em>{prompts.length}</em></button>
-        <button aria-selected={section === 'voices'} className={section === 'voices' ? 'active' : ''} onClick={() => setSection('voices')} role="tab" type="button"><AudioOutlined/><span>音色</span><em>{voicesQuery.data?.length ?? 0}</em></button>
+        <button aria-selected={section === 'prompts'} className={section === 'prompts' ? 'active' : ''} onClick={() => setSection('prompts')} role="tab" type="button"><FileTextOutlined/><span>Prompt 预设</span>{promptsQuery.data && <em>{prompts.length}</em>}</button>
+        <button aria-selected={section === 'voices'} className={section === 'voices' ? 'active' : ''} onClick={() => setSection('voices')} role="tab" type="button"><AudioOutlined/><span>音色</span>{voicesQuery.data && <em>{voicesQuery.data.length}</em>}</button>
       </div>
 
       {section === 'models' ? <>
@@ -407,12 +415,16 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
             return <article className={`model-flat-item${isExpanded ? ' expanded' : ''}`} key={item.id}>
               <div className="model-flat-row prompt-flat-row">
                 <button aria-expanded={isExpanded} aria-label={`${isExpanded ? '收起' : '展开'} ${item.name}`} className="model-row-expand" onClick={() => setExpandedPromptID(isExpanded ? undefined : item.id)} type="button"><DownOutlined/></button>
-                <div className="model-row-primary"><strong>{item.name}</strong><span>{item.description || '暂无说明'}</span></div>
+                <div className="model-row-primary"><strong>{item.name}{item.source === 'builtin' && <em className="model-source-badge">内置</em>}</strong><span>{item.description || '暂无说明'}</span></div>
                 <span className={`model-capability ${item.capability}`}>{capabilityLabel(item.capability)}</span>
                 <div className="prompt-bindings"><span>{model?.display_name ?? '不指定模型'}</span><small>{parameterPreset?.name ?? '跟随模型默认参数'}</small></div>
                 <div className="model-row-actions">
-                  <Button icon={<EditOutlined/>} onClick={() => openPrompt(item)} size="small">编辑</Button>
-                  <Popconfirm cancelText="取消" okButtonProps={{ danger: true }} okText="删除" onConfirm={() => deletePrompt.mutate(item.id)} title="删除这个 Prompt 预设？"><Button danger icon={<DeleteOutlined/>} size="small" type="text"/></Popconfirm>
+                  {item.source === 'builtin'
+                    ? <Button icon={<CopyOutlined/>} onClick={() => duplicatePrompt(item)} size="small">复制后编辑</Button>
+                    : <>
+                      <Button icon={<EditOutlined/>} onClick={() => openPrompt(item)} size="small">编辑</Button>
+                      <Popconfirm cancelText="取消" okButtonProps={{ danger: true }} okText="删除" onConfirm={() => deletePrompt.mutate(item.id)} title="删除这个 Prompt 预设？"><Button danger icon={<DeleteOutlined/>} size="small" type="text"/></Popconfirm>
+                    </>}
                 </div>
               </div>
               {isExpanded && <div className="prompt-flat-preview"><MarkdownPreview emptyText="这个预设还没有 Prompt 内容" value={item.content}/></div>}

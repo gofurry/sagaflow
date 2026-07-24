@@ -78,7 +78,7 @@ func (m *Manager) UploadManaged(ctx context.Context, input ManagedUploadInput) (
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 	hash := sha256.New()
-	size, copyErr := io.Copy(io.MultiWriter(tmp, hash), body)
+	size, copyErr := io.Copy(io.MultiWriter(tmp, hash), io.LimitReader(body, declaredSize+1))
 	closeErr := tmp.Close()
 	if copyErr != nil || closeErr != nil {
 		_ = m.catalog.MarkLocalObjectFailed(ctx, id)
@@ -86,6 +86,10 @@ func (m *Manager) UploadManaged(ctx context.Context, input ManagedUploadInput) (
 			return ManagedObject{}, copyErr
 		}
 		return ManagedObject{}, closeErr
+	}
+	if size != declaredSize {
+		_ = m.catalog.MarkLocalObjectFailed(ctx, id)
+		return ManagedObject{}, fmt.Errorf("storage upload size mismatch: received %d bytes, expected %d", size, declaredSize)
 	}
 	digest := hex.EncodeToString(hash.Sum(nil))
 	ext := strings.ToLower(filepath.Ext(record.OriginalName))

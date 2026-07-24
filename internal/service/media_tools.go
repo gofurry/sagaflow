@@ -40,16 +40,18 @@ type CreateMediaJobInput struct {
 
 type mediaParameters struct {
 	Format       string  `json:"format"`
-	Width        int     `json:"width"`
-	Height       int     `json:"height"`
-	Fit          string  `json:"fit"`
-	Background   string  `json:"background"`
 	AudioMode    string  `json:"audio_mode"`
 	StartSeconds float64 `json:"start_seconds"`
 	Duration     float64 `json:"duration"`
 	Fast         bool    `json:"fast"`
 	TimeSeconds  float64 `json:"time_seconds"`
 	ImageFormat  string  `json:"image_format"`
+	OutputWidth  int     `json:"output_width"`
+	OutputHeight int     `json:"output_height"`
+	CropX        int     `json:"crop_x"`
+	CropY        int     `json:"crop_y"`
+	CropWidth    int     `json:"crop_width"`
+	CropHeight   int     `json:"crop_height"`
 }
 
 type mediaOutput struct {
@@ -70,6 +72,31 @@ func (s *MediaToolsService) Status() ffmpeg.Status {
 		return ffmpeg.Status{Message: "FFmpeg 服务未初始化"}
 	}
 	return s.tools.Status()
+}
+
+func (s *MediaToolsService) StartToolchainInstall(options ffmpeg.InstallOptions) (ffmpeg.Status, error) {
+	if s == nil || s.tools == nil {
+		return ffmpeg.Status{}, fmt.Errorf("%w: FFmpeg 服务未初始化", ErrInvalidInput)
+	}
+	status, err := s.tools.StartInstall(options)
+	if errors.Is(err, ffmpeg.ErrInstallUnsupported) {
+		return status, fmt.Errorf("%w: 当前系统架构暂不支持一键安装", ErrInvalidInput)
+	}
+	return status, err
+}
+
+func (s *MediaToolsService) RefreshToolchain() ffmpeg.Status {
+	if s == nil || s.tools == nil {
+		return ffmpeg.Status{Message: "FFmpeg 服务未初始化"}
+	}
+	return s.tools.Refresh()
+}
+
+func (s *MediaToolsService) CancelToolchainInstall() ffmpeg.Status {
+	if s == nil || s.tools == nil {
+		return ffmpeg.Status{Message: "FFmpeg 服务未初始化"}
+	}
+	return s.tools.CancelInstall()
 }
 
 func (s *MediaToolsService) InspectAsset(ctx context.Context, assetID uuid.UUID) (json.RawMessage, error) {
@@ -165,7 +192,7 @@ func validateMediaSources(tool string, p mediaParameters, assets []db.Asset) err
 		if firstType == "audio" && oneOf(p.Format, "mp4", "webm") {
 			return fmt.Errorf("音频源只能转换为 MP3、WAV 或 M4A")
 		}
-	case "aspect", "trim", "screenshot":
+	case "trim", "screenshot":
 		if firstType != "video" {
 			return fmt.Errorf("当前工具仅支持视频源")
 		}
@@ -196,7 +223,7 @@ func validateMediaTool(tool string, sourceCount int) error {
 		if sourceCount < 2 {
 			return fmt.Errorf("顺序合片至少需要 2 个源资产")
 		}
-	case "transcode", "aspect", "audio", "trim", "screenshot":
+	case "transcode", "audio", "trim", "screenshot":
 		if sourceCount != 1 {
 			return fmt.Errorf("当前工具需要 1 个源资产")
 		}
@@ -212,13 +239,6 @@ func validateMediaParameters(tool string, p mediaParameters) error {
 		if !oneOf(p.Format, "mp4", "webm", "mp3", "wav", "m4a") {
 			return fmt.Errorf("请选择有效的输出格式")
 		}
-	case "aspect":
-		if p.Width < 64 || p.Width > 7680 || p.Height < 64 || p.Height > 4320 {
-			return fmt.Errorf("画幅尺寸必须在 64×64 到 7680×4320 之间")
-		}
-		if !oneOf(p.Fit, "contain", "cover") {
-			return fmt.Errorf("画幅适配方式必须为完整显示或裁切铺满")
-		}
 	case "audio":
 		if !oneOf(p.AudioMode, "extract", "normalize", "mute") {
 			return fmt.Errorf("请选择有效的音频工具")
@@ -231,8 +251,19 @@ func validateMediaParameters(tool string, p mediaParameters) error {
 		if p.TimeSeconds < 0 || !oneOf(p.ImageFormat, "png", "jpg") {
 			return fmt.Errorf("请输入有效的截图时间和格式")
 		}
+		if !optionalDimension(p.OutputWidth, 16, 7680) || !optionalDimension(p.OutputHeight, 16, 7680) {
+			return fmt.Errorf("截图输出尺寸必须留空，或在 16 到 7680 像素之间")
+		}
+		cropEnabled := p.CropWidth != 0 || p.CropHeight != 0 || p.CropX != 0 || p.CropY != 0
+		if cropEnabled && (p.CropX < 0 || p.CropY < 0 || p.CropWidth < 2 || p.CropHeight < 2) {
+			return fmt.Errorf("裁剪区域必须包含非负起点以及至少 2×2 像素的宽高")
+		}
 	}
 	return nil
+}
+
+func optionalDimension(value, minimum, maximum int) bool {
+	return value == 0 || (value >= minimum && value <= maximum)
 }
 
 func oneOf(value string, choices ...string) bool {
@@ -426,17 +457,6 @@ func (s *MediaToolsService) buildCommand(job db.MediaJob, p mediaParameters, pat
 		case "m4a":
 			return mediaOutput{".m4a", "audio/mp4", "audio"}, []string{"-i", input, "-vn", "-c:a", "aac", "-b:a", "192k"}, cleanup, nil
 		}
-	case "aspect":
-		background := sanitizeColor(p.Background)
-		var filter string
-		if p.Fit == "cover" {
-			filter = fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d", p.Width, p.Height, p.Width, p.Height)
-		} else {
-			filter = fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=%s", p.Width, p.Height, p.Width, p.Height, background)
-		}
-		args := []string{"-i", input, "-vf", filter}
-		args = append(args, h264Args()...)
-		return mediaOutput{".mp4", "video/mp4", "video"}, args, cleanup, nil
 	case "audio":
 		switch p.AudioMode {
 		case "extract":
@@ -484,26 +504,34 @@ func (s *MediaToolsService) buildCommand(job db.MediaJob, p mediaParameters, pat
 		if p.ImageFormat == "jpg" {
 			extension, mimeType = ".jpg", "image/jpeg"
 		}
-		return mediaOutput{extension, mimeType, "image"}, []string{"-ss", decimal(p.TimeSeconds), "-i", input, "-frames:v", "1"}, cleanup, nil
+		args := []string{"-ss", decimal(p.TimeSeconds), "-i", input, "-frames:v", "1"}
+		filters := make([]string, 0, 2)
+		if p.CropWidth > 0 && p.CropHeight > 0 {
+			filters = append(filters, fmt.Sprintf("crop=%d:%d:%d:%d", p.CropWidth, p.CropHeight, p.CropX, p.CropY))
+		}
+		if p.OutputWidth > 0 || p.OutputHeight > 0 {
+			width, height := p.OutputWidth, p.OutputHeight
+			if width == 0 {
+				width = -2
+			}
+			if height == 0 {
+				height = -2
+			}
+			filters = append(filters, fmt.Sprintf("scale=%d:%d", width, height))
+		}
+		if len(filters) > 0 {
+			args = append(args, "-vf", strings.Join(filters, ","))
+		}
+		if p.ImageFormat == "jpg" {
+			args = append(args, "-q:v", "2")
+		}
+		return mediaOutput{extension, mimeType, "image"}, args, cleanup, nil
 	}
 	return mediaOutput{}, nil, cleanup, fmt.Errorf("unsupported media tool %q", job.Tool)
 }
 
 func h264Args() []string {
 	return []string{"-c:v", "libx264", "-preset", "medium", "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"}
-}
-
-func sanitizeColor(value string) string {
-	value = strings.TrimSpace(value)
-	if len(value) == 7 && value[0] == '#' {
-		for _, char := range value[1:] {
-			if !strings.ContainsRune("0123456789abcdefABCDEF", char) {
-				return "F5EDE2"
-			}
-		}
-		return value[1:]
-	}
-	return "F5EDE2"
 }
 
 func decimal(value float64) string {

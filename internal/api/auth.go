@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -85,10 +87,20 @@ func (s *Server) login(c fiber.Ctx) error {
 	if err := c.Bind().JSON(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON body")
 	}
+	ip := c.IP()
+	username := strings.ToLower(strings.TrimSpace(req.Username))
+	if !s.loginLimiter.Allow(ip, username) {
+		c.Set(fiber.HeaderRetryAfter, "60")
+		return fiber.NewError(fiber.StatusTooManyRequests, "too many login attempts; please try again later")
+	}
 	token, expires, current, err := s.auth.Login(c.Context(), req.Username, req.Password)
 	if err != nil {
+		if errors.Is(err, service.ErrInvalidCredentials) {
+			s.loginLimiter.RecordFailure(ip, username)
+		}
 		return err
 	}
+	s.loginLimiter.RecordSuccess(ip, username)
 	c.Cookie(&fiber.Cookie{Name: s.auth.CookieName(), Value: token, Path: "/", MaxAge: int(s.auth.TokenTTL().Seconds()), Expires: expires, SameSite: fiber.CookieSameSiteLaxMode, Secure: s.auth.CookieSecure(), HTTPOnly: true})
 	return writeOK(c, fiber.Map{"ok": true, "expires_at": expires, "user": current})
 }

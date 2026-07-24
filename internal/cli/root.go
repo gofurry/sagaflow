@@ -115,7 +115,30 @@ func NewRootCommand(version string) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("data: %s\ndatabase: ok\naccount initialized: %t\n", cfg.App.DataDir, initialized)
+		credentialService, err := service.NewCredentialService(store, cfg.MasterKeyPath())
+		if err != nil {
+			return err
+		}
+		credentials, err := store.ListProviderCredentials(cmd.Context(), nil)
+		if err != nil {
+			return err
+		}
+		for _, credential := range credentials {
+			if _, err := credentialService.SecretByID(cmd.Context(), credential.ID); err != nil {
+				return fmt.Errorf("decrypt provider credential %s: %w", credential.ID, err)
+			}
+		}
+		connections, err := store.ListS3Connections(cmd.Context())
+		if err != nil {
+			return err
+		}
+		for _, connection := range connections {
+			if _, err := credentialService.DecryptSecret(connection.EncryptedCredentials); err != nil {
+				return fmt.Errorf("decrypt S3 connection %s: %w", connection.ID, err)
+			}
+		}
+		fmt.Printf("data: %s\ndatabase: ok\naccount initialized: %t\nprovider credentials: %d valid\nS3 credentials: %d valid\n",
+			cfg.App.DataDir, initialized, len(credentials), len(connections))
 		return nil
 	}})
 

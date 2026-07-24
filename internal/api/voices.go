@@ -4,13 +4,23 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofurry/sagaflow/internal/service"
 	"github.com/google/uuid"
 )
+
+func (s *Server) listVoiceCapabilities(c fiber.Ctx) error {
+	if s.voices == nil {
+		return fmt.Errorf("%w: voice service is unavailable", service.ErrInvalidInput)
+	}
+	items, err := s.voices.Capabilities(c.Context())
+	if err != nil {
+		return err
+	}
+	return writeOK(c, items)
+}
 
 func (s *Server) listVoiceProfiles(c fiber.Ctx) error {
 	items, err := s.store.ListVoiceProfiles(c.Context())
@@ -24,24 +34,50 @@ func (s *Server) createVoiceProfile(c fiber.Ctx) error {
 	if s.voices == nil {
 		return fmt.Errorf("%w: voice service is unavailable", service.ErrInvalidInput)
 	}
-	modelID, err := parseOptionalUUID(c.FormValue("model_id"))
-	if err != nil || modelID == nil {
-		return fiber.NewError(fiber.StatusBadRequest, "model_id is required")
+	kind := strings.ToLower(strings.TrimSpace(c.FormValue("kind")))
+	var source *service.VoiceFile
+	var err error
+	if kind == "clone" {
+		source, err = readVoiceFormFile(c, "file", true)
+		if err != nil {
+			return err
+		}
 	}
-	source, err := readVoiceFormFile(c, "file", true)
+	item, err := s.voices.CreateProfile(c.Context(), service.CreateVoiceProfileInput{
+		Name: c.FormValue("name"), Description: c.FormValue("description"), Kind: kind,
+		Source: source, ReferenceText: c.FormValue("reference_text"), DesignPrompt: c.FormValue("design_prompt"),
+	})
 	if err != nil {
 		return err
 	}
-	prompt, err := readVoiceFormFile(c, "prompt_file", false)
+	return writeCreated(c, item)
+}
+
+type voiceBindingCreateRequest struct {
+	ModelID                 uuid.UUID `json:"model_id"`
+	VoiceID                 string    `json:"voice_id"`
+	PreviewText             string    `json:"preview_text"`
+	SourceURL               string    `json:"source_url"`
+	NeedNoiseReduction      bool      `json:"need_noise_reduction"`
+	NeedVolumeNormalization bool      `json:"need_volume_normalization"`
+}
+
+func (s *Server) createVoiceBinding(c fiber.Ctx) error {
+	if s.voices == nil {
+		return fmt.Errorf("%w: voice service is unavailable", service.ErrInvalidInput)
+	}
+	profileID, err := idParam(c, "id")
 	if err != nil {
 		return err
 	}
-	item, err := s.voices.Create(c.Context(), service.CreateVoiceProfileInput{
-		ModelID: *modelID, Name: c.FormValue("name"), Description: c.FormValue("description"),
-		VoiceID: c.FormValue("voice_id"), Source: *source, Prompt: prompt, PromptText: c.FormValue("prompt_text"),
-		PreviewText:             c.FormValue("preview_text"),
-		NeedNoiseReduction:      parseFormBool(c.FormValue("need_noise_reduction")),
-		NeedVolumeNormalization: parseFormBool(c.FormValue("need_volume_normalization")),
+	var req voiceBindingCreateRequest
+	if err := c.Bind().JSON(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON body")
+	}
+	item, err := s.voices.CreateBinding(c.Context(), service.CreateVoiceBindingInput{
+		ProfileID: profileID, ModelID: req.ModelID, VoiceID: req.VoiceID,
+		PreviewText: req.PreviewText, SourceURL: req.SourceURL,
+		NeedNoiseReduction: req.NeedNoiseReduction, NeedVolumeNormalization: req.NeedVolumeNormalization,
 	})
 	if err != nil {
 		return err
@@ -81,7 +117,21 @@ func (s *Server) deleteVoiceProfile(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if err := s.voices.Delete(c.Context(), id); err != nil {
+	if err := s.voices.DeleteProfile(c.Context(), id); err != nil {
+		return err
+	}
+	return writeOK(c, fiber.Map{"deleted": true})
+}
+
+func (s *Server) deleteVoiceBinding(c fiber.Ctx) error {
+	if s.voices == nil {
+		return fmt.Errorf("%w: voice service is unavailable", service.ErrInvalidInput)
+	}
+	id, err := idParam(c, "id")
+	if err != nil {
+		return err
+	}
+	if err := s.voices.DeleteBinding(c.Context(), id); err != nil {
 		return err
 	}
 	return writeOK(c, fiber.Map{"deleted": true})
@@ -96,22 +146,25 @@ func (s *Server) getVoiceProfileSource(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return s.sendStoredFile(c, item.SourceObjectID, item.SourceMimeType, item.SourceName, false)
+	if item.SourceObjectID == nil {
+		return service.ErrNotFound
+	}
+	return s.sendStoredFile(c, *item.SourceObjectID, item.SourceMimeType, item.SourceName, false)
 }
 
-func (s *Server) getVoiceProfilePreview(c fiber.Ctx) error {
+func (s *Server) getVoiceBindingPreview(c fiber.Ctx) error {
 	id, err := idParam(c, "id")
 	if err != nil {
 		return err
 	}
-	item, err := s.store.GetVoiceProfile(c.Context(), id)
+	item, err := s.store.GetVoiceBinding(c.Context(), id)
 	if err != nil {
 		return err
 	}
-	if item.PreviewObjectID == uuid.Nil {
+	if item.PreviewObjectID == nil {
 		return service.ErrNotFound
 	}
-	return s.sendStoredFile(c, item.PreviewObjectID, item.PreviewMimeType, item.Name+" 试听", false)
+	return s.sendStoredFile(c, *item.PreviewObjectID, item.PreviewMimeType, item.VoiceID+" 试听", false)
 }
 
 func readVoiceFormFile(c fiber.Ctx, field string, required bool) (*service.VoiceFile, error) {
@@ -139,9 +192,4 @@ func readVoiceFormFile(c fiber.Ctx, field string, required bool) (*service.Voice
 		mimeType = http.DetectContentType(data)
 	}
 	return &service.VoiceFile{Name: header.Filename, MIMEType: mimeType, Data: data}, nil
-}
-
-func parseFormBool(value string) bool {
-	parsed, _ := strconv.ParseBool(strings.TrimSpace(value))
-	return parsed
 }

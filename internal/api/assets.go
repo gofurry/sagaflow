@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"path/filepath"
 	"strconv"
@@ -139,6 +138,77 @@ func (s *Server) listAssets(c fiber.Ctx) error {
 	return writeOK(c, items)
 }
 
+func (s *Server) listAssetsPage(c fiber.Ctx) error {
+	projectID, err := idParam(c, "id")
+	if err != nil {
+		return err
+	}
+	groupID, err := parseOptionalUUID(c.Query("group_id"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid group_id")
+	}
+	episodeID, err := parseOptionalUUID(c.Query("episode_id"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid episode_id")
+	}
+	page, pageSize := parsePage(c, 24, 100)
+	items, err := s.store.ListAssetsPage(c.Context(), db.AssetFilter{
+		ProjectID: projectID, GroupID: groupID, EpisodeID: episodeID, Status: c.Query("status"),
+		MediaType: c.Query("media_type"), MediaTypes: strings.Split(c.Query("media_types"), ","),
+		ExcludeStatus: c.Query("exclude_status"), Name: c.Query("name"), GroupKind: c.Query("group_kind"),
+		Ungrouped: c.Query("ungrouped") == "1", Page: page, PageSize: pageSize,
+	})
+	if err != nil {
+		return err
+	}
+	return writeOK(c, items)
+}
+
+func (s *Server) assetSummary(c fiber.Ctx) error {
+	projectID, err := idParam(c, "id")
+	if err != nil {
+		return err
+	}
+	summary, err := s.store.AssetSummary(c.Context(), projectID)
+	if err != nil {
+		return err
+	}
+	return writeOK(c, summary)
+}
+
+func (s *Server) listAssetsByIDs(c fiber.Ctx) error {
+	projectID, err := idParam(c, "id")
+	if err != nil {
+		return err
+	}
+	values := strings.Split(c.Query("ids"), ",")
+	ids := make([]uuid.UUID, 0, len(values))
+	seen := make(map[uuid.UUID]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		id, parseErr := uuid.Parse(value)
+		if parseErr != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "invalid asset id")
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) > 200 {
+		return fiber.NewError(fiber.StatusBadRequest, "too many asset ids")
+	}
+	items, err := s.store.ListAssetsByIDs(c.Context(), projectID, ids)
+	if err != nil {
+		return err
+	}
+	return writeOK(c, items)
+}
+
 func (s *Server) listGroupAssets(c fiber.Ctx) error {
 	groupID, err := idParam(c, "id")
 	if err != nil {
@@ -167,30 +237,17 @@ func (s *Server) uploadAsset(c fiber.Ctx) error {
 	if _, err := s.store.GetProject(c.Context(), group.ProjectID); err != nil {
 		return err
 	}
-	header, err := c.FormFile("file")
-	if err != nil {
-		return fiber.NewError(400, "file is required")
-	}
-	file, err := header.Open()
+	upload, err := openMultipartUpload(c, "file")
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, 512<<20))
-	if err != nil {
-		return err
-	}
-	if int64(len(data)) != header.Size {
-		return fiber.NewError(400, "file is too large")
-	}
+	defer upload.File.Close()
+	header := upload.Header
 	name := strings.TrimSpace(c.FormValue("name"))
 	if name == "" {
 		name = header.Filename
 	}
-	mimeType := strings.TrimSpace(header.Header.Get("Content-Type"))
-	if mimeType == "" || mimeType == "application/octet-stream" {
-		mimeType = http.DetectContentType(data)
-	}
+	mimeType := upload.MIMEType
 	mediaType := strings.TrimSpace(c.FormValue("media_type"))
 	if mediaType == "" {
 		mediaType = mediaTypeFromMIME(mimeType)
@@ -204,12 +261,15 @@ func (s *Server) uploadAsset(c fiber.Ctx) error {
 		status = "candidate"
 	}
 	assetID := uuid.New()
-	managed, err := s.storage.UploadManaged(c.Context(), storage.ManagedUploadInput{ProjectID: &group.ProjectID, Purpose: "assets", OriginalName: header.Filename, UploadInput: storage.UploadInput{Data: data, ContentType: mimeType}})
+	managed, err := s.storage.UploadManaged(c.Context(), storage.ManagedUploadInput{
+		ProjectID: &group.ProjectID, Purpose: "assets", OriginalName: header.Filename,
+		UploadInput: storage.UploadInput{Reader: upload.Reader, Size: header.Size, ContentType: mimeType},
+	})
 	if err != nil {
 		return err
 	}
 	objectID := managed.Record.ID
-	asset, err := s.store.CreateAsset(c.Context(), db.CreateAssetInput{ID: assetID, ProjectID: group.ProjectID, GroupID: &groupID, EpisodeID: episodeID, ObjectID: objectID, Name: name, MediaType: mediaType, Source: "upload", Status: status, MimeType: mimeType, FileSizeBytes: int64(len(data)), Metadata: db.JSON(map[string]any{"original_filename": header.Filename})})
+	asset, err := s.store.CreateAsset(c.Context(), db.CreateAssetInput{ID: assetID, ProjectID: group.ProjectID, GroupID: &groupID, EpisodeID: episodeID, ObjectID: objectID, Name: name, MediaType: mediaType, Source: "upload", Status: status, MimeType: mimeType, FileSizeBytes: header.Size, Metadata: db.JSON(map[string]any{"original_filename": header.Filename})})
 	if err != nil {
 		_ = s.storage.DeleteManaged(c.Context(), managed.Record.ID)
 		return err
@@ -253,14 +313,27 @@ func (s *Server) updateAsset(c fiber.Ctx) error {
 }
 
 func (s *Server) sendStoredFile(c fiber.Ctx, objectID uuid.UUID, mimeType, name string, proxy bool) error {
-	object, err := s.storage.Object(c.Context(), objectID)
+	select {
+	case s.downloadSlots <- struct{}{}:
+		defer func() { <-s.downloadSlots }()
+	default:
+		c.Set(fiber.HeaderRetryAfter, "1")
+		return fiber.NewError(fiber.StatusServiceUnavailable, "too many concurrent file transfers")
+	}
+	file, record, err := s.storage.Open(c.Context(), objectID)
 	if err != nil {
 		return err
 	}
 	download := c.Query("download") == "1"
-	data, err := s.storage.Read(c.Context(), object)
+	info, err := file.Stat()
 	if err != nil {
+		_ = file.Close()
 		return err
+	}
+	size := info.Size()
+	if record.SizeBytes >= 0 && record.SizeBytes != size {
+		_ = file.Close()
+		return fmt.Errorf("stored file size mismatch")
 	}
 	c.Set(fiber.HeaderContentType, mimeType)
 	disposition := "inline"
@@ -273,17 +346,22 @@ func (s *Server) sendStoredFile(c fiber.Ctx, objectID uuid.UUID, mimeType, name 
 	c.Set(fiber.HeaderContentDisposition, contentDisposition(disposition, name))
 	c.Set("Accept-Ranges", "bytes")
 	if rangeHeader := strings.TrimSpace(c.Get("Range")); rangeHeader != "" {
-		start, end, ok := parseByteRange(rangeHeader, int64(len(data)))
+		start, end, ok := parseByteRange(rangeHeader, size)
 		if !ok {
-			c.Set("Content-Range", fmt.Sprintf("bytes */%d", len(data)))
+			_ = file.Close()
+			c.Set("Content-Range", fmt.Sprintf("bytes */%d", size))
 			return c.SendStatus(fiber.StatusRequestedRangeNotSatisfiable)
 		}
 		c.Status(fiber.StatusPartialContent)
-		c.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(data)))
+		c.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, size))
 		c.Set(fiber.HeaderContentLength, strconv.FormatInt(end-start+1, 10))
-		return c.Send(data[start : end+1])
+		stream := struct {
+			io.Reader
+			io.Closer
+		}{Reader: io.NewSectionReader(file, start, end-start+1), Closer: file}
+		return c.SendStream(stream, int(end-start+1))
 	}
-	return c.Send(data)
+	return c.SendStream(file, int(size))
 }
 
 func parseByteRange(header string, size int64) (int64, int64, bool) {

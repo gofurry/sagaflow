@@ -383,7 +383,11 @@ func (s *Server) listGenerationJobs(c fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(400, "invalid episode_id")
 	}
-	items, err := s.store.ListGenerationJobs(c.Context(), projectID, episodeID)
+	page, pageSize := parsePage(c, 20, 100)
+	items, err := s.store.ListGenerationJobs(c.Context(), db.GenerationJobFilter{
+		ProjectID: projectID, EpisodeID: episodeID, Status: c.Query("status"), Capability: c.Query("capability"),
+		Search: c.Query("search"), Page: page, PageSize: pageSize,
+	})
 	if err != nil {
 		return err
 	}

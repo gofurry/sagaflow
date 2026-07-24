@@ -36,8 +36,21 @@ func TestOpenMigratesCleanDatabaseAndEnforcesSingleAccount(t *testing.T) {
 		   OR (adapter_code='comfyui' AND base_url='http://127.0.0.1:8188' AND auth_type='none')`).Scan(&localProviders); err != nil {
 		t.Fatal(err)
 	}
-	if localProviders != 3 {
-		t.Fatalf("expected Ollama and two built-in ComfyUI connections, got %d", localProviders)
+	if localProviders != 2 {
+		t.Fatalf("expected one built-in Ollama and one built-in ComfyUI connection, got %d", localProviders)
+	}
+	var providerCount, legacyAkiCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM model_providers`).Scan(&providerCount); err != nil {
+		t.Fatal(err)
+	}
+	if providerCount != 10 {
+		t.Fatalf("expected 10 clean built-in provider connections, got %d", providerCount)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM model_providers WHERE code='comfyui-aki-local'`).Scan(&legacyAkiCount); err != nil {
+		t.Fatal(err)
+	}
+	if legacyAkiCount != 0 {
+		t.Fatalf("legacy Aki ComfyUI provider must not exist, got %d rows", legacyAkiCount)
 	}
 	var bailianProviders int
 	if err := database.QueryRow(`
@@ -107,5 +120,21 @@ func TestOpenMigratesCleanDatabaseAndEnforcesSingleAccount(t *testing.T) {
 		if err := rows.Close(); err != nil {
 			t.Fatal(err)
 		}
+	}
+	var migrationVersion, migrationRows int
+	if err := database.QueryRow(`SELECT MAX(version_id),COUNT(*) FROM goose_db_version WHERE is_applied=1`).Scan(&migrationVersion, &migrationRows); err != nil {
+		t.Fatal(err)
+	}
+	if migrationVersion != 1 || migrationRows != 2 {
+		t.Fatalf("expected only the baseline migration plus Goose zero row, got version=%d rows=%d", migrationVersion, migrationRows)
+	}
+	projectID := uuid.NewString()
+	if _, err := database.Exec(`INSERT INTO projects (id,title) VALUES (?,?)`, projectID, "Baseline"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO media_jobs (id,project_id,tool,source_asset_ids)
+		VALUES (?,?,?,?)`, uuid.NewString(), projectID, "aspect", `[]`); err == nil {
+		t.Fatal("expected legacy aspect media tool to be rejected")
 	}
 }

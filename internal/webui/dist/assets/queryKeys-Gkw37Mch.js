@@ -1,0 +1,1 @@
+var e={generationJobs:(e,t={})=>[`generation-jobs`,e,t],mediaJobs:(e,t=1,n=100)=>[`media-jobs`,e,{page:t,page_size:n}]};export{e as t};

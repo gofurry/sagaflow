@@ -4,6 +4,13 @@ SAGAFLOW_CONFIG ?=
 ACCOUNT_USER ?= admin
 ACCOUNT_NAME ?= Creator
 ACCOUNT_PASSWORD ?=
+VERSION ?= v0.1.0
+
+ifeq ($(OS),Windows_NT)
+BINARY := bin/sagaflow.exe
+else
+BINARY := bin/sagaflow
+endif
 
 run:
 	go run ./cmd/sagaflow serve $(if $(SAGAFLOW_CONFIG),--config $(SAGAFLOW_CONFIG),)
@@ -30,7 +37,7 @@ lint:
 	cd web && corepack pnpm lint
 
 build: web-build
-	go build -o bin/sagaflow ./cmd/sagaflow
+	go build -trimpath -ldflags="-X main.version=$(VERSION)" -o $(BINARY) ./cmd/sagaflow
 
 docker-build:
 	docker compose build

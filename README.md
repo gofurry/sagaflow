@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="web/public/logo-mini.svg" alt="SagaFlow" width="88">
+  <img src="web/public/logo.png" alt="SagaFlow" width="420">
 </p>
 
 <h1 align="center">SagaFlow</h1>
@@ -25,7 +25,7 @@ SagaFlow 面向希望在自己的电脑、NAS 或小型服务器上完成 AI 漫
 - **多模型生成**：接入 DeepSeek、火山方舟、MiniMax、阿里云百炼、硅基流动、智谱、腾讯云 Token Hub、Kimi / Moonshot、Ollama 与 ComfyUI。
 - **可更新模型目录**：内置模型清单随应用发布，也可以在界面导入独立 JSON 更新包。
 - **分集画布**：将已采用资产、备注、关系线和视频分镜放到无限画布中编排。
-- **本地媒体工具**：检查、转码、画幅适配、音频处理、裁切、合片和视频截图。
+- **本地媒体工具**：检查、转码、音频处理、裁切、合片和视频截图。
 - **本地优先存储**：生成结果先落到本地对象库；S3 只作为用户主动发布的可选公网副本。
 - **持久任务队列**：生成和媒体任务都写入 SQLite，应用重启后仍可恢复状态。
 - **完整备份**：一次归档数据库、素材对象和凭证主密钥。
@@ -50,9 +50,8 @@ SagaFlow 单二进制
 
 ### 从源码构建
 
-需要 Go 1.26、Node.js 24、Corepack，以及与当前系统和架构匹配的
-FFmpeg/FFprobe。可以把它们放在系统 `PATH`，也可以放到
-`tools/ffmpeg/<goos>-<goarch>/`。
+需要 Go 1.26、Node.js 24 和 Corepack。FFmpeg/FFprobe 不是构建依赖；
+首次使用媒体工具时可以在界面一键下载，也可以使用系统已有版本。
 
 ```bash
 git clone https://github.com/gofurry/sagaflow.git
@@ -67,15 +66,14 @@ cd ..
 Windows PowerShell：
 
 ```powershell
-.\tools\ffmpeg\install-windows.ps1
-go build -o .\bin\sagaflow.exe .\cmd\sagaflow
+go build -ldflags="-X main.version=v0.1.0" -o .\bin\sagaflow.exe .\cmd\sagaflow
 .\bin\sagaflow.exe serve
 ```
 
 Linux 或 macOS：
 
 ```bash
-go build -o ./bin/sagaflow ./cmd/sagaflow
+go build -ldflags="-X main.version=v0.1.0" -o ./bin/sagaflow ./cmd/sagaflow
 ./bin/sagaflow serve
 ```
 
@@ -93,7 +91,7 @@ sagaflow serve
 
 ### Docker Compose
 
-Docker 镜像内已安装 FFmpeg，只需要一个应用容器和一个数据卷：
+Docker 镜像不捆绑 FFmpeg，只需要一个应用容器和一个数据卷：
 
 ```bash
 docker compose build
@@ -108,25 +106,22 @@ docker compose up -d
 
 ## FFmpeg 与多平台发布
 
-FFmpeg 不内嵌到 SagaFlow 二进制，也不绑定某个操作系统或 CPU
-架构。每个平台的发布包携带对应工具：
+FFmpeg 不内嵌到 SagaFlow 二进制，发布包也不携带第三方媒体工具：
 
 ```text
 sagaflow-<goos>-<goarch>/
 ├── sagaflow[.exe]
-├── ffmpeg[.exe]
-├── ffprobe[.exe]
-├── SAGAFLOW-LICENSE.txt
-└── FFMPEG-LICENSE.txt
+├── sagaflow.ico / sagaflow.icns / share/icons
+└── SAGAFLOW-LICENSE.txt
 ```
 
-SagaFlow 会从程序同目录、平台工具目录和系统 `PATH` 自动发现
-FFmpeg。这样可以分别支持 Windows、Linux、macOS 的 amd64/arm64，
-同时保持源码仓库和应用二进制与架构无关。Docker 镜像直接安装
-发行版软件包。
+SagaFlow 会依次从数据目录的托管工具区、程序同目录、当前工作目录和
+系统 `PATH` 自动发现 FFmpeg。缺失时，工具页可为 Windows、Linux、
+macOS 的 amd64/arm64 一键下载固定资产；下载会校验声明大小和
+SHA-256，再原子启用。这样源码、应用二进制和发布归档都保持轻量。
 
-开发环境安装、平台目录约定、发布打包脚本和第三方许可证说明见
-[`tools/ffmpeg/README.md`](tools/ffmpeg/README.md)。
+固定版本、下载来源和第三方许可证说明见
+[`docs/ffmpeg.md`](docs/ffmpeg.md)。
 
 ## 数据目录
 
@@ -137,6 +132,7 @@ data/
 ├── secrets/          # 本机凭证主密钥
 ├── temp/             # 可清理的任务临时文件
 ├── backups/          # 默认备份输出
+├── tools/            # 可重新下载的托管工具
 └── config.yaml       # 可选的最小运行配置
 ```
 
@@ -180,6 +176,11 @@ make docker-up
 make docker-down
 ```
 
+GitHub Actions 会在 `main`、`dev` 和 Pull Request 上执行前端 lint/构建、
+Go 测试与 vet、Docker 构建，并生成 Windows、Linux、macOS 的
+amd64/arm64 构建产物。跨平台构建入口位于
+`.github/workflows/scripts/build.ps1`。
+
 ## 运维
 
 ```bash
@@ -213,6 +214,6 @@ cd web && corepack pnpm lint && corepack pnpm build
 
 SagaFlow 源代码使用 [MIT License](LICENSE)。
 
-发布包附带的 FFmpeg / FFprobe 是独立的第三方程序；SagaFlow
-通过子进程和文件与其交互。相应许可证和分发说明保存在
-[`tools/ffmpeg/README.md`](tools/ffmpeg/README.md)。
+FFmpeg / FFprobe 是按用户操作单独下载的第三方程序；SagaFlow
+通过子进程和文件与其交互。下载来源说明保存在
+[`docs/ffmpeg.md`](docs/ffmpeg.md)。

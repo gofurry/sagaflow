@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { App as AntApp, Avatar, Button, Form, Input, Layout, Modal, Popover, Select, Skeleton, Space, Typography } from 'antd'
 import { AppstoreOutlined, BgColorsOutlined, BranchesOutlined, FolderOpenOutlined, GithubOutlined, HomeOutlined, LogoutOutlined, PlusOutlined, SettingOutlined, ThunderboltOutlined, ToolOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -7,14 +7,15 @@ import type { Episode, Principal, Project } from './api/types'
 import { LoginScreen } from './features/auth/LoginScreen'
 import { EmptyState } from './components/EmptyState'
 import { PageScrollOrb } from './components/PageScrollOrb'
-import { EpisodesPage } from './features/episodes/EpisodesPage'
-import { AssetLibraryPage } from './features/assets/AssetLibraryPage'
-import { CanvasComposer } from './features/canvas/CanvasComposer'
-import { ModelHubPage } from './features/models/ModelHubPage'
-import { SettingsPage } from './features/settings/SettingsPage'
 import { HomePage } from './features/home/HomePage'
-import { GenerationStudioPage } from './features/generation/GenerationStudioPage'
-import { LocalToolsPage } from './features/tools/LocalToolsPage'
+
+const EpisodesPage = lazy(() => import('./features/episodes/EpisodesPage').then((module) => ({ default: module.EpisodesPage })))
+const AssetLibraryPage = lazy(() => import('./features/assets/AssetLibraryPage').then((module) => ({ default: module.AssetLibraryPage })))
+const CanvasComposer = lazy(() => import('./features/canvas/CanvasComposer').then((module) => ({ default: module.CanvasComposer })))
+const ModelHubPage = lazy(() => import('./features/models/ModelHubPage').then((module) => ({ default: module.ModelHubPage })))
+const SettingsPage = lazy(() => import('./features/settings/SettingsPage').then((module) => ({ default: module.SettingsPage })))
+const GenerationStudioPage = lazy(() => import('./features/generation/GenerationStudioPage').then((module) => ({ default: module.GenerationStudioPage })))
+const LocalToolsPage = lazy(() => import('./features/tools/LocalToolsPage').then((module) => ({ default: module.LocalToolsPage })))
 
 type ModuleKey = 'home' | 'episodes' | 'assets' | 'generation' | 'canvas' | 'tools' | 'models' | 'settings'
 const moduleMeta: Record<ModuleKey, { label: string; icon: React.ReactNode }> = {
@@ -30,7 +31,7 @@ export default function App() {
 	}
 	const login = useMutation({ mutationFn: ({ username, password }: { username: string; password: string }) => api.login(username, password), onSuccess: async () => { await resetUserQueries(); await queryClient.invalidateQueries({ queryKey: ['auth'] }) } })
 	const setup = useMutation({ mutationFn: ({ username, displayName, password }: { username: string; displayName: string; password: string }) => api.setupAccount(username, displayName, password), onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['auth'] }) } })
-  if (auth.isLoading) return <div className="boot-screen"><div className="brand-mark large">SF</div><Skeleton active paragraph={{ rows: 2 }} style={{ width: 280 }}/></div>
+  if (auth.isLoading) return <div className="boot-screen"><img alt="SagaFlow" className="brand-mark-image large" src="/logo-mark.png"/><Skeleton active paragraph={{ rows: 2 }} style={{ width: 280 }}/></div>
   if (auth.error) return <div className="boot-screen"><Typography.Title level={3}>无法连接 SagaFlow API</Typography.Title><Typography.Text type="danger">{auth.error.message}</Typography.Text></div>
 	if (auth.data?.enabled && !auth.data.authenticated) return <LoginScreen error={(login.error ?? setup.error)?.message} loading={login.isPending || setup.isPending} onLogin={(username, password) => login.mutate({ username, password })} onSetup={(username, displayName, password) => setup.mutate({ username, displayName, password })} status={auth.data}/>
 	return <Workspace key={auth.data?.user?.account_id} onError={(error) => message.error(error instanceof Error ? error.message : '操作失败')} sessionUser={auth.data!.user!}/>
@@ -68,7 +69,7 @@ function Workspace({ onError, sessionUser }: { onError: (error: unknown) => void
     <Layout>
       <Layout.Header className="app-header">
         <div className="header-left">
-          <button aria-label="返回主页" className="header-brand-logo" onClick={() => setActive('home')} type="button"><img alt="" src="/logo-mini.svg"/></button>
+          <button aria-label="返回主页" className="header-brand-logo" onClick={() => setActive('home')} type="button"><img alt="SagaFlow" src="/logo-header.png"/></button>
           <div className="header-title"><strong>{moduleMeta[active].label}</strong></div>
           {active !== 'home' && <div className="header-project">
             <Select className="project-select" options={projectOptions} placeholder="选择项目" value={projectID || undefined} onChange={setProjectID} popupMatchSelectWidth={300}/>
@@ -98,16 +99,18 @@ function Workspace({ onError, sessionUser }: { onError: (error: unknown) => void
         </Space>
       </Layout.Header>
       <Layout.Content className={`app-content module-${active}`} ref={contentRef}>
-        {active === 'home'
-          ? <HomePage activeProjectID={projectID} loading={projectsQuery.isLoading} onCreate={() => setProjectModal(true)} onOpenProject={openProject} projects={projects}/>
-          : active === 'settings'
-          ? <SettingsPage onError={onError} project={project ?? undefined}/>
-          : active === 'models'
-          ? <ModelHubPage onError={onError}/>
-          : !project
-          ? <EmptyState actionLabel="创建第一个项目" description="项目用于组织剧情分集、资产和生成画布。" onAction={() => setProjectModal(true)} title="开始一部新漫剧"/>
-          : <ModuleContent active={active} episode={episode} episodes={episodes} onEpisodeChange={setEpisodeID} onError={onError} project={project}/>
-        }
+        <Suspense fallback={<div className="module-loading"><Skeleton active paragraph={{ rows: 5 }}/></div>}>
+          {active === 'home'
+            ? <HomePage activeProjectID={projectID} loading={projectsQuery.isLoading} onCreate={() => setProjectModal(true)} onOpenProject={openProject} projects={projects}/>
+            : active === 'settings'
+            ? <SettingsPage onError={onError} project={project ?? undefined}/>
+            : active === 'models'
+            ? <ModelHubPage onError={onError}/>
+            : !project
+            ? <EmptyState actionLabel="创建第一个项目" description="项目用于组织剧情分集、资产和生成画布。" onAction={() => setProjectModal(true)} title="开始一部新漫剧"/>
+            : <ModuleContent active={active} episode={episode} episodes={episodes} onEpisodeChange={setEpisodeID} onError={onError} project={project}/>
+          }
+        </Suspense>
       </Layout.Content>
       <PageScrollOrb refreshKey={`${active}:${projectID}`} scrollerRef={contentRef}/>
     </Layout>

@@ -8,7 +8,7 @@ export function LoginScreen({ status, loading, error, onLogin, onSetup }: Props)
     <Card className="login-card" variant="borderless">
       <Space orientation="vertical" size={22} style={{ width: '100%' }}>
         <div className="login-heading">
-          <Typography.Title level={2} style={{ margin: 0 }}>SagaFlow</Typography.Title>
+          <img alt="SagaFlow" className="login-logo" src="/logo.png"/>
           <Typography.Text type="secondary">AI 漫剧资产生产与画布编排</Typography.Text>
         </div>
         {error && <Alert type="error" showIcon message={error}/>}

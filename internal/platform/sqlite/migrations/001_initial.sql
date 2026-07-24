@@ -167,7 +167,7 @@ CREATE TABLE workflow_templates (
 CREATE TABLE workflow_compatibilities (
   workflow_template_id TEXT NOT NULL REFERENCES workflow_templates(id) ON DELETE CASCADE,
   provider_id TEXT NOT NULL REFERENCES model_providers(id) ON DELETE CASCADE,
-  status TEXT NOT NULL CHECK (status IN ('unknown','compatible','incompatible','error')),
+  status TEXT NOT NULL CHECK (status IN ('unknown','ready','missing_nodes','missing_resources','incompatible','error')),
   report TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(report)),
   checked_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   PRIMARY KEY(workflow_template_id, provider_id)
@@ -177,6 +177,10 @@ CREATE TABLE prompt_presets (
   id TEXT PRIMARY KEY,
   model_id TEXT REFERENCES model_catalog(id) ON DELETE SET NULL,
   model_preset_id TEXT REFERENCES model_presets(id) ON DELETE SET NULL,
+  catalog_key TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT 'user' CHECK (source IN ('builtin','user')),
+  catalog_version TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   capability TEXT NOT NULL CHECK (capability IN ('text','image','audio','video')),
@@ -185,6 +189,7 @@ CREATE TABLE prompt_presets (
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   UNIQUE(capability, name)
 );
+CREATE UNIQUE INDEX prompt_presets_catalog_key_idx ON prompt_presets(catalog_key) WHERE source='builtin';
 
 CREATE TABLE canvas_nodes (
   id TEXT PRIMARY KEY,
@@ -234,6 +239,11 @@ CREATE TABLE canvas_annotations (
   line_style TEXT NOT NULL DEFAULT 'solid',
   opacity REAL NOT NULL DEFAULT 1,
   label TEXT NOT NULL DEFAULT '',
+  label_position TEXT NOT NULL DEFAULT 'center' CHECK (label_position IN (
+    'top-left','top-center','top-right',
+    'middle-left','center','middle-right',
+    'bottom-left','bottom-center','bottom-right'
+  )),
   z_index INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -382,29 +392,42 @@ CREATE INDEX assets_group_idx ON assets(group_id, created_at DESC);
 
 CREATE TABLE voice_profiles (
   id TEXT PRIMARY KEY,
-  provider_id TEXT NOT NULL REFERENCES model_providers(id) ON DELETE CASCADE,
-  model_id TEXT NOT NULL REFERENCES model_catalog(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
-  voice_id TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'ready',
+  kind TEXT NOT NULL CHECK (kind IN ('clone','design')),
   source_name TEXT NOT NULL DEFAULT '',
   source_mime_type TEXT NOT NULL DEFAULT '',
   source_file_size_bytes INTEGER NOT NULL DEFAULT 0,
-  prompt_text TEXT NOT NULL DEFAULT '',
+  reference_text TEXT NOT NULL DEFAULT '',
+  design_prompt TEXT NOT NULL DEFAULT '',
+  source_object_id TEXT REFERENCES local_objects(id),
+  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE TABLE voice_bindings (
+  id TEXT PRIMARY KEY,
+  voice_profile_id TEXT NOT NULL REFERENCES voice_profiles(id) ON DELETE CASCADE,
+  provider_id TEXT NOT NULL REFERENCES model_providers(id) ON DELETE CASCADE,
+  model_id TEXT NOT NULL REFERENCES model_catalog(id) ON DELETE CASCADE,
+  operation TEXT NOT NULL CHECK (operation IN ('clone','design')),
+  voice_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'ready',
+  preview_text TEXT NOT NULL DEFAULT '',
   preview_mime_type TEXT NOT NULL DEFAULT '',
   preview_file_size_bytes INTEGER NOT NULL DEFAULT 0,
-  source_object_id TEXT NOT NULL REFERENCES local_objects(id),
-  prompt_object_id TEXT REFERENCES local_objects(id),
-  preview_object_id TEXT NOT NULL REFERENCES local_objects(id),
+  preview_object_id TEXT REFERENCES local_objects(id),
   provider_file_id TEXT NOT NULL DEFAULT '',
   provider_prompt_file_id TEXT NOT NULL DEFAULT '',
   activated_at TEXT,
   metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  UNIQUE(provider_id, voice_id)
+  UNIQUE(provider_id, voice_id),
+  UNIQUE(voice_profile_id, model_id)
 );
+CREATE INDEX voice_bindings_profile_idx ON voice_bindings(voice_profile_id, created_at);
 
 CREATE TABLE s3_connections (
   id TEXT PRIMARY KEY,
@@ -437,17 +460,53 @@ CREATE TABLE asset_remote_exports (
   UNIQUE(asset_id, connection_id, object_key)
 );
 
-INSERT INTO model_providers (id, code, adapter_code, display_name, base_url, auth_type, capabilities, max_concurrency) VALUES
-  ('10000000-0000-0000-0000-000000000001','deepseek','deepseek','DeepSeek','https://api.deepseek.com','api_key','["text"]',2),
-  ('10000000-0000-0000-0000-000000000002','volcengine','volcengine','火山方舟','https://ark.cn-beijing.volces.com/api/v3','api_key','["text","image","video","multimodal"]',1),
-  ('10000000-0000-0000-0000-000000000004','minimax','minimax','MiniMax','https://api.minimaxi.com','api_key','["text","image","audio","video"]',1),
-	('10000000-0000-0000-0000-000000000008','aliyun_bailian','aliyun_bailian','阿里云百炼','https://dashscope.aliyuncs.com','api_key','["text","image","audio","video","multimodal"]',2),
-  ('10000000-0000-0000-0000-000000000005','ollama-local','ollama','本机 Ollama','http://127.0.0.1:11434','none','["text"]',1),
-  ('10000000-0000-0000-0000-000000000006','comfyui-local','comfyui','本机 ComfyUI','http://127.0.0.1:8188','none','["image","audio","video","multimodal"]',1);
+CREATE TABLE media_jobs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  target_asset_group_id TEXT REFERENCES asset_groups(id) ON DELETE SET NULL,
+  tool TEXT NOT NULL CHECK (tool IN ('inspect','transcode','audio','trim','merge','screenshot')),
+  source_asset_ids TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(source_asset_ids)),
+  output_name TEXT NOT NULL DEFAULT '',
+  parameters TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(parameters)),
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','succeeded','failed','canceled','interrupted')),
+  stage TEXT NOT NULL DEFAULT 'queued',
+  progress REAL NOT NULL DEFAULT 0,
+  output_asset_id TEXT REFERENCES assets(id) ON DELETE SET NULL,
+  output_staged_asset_id TEXT REFERENCES staged_assets(id) ON DELETE SET NULL,
+  command_snapshot TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(command_snapshot)),
+  probe_snapshot TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(probe_snapshot)),
+  error_message TEXT NOT NULL DEFAULT '',
+  cancel_requested INTEGER NOT NULL DEFAULT 0,
+  available_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  lease_until TEXT,
+  started_at TEXT,
+  finished_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX media_jobs_project_idx ON media_jobs(project_id, created_at DESC);
+CREATE INDEX media_jobs_queue_idx ON media_jobs(status, available_at);
+
+INSERT INTO model_providers (
+  id, code, adapter_code, display_name, base_url, auth_type,
+  capabilities, metadata, max_concurrency
+) VALUES
+  ('10000000-0000-0000-0000-000000000001','deepseek','deepseek','DeepSeek','https://api.deepseek.com','api_key','["text"]','{"source":"builtin","platform":"deepseek"}',2),
+  ('10000000-0000-0000-0000-000000000002','volcengine','volcengine','火山方舟','https://ark.cn-beijing.volces.com/api/v3','api_key','["text","image","video","multimodal"]','{"source":"builtin","platform":"ark"}',1),
+  ('10000000-0000-0000-0000-000000000004','minimax','minimax','MiniMax','https://api.minimaxi.com','api_key','["text","image","audio","video"]','{"source":"builtin","platform":"minimax"}',1),
+  ('10000000-0000-0000-0000-000000000005','ollama-local','ollama','本机 Ollama','http://127.0.0.1:11434','none','["text"]','{}',1),
+  ('10000000-0000-0000-0000-000000000006','comfyui-local','comfyui','本机 ComfyUI','http://127.0.0.1:8188','none','["image","audio","video","multimodal"]','{}',1),
+  ('10000000-0000-0000-0000-000000000008','aliyun_bailian','aliyun_bailian','阿里云百炼','https://dashscope.aliyuncs.com','api_key','["text","image","audio","video","multimodal"]','{"source":"builtin","platform":"model_studio","region":"cn-beijing"}',2),
+  ('10000000-0000-0000-0000-000000000009','siliconflow','siliconflow','硅基流动','https://api.siliconflow.cn/v1','api_key','["text","image","audio","video","multimodal"]','{"source":"builtin","platform":"siliconflow","dynamic_catalog":true}',2),
+  ('10000000-0000-0000-0000-000000000010','zhipu','zhipu','智谱开放平台','https://open.bigmodel.cn/api/paas/v4','api_key','["text","image","audio","video","multimodal"]','{"source":"builtin","platform":"zhipu","dynamic_catalog":true}',2),
+  ('10000000-0000-0000-0000-000000000011','tencent_tokenhub','tencent_tokenhub','腾讯云 TokenHub','https://tokenhub.tencentmaas.com/v1','api_key','["text","image","video","multimodal"]','{"source":"builtin","platform":"tencent_tokenhub","dynamic_catalog":true}',2),
+  ('10000000-0000-0000-0000-000000000012','moonshot','moonshot','Kimi · Moonshot','https://api.moonshot.cn/v1','api_key','["text","multimodal"]','{"source":"builtin","platform":"moonshot","dynamic_catalog":true}',2);
 
 -- +goose Down
+DROP TABLE IF EXISTS media_jobs;
 DROP TABLE IF EXISTS asset_remote_exports;
 DROP TABLE IF EXISTS s3_connections;
+DROP TABLE IF EXISTS voice_bindings;
 DROP TABLE IF EXISTS voice_profiles;
 DROP TABLE IF EXISTS assets;
 DROP TABLE IF EXISTS staged_assets;

@@ -111,11 +111,18 @@ func (s *Store) DeleteAssetGroup(ctx context.Context, id uuid.UUID) error {
 }
 
 type AssetFilter struct {
-	ProjectID uuid.UUID
-	GroupID   *uuid.UUID
-	EpisodeID *uuid.UUID
-	Status    string
-	MediaType string
+	ProjectID     uuid.UUID
+	GroupID       *uuid.UUID
+	EpisodeID     *uuid.UUID
+	Status        string
+	MediaType     string
+	MediaTypes    []string
+	ExcludeStatus string
+	Name          string
+	GroupKind     string
+	Ungrouped     bool
+	Page          int
+	PageSize      int
 }
 
 func (s *Store) ListAssets(ctx context.Context, filter AssetFilter) ([]Asset, error) {
@@ -128,6 +135,94 @@ func (s *Store) ListAssets(ctx context.Context, filter AssetFilter) ([]Asset, er
 		  AND ($4='' OR status=$4)
 		  AND ($5='' OR media_type=$5)
 		ORDER BY created_at DESC`, filter.ProjectID, filter.GroupID, filter.EpisodeID, filter.Status, filter.MediaType))
+}
+
+func (s *Store) ListAssetsPage(ctx context.Context, filter AssetFilter) (AssetPage, error) {
+	filter.Page, filter.PageSize = normalizePage(filter.Page, filter.PageSize, 24, 100)
+	mediaTypes := make([]string, 0, len(filter.MediaTypes))
+	for _, mediaType := range filter.MediaTypes {
+		mediaType = strings.TrimSpace(mediaType)
+		if mediaType != "" && !strings.Contains(mediaType, ",") {
+			mediaTypes = append(mediaTypes, mediaType)
+		}
+	}
+	mediaTypeList := strings.Join(mediaTypes, ",")
+	where := `
+		WHERE a.project_id=$1
+		  AND a.deleted_at IS NULL
+		  AND ($2 IS NULL OR a.group_id=$2)
+		  AND ($3 IS NULL OR a.episode_id=$3)
+		  AND ($4='' OR a.status=$4)
+		  AND ($5='' OR a.media_type=$5)
+		  AND ($6='' OR instr(',' || $6 || ',', ',' || a.media_type || ',') > 0)
+		  AND ($7='' OR a.status<>$7)
+		  AND ($8='' OR lower(a.name) LIKE '%' || lower($8) || '%')
+		  AND ($9='' OR g.kind=$9)
+		  AND ($10=0 OR a.group_id IS NULL)`
+	args := []any{
+		filter.ProjectID, filter.GroupID, filter.EpisodeID, strings.TrimSpace(filter.Status),
+		strings.TrimSpace(filter.MediaType), mediaTypeList, strings.TrimSpace(filter.ExcludeStatus),
+		strings.TrimSpace(filter.Name), strings.TrimSpace(filter.GroupKind), filter.Ungrouped,
+	}
+	var total int64
+	from := ` FROM assets a LEFT JOIN asset_groups g ON g.id=a.group_id`
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*)`+from+where, args...).Scan(&total); err != nil {
+		return AssetPage{}, err
+	}
+	items, err := collectRows[Asset](s.pool.Query(ctx,
+		`SELECT a.*`+from+where+` ORDER BY a.created_at DESC,a.id DESC LIMIT $11 OFFSET $12`,
+		append(args, filter.PageSize, (filter.Page-1)*filter.PageSize)...))
+	if err != nil {
+		return AssetPage{}, err
+	}
+	return AssetPage{Items: items, Total: total, Page: filter.Page, PageSize: filter.PageSize}, nil
+}
+
+func (s *Store) ListAssetsByIDs(ctx context.Context, projectID uuid.UUID, ids []uuid.UUID) ([]Asset, error) {
+	if len(ids) == 0 {
+		return []Asset{}, nil
+	}
+	if len(ids) > 200 {
+		return nil, fmt.Errorf("too many asset ids")
+	}
+	return collectRows[Asset](s.pool.Query(ctx, `
+		SELECT * FROM assets
+		WHERE project_id=$1 AND deleted_at IS NULL
+		  AND id IN (SELECT value FROM json_each($2))
+		ORDER BY created_at DESC`, projectID, JSON(ids)))
+}
+
+func (s *Store) AssetSummary(ctx context.Context, projectID uuid.UUID) (AssetSummary, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT COALESCE(g.kind,''),COUNT(*)
+		FROM assets a LEFT JOIN asset_groups g ON g.id=a.group_id
+		WHERE a.project_id=$1 AND a.deleted_at IS NULL
+		GROUP BY COALESCE(g.kind,'')`, projectID)
+	if err != nil {
+		return AssetSummary{}, err
+	}
+	defer rows.Close()
+	summary := AssetSummary{ByGroupKind: make(map[string]int64)}
+	for rows.Next() {
+		var kind string
+		var count int64
+		if err := rows.Scan(&kind, &count); err != nil {
+			return AssetSummary{}, err
+		}
+		summary.Total += count
+		if kind != "" {
+			summary.ByGroupKind[kind] = count
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return AssetSummary{}, err
+	}
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM assets
+		WHERE project_id=$1 AND deleted_at IS NULL AND group_id IS NULL AND media_type='video'`, projectID).Scan(&summary.UngroupedVideoTotal); err != nil {
+		return AssetSummary{}, err
+	}
+	return summary, nil
 }
 
 func (s *Store) GetAsset(ctx context.Context, id uuid.UUID) (Asset, error) {

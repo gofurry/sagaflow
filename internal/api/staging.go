@@ -1,10 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -63,26 +63,13 @@ func (s *Server) uploadStagedAsset(c fiber.Ctx) error {
 	if _, err := s.store.GetProject(c.Context(), projectID); err != nil {
 		return err
 	}
-	header, err := c.FormFile("file")
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "file is required")
-	}
-	file, err := header.Open()
+	upload, err := openMultipartUpload(c, "file")
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, 512<<20))
-	if err != nil {
-		return err
-	}
-	if int64(len(data)) != header.Size {
-		return fiber.NewError(fiber.StatusBadRequest, "file is too large")
-	}
-	mimeType := strings.TrimSpace(header.Header.Get("Content-Type"))
-	if mimeType == "" || mimeType == "application/octet-stream" {
-		mimeType = http.DetectContentType(data)
-	}
+	defer upload.File.Close()
+	header := upload.Header
+	mimeType := upload.MIMEType
 	mediaType := strings.TrimSpace(c.FormValue("media_type"))
 	if mediaType == "" {
 		mediaType = mediaTypeFromMIME(mimeType)
@@ -92,17 +79,21 @@ func (s *Server) uploadStagedAsset(c fiber.Ctx) error {
 		name = header.Filename
 	}
 	id := uuid.New()
-	managed, err := s.storage.UploadManaged(c.Context(), storage.ManagedUploadInput{ProjectID: &projectID, Purpose: "staging", OriginalName: header.Filename, UploadInput: storage.UploadInput{Data: data, ContentType: mimeType}})
+	contentText := bytes.Buffer{}
+	reader := io.Reader(upload.Reader)
+	if mediaType == "text" && header.Size <= 4<<20 {
+		reader = io.TeeReader(upload.Reader, &contentText)
+	}
+	managed, err := s.storage.UploadManaged(c.Context(), storage.ManagedUploadInput{
+		ProjectID: &projectID, Purpose: "staging", OriginalName: header.Filename,
+		UploadInput: storage.UploadInput{Reader: reader, Size: header.Size, ContentType: mimeType},
+	})
 	if err != nil {
 		return err
 	}
-	contentText := ""
-	if mediaType == "text" {
-		contentText = string(data)
-	}
 	item, err := s.store.CreateStagedAsset(c.Context(), db.CreateStagedAssetInput{
 		ID: id, ProjectID: projectID, ObjectID: managed.Record.ID, Source: "upload", Name: name, MediaType: mediaType, MimeType: mimeType,
-		FileSizeBytes: int64(len(data)), ContentText: contentText,
+		FileSizeBytes: header.Size, ContentText: contentText.String(),
 		Metadata: db.JSON(map[string]any{"original_filename": header.Filename}),
 	})
 	if err != nil {

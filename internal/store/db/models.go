@@ -93,6 +93,19 @@ type Asset struct {
 	UpdatedAt          time.Time       `db:"updated_at" json:"updated_at"`
 }
 
+type AssetPage struct {
+	Items    []Asset `json:"items"`
+	Total    int64   `json:"total"`
+	Page     int     `json:"page"`
+	PageSize int     `json:"page_size"`
+}
+
+type AssetSummary struct {
+	Total               int64            `json:"total"`
+	ByGroupKind         map[string]int64 `json:"by_group_kind"`
+	UngroupedVideoTotal int64            `json:"ungrouped_video_total"`
+}
+
 type MediaJob struct {
 	ID                  uuid.UUID       `db:"id" json:"id"`
 	ProjectID           uuid.UUID       `db:"project_id" json:"project_id"`
@@ -262,36 +275,54 @@ type WorkflowCompatibility struct {
 }
 
 type PromptPreset struct {
-	ID            uuid.UUID  `db:"id" json:"id"`
-	ModelID       *uuid.UUID `db:"model_id" json:"model_id"`
-	ModelPresetID *uuid.UUID `db:"model_preset_id" json:"model_preset_id"`
-	Name          string     `db:"name" json:"name"`
-	Description   string     `db:"description" json:"description"`
-	Capability    string     `db:"capability" json:"capability"`
-	Content       string     `db:"content" json:"content"`
-	CreatedAt     time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt     time.Time  `db:"updated_at" json:"updated_at"`
+	ID             uuid.UUID  `db:"id" json:"id"`
+	ModelID        *uuid.UUID `db:"model_id" json:"model_id"`
+	ModelPresetID  *uuid.UUID `db:"model_preset_id" json:"model_preset_id"`
+	CatalogKey     string     `db:"catalog_key" json:"catalog_key"`
+	Source         string     `db:"source" json:"source"`
+	CatalogVersion string     `db:"catalog_version" json:"catalog_version"`
+	Enabled        bool       `db:"enabled" json:"enabled"`
+	Name           string     `db:"name" json:"name"`
+	Description    string     `db:"description" json:"description"`
+	Capability     string     `db:"capability" json:"capability"`
+	Content        string     `db:"content" json:"content"`
+	CreatedAt      time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt      time.Time  `db:"updated_at" json:"updated_at"`
 }
 
 type VoiceProfile struct {
+	ID                  uuid.UUID       `db:"id" json:"id"`
+	Name                string          `db:"name" json:"name"`
+	Description         string          `db:"description" json:"description"`
+	Kind                string          `db:"kind" json:"kind"`
+	SourceName          string          `db:"source_name" json:"source_name"`
+	SourceMimeType      string          `db:"source_mime_type" json:"source_mime_type"`
+	SourceFileSizeBytes int64           `db:"source_file_size_bytes" json:"source_file_size_bytes"`
+	ReferenceText       string          `db:"reference_text" json:"reference_text"`
+	DesignPrompt        string          `db:"design_prompt" json:"design_prompt"`
+	SourceObjectID      *uuid.UUID      `db:"source_object_id" json:"source_object_id"`
+	Metadata            json.RawMessage `db:"metadata" json:"metadata"`
+	CreatedAt           time.Time       `db:"created_at" json:"created_at"`
+	UpdatedAt           time.Time       `db:"updated_at" json:"updated_at"`
+	Bindings            []VoiceBinding  `db:"-" json:"bindings"`
+}
+
+type VoiceBinding struct {
 	ID                   uuid.UUID       `db:"id" json:"id"`
+	VoiceProfileID       uuid.UUID       `db:"voice_profile_id" json:"voice_profile_id"`
 	ProviderID           uuid.UUID       `db:"provider_id" json:"provider_id"`
 	ModelID              uuid.UUID       `db:"model_id" json:"model_id"`
-	ProviderCode         string          `db:"provider_code" json:"provider_code,omitempty"`
-	ModelIdentifier      string          `db:"model_identifier" json:"model_identifier,omitempty"`
-	Name                 string          `db:"name" json:"name"`
-	Description          string          `db:"description" json:"description"`
+	ProviderCode         string          `db:"provider_code" json:"provider_code"`
+	ProviderName         string          `db:"provider_name" json:"provider_name"`
+	ModelIdentifier      string          `db:"model_identifier" json:"model_identifier"`
+	ModelName            string          `db:"model_name" json:"model_name"`
+	Operation            string          `db:"operation" json:"operation"`
 	VoiceID              string          `db:"voice_id" json:"voice_id"`
 	Status               string          `db:"status" json:"status"`
-	SourceName           string          `db:"source_name" json:"source_name"`
-	SourceMimeType       string          `db:"source_mime_type" json:"source_mime_type"`
-	SourceFileSizeBytes  int64           `db:"source_file_size_bytes" json:"source_file_size_bytes"`
-	PromptText           string          `db:"prompt_text" json:"prompt_text"`
+	PreviewText          string          `db:"preview_text" json:"preview_text"`
 	PreviewMimeType      string          `db:"preview_mime_type" json:"preview_mime_type"`
 	PreviewFileSizeBytes int64           `db:"preview_file_size_bytes" json:"preview_file_size_bytes"`
-	SourceObjectID       uuid.UUID       `db:"source_object_id" json:"source_object_id"`
-	PromptObjectID       *uuid.UUID      `db:"prompt_object_id" json:"prompt_object_id"`
-	PreviewObjectID      uuid.UUID       `db:"preview_object_id" json:"preview_object_id"`
+	PreviewObjectID      *uuid.UUID      `db:"preview_object_id" json:"preview_object_id"`
 	ProviderFileID       string          `db:"provider_file_id" json:"provider_file_id"`
 	ProviderPromptFileID string          `db:"provider_prompt_file_id" json:"provider_prompt_file_id"`
 	ActivatedAt          *time.Time      `db:"activated_at" json:"activated_at"`
@@ -336,6 +367,20 @@ type GenerationJob struct {
 	ProviderCode         string          `db:"provider_code" json:"provider_code,omitempty"`
 	ProviderBaseURL      string          `db:"provider_base_url" json:"-"`
 	ModelIdentifier      string          `db:"model_identifier" json:"model_identifier,omitempty"`
+}
+
+type GenerationJobPage struct {
+	Items    []GenerationJob `json:"items"`
+	Total    int64           `json:"total"`
+	Page     int             `json:"page"`
+	PageSize int             `json:"page_size"`
+}
+
+type MediaJobPage struct {
+	Items    []MediaJob `json:"items"`
+	Total    int64      `json:"total"`
+	Page     int        `json:"page"`
+	PageSize int        `json:"page_size"`
 }
 
 type GenerationInvocation struct {

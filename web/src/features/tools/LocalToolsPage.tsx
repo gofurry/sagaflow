@@ -1,23 +1,27 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AudioOutlined,
   CameraOutlined,
-  ColumnWidthOutlined,
   CompressOutlined,
   DeleteOutlined,
+  DownloadOutlined,
   FileSearchOutlined,
   HolderOutlined,
   MergeCellsOutlined,
+  PictureOutlined,
   PlayCircleOutlined,
   ReloadOutlined,
+  SearchOutlined,
   ScissorOutlined,
   StopOutlined,
 } from '@ant-design/icons'
-import { App, Button, Input, InputNumber, Modal, Progress, Select, Slider, Switch } from 'antd'
+import { Alert, App, Button, Input, InputNumber, Modal, Pagination, Progress, Radio, Select, Slider, Switch } from 'antd'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
-import type { Asset, AssetGroup, MediaJob, MediaTool, Project } from '../../api/types'
+import { queryKeys } from '../../api/queryKeys'
+import type { Asset, AssetGroup, MediaJob, MediaJobPage, MediaTool, Project } from '../../api/types'
 import { FloatingToolbar } from '../../components/FloatingToolbar'
+import { completedJobTransition } from '../jobs/completionTransitions'
 
 interface Draft {
   sourceAssetIDs: string[]
@@ -26,29 +30,38 @@ interface Draft {
   parameters: Record<string, unknown>
 }
 
-const toolOrder: MediaTool[] = ['inspect', 'transcode', 'aspect', 'audio', 'trim', 'merge', 'screenshot']
+type ActiveMediaTool = MediaTool
+
+const toolOrder: ActiveMediaTool[] = ['inspect', 'transcode', 'audio', 'trim', 'merge', 'screenshot']
 const STAGING_DESTINATION = '__staging__'
-const toolMeta: Record<MediaTool, { label: string; icon: React.ReactNode }> = {
+const toolMeta: Record<ActiveMediaTool, { label: string; icon: React.ReactNode }> = {
   inspect: { label: '检查', icon: <FileSearchOutlined/> },
   transcode: { label: '转换', icon: <CompressOutlined/> },
-  aspect: { label: '画幅', icon: <ColumnWidthOutlined/> },
   audio: { label: '音频', icon: <AudioOutlined/> },
   trim: { label: '裁切', icon: <ScissorOutlined/> },
   merge: { label: '合片', icon: <MergeCellsOutlined/> },
   screenshot: { label: '截图', icon: <CameraOutlined/> },
 }
 
-const defaultParameters: Record<MediaTool, Record<string, unknown>> = {
+const defaultParameters: Record<ActiveMediaTool, Record<string, unknown>> = {
   inspect: {},
   transcode: { format: 'mp4' },
-  aspect: { width: 1920, height: 1080, fit: 'contain', background: '#F5EDE2' },
   audio: { audio_mode: 'extract' },
   trim: { start_seconds: 0, duration: 5, fast: false },
   merge: { fast: true },
-  screenshot: { time_seconds: 0, image_format: 'png' },
+  screenshot: {
+    time_seconds: 0,
+    image_format: 'png',
+    output_width: 0,
+    output_height: 0,
+    crop_x: 0,
+    crop_y: 0,
+    crop_width: 0,
+    crop_height: 0,
+  },
 }
 
-const emptyDraft = (tool: MediaTool): Draft => ({
+const emptyDraft = (tool: ActiveMediaTool): Draft => ({
   sourceAssetIDs: [],
   outputName: '',
   parameters: { ...defaultParameters[tool] },
@@ -57,22 +70,33 @@ const emptyDraft = (tool: MediaTool): Draft => ({
 export function LocalToolsPage({ onError, project }: { onError: (error: unknown) => void; project: Project }) {
   const queryClient = useQueryClient()
   const { message } = App.useApp()
-  const [tool, setTool] = useState<MediaTool>('inspect')
+  const [tool, setTool] = useState<ActiveMediaTool>('inspect')
   const [draft, setDraft] = useState<Draft>(() => emptyDraft('inspect'))
   const [selectedJobID, setSelectedJobID] = useState<string>()
-  const statusQuery = useQuery({ queryKey: ['media-tools-status'], queryFn: api.mediaToolsStatus, retry: false })
-  const assetsQuery = useQuery({ queryKey: ['assets', project.id], queryFn: () => api.assets(project.id) })
+  const [selectedAssets, setSelectedAssets] = useState<Asset[]>([])
+  const [installOpen, setInstallOpen] = useState(false)
+  const [installMode, setInstallMode] = useState<'direct' | 'proxy' | 'manual'>('direct')
+  const [proxyPort, setProxyPort] = useState<number | null>(7897)
+  const [proxyUsername, setProxyUsername] = useState('')
+  const [proxyPassword, setProxyPassword] = useState('')
+  const completedJobIDs = useRef<Set<string> | null>(null)
+  const installWasRunning = useRef(false)
+  const statusQuery = useQuery({
+    queryKey: ['media-tools-status'],
+    queryFn: api.mediaToolsStatus,
+    retry: false,
+    refetchInterval: (query) => query.state.data?.installing ? 500 : false,
+  })
   const groupsQuery = useQuery({ queryKey: ['asset-groups', project.id], queryFn: () => api.assetGroups(project.id) })
   const jobsQuery = useQuery({
-    queryKey: ['media-jobs', project.id],
-    queryFn: () => api.mediaJobs(project.id),
-    refetchInterval: (query) => (query.state.data ?? []).some((job) => job.status === 'queued' || job.status === 'running') ? 1000 : false,
+    queryKey: queryKeys.mediaJobs(project.id),
+    queryFn: () => api.mediaJobs(project.id, { page: 1, page_size: 100 }),
+    refetchInterval: (query) => (query.state.data?.items ?? []).some((job) => job.status === 'queued' || job.status === 'running') ? 1000 : false,
   })
-  const jobs = useMemo(() => jobsQuery.data ?? [], [jobsQuery.data])
+  const jobs = useMemo(() => jobsQuery.data?.items ?? [], [jobsQuery.data?.items])
   const selectedJob = jobs.find((job) => job.id === selectedJobID) ?? jobs[0]
-  const assets = useMemo(() => (assetsQuery.data ?? []).filter((asset) => asset.status !== 'discarded'), [assetsQuery.data])
+  const assets = selectedAssets
   const groups = useMemo(() => groupsQuery.data ?? [], [groupsQuery.data])
-  const eligibleAssets = useMemo(() => assets.filter((asset) => acceptsAsset(tool, asset)), [assets, tool])
   const createJob = useMutation({
     mutationFn: () => api.createMediaJob(project.id, {
       tool,
@@ -82,7 +106,12 @@ export function LocalToolsPage({ onError, project }: { onError: (error: unknown)
       parameters: draft.parameters,
     }),
     onSuccess: async (job) => {
-      queryClient.setQueryData<MediaJob[]>(['media-jobs', project.id], (current = []) => [job, ...current.filter((item) => item.id !== job.id)])
+      queryClient.setQueryData<MediaJobPage>(queryKeys.mediaJobs(project.id), (current) => ({
+        items: [job, ...(current?.items ?? []).filter((item) => item.id !== job.id)].slice(0, 100),
+        total: Math.max(current?.total ?? 0, (current?.items.length ?? 0) + 1),
+        page: 1,
+        page_size: 100,
+      }))
       setSelectedJobID(job.id)
       await queryClient.invalidateQueries({ queryKey: ['media-jobs', project.id] })
       message.success('本地处理任务已进入队列')
@@ -103,18 +132,68 @@ export function LocalToolsPage({ onError, project }: { onError: (error: unknown)
     },
     onError,
   })
+  const installTools = useMutation({
+    mutationFn: () => api.installMediaTools({
+      mode: installMode === 'proxy' ? 'proxy' : 'direct',
+      proxy_port: installMode === 'proxy' ? proxyPort ?? undefined : undefined,
+      proxy_username: installMode === 'proxy' ? proxyUsername.trim() || undefined : undefined,
+      proxy_password: installMode === 'proxy' ? proxyPassword || undefined : undefined,
+    }),
+    onSuccess: (status) => {
+      queryClient.setQueryData(['media-tools-status'], status)
+      setInstallOpen(false)
+      message.info('FFmpeg 已开始后台下载，可以切换到其他页面')
+    },
+    onError: (error) => {
+      void queryClient.invalidateQueries({ queryKey: ['media-tools-status'] })
+      onError(error)
+    },
+  })
+  const cancelInstall = useMutation({
+    mutationFn: api.cancelMediaToolsInstall,
+    onSuccess: (status) => queryClient.setQueryData(['media-tools-status'], status),
+    onError,
+  })
+  const refreshToolchain = useMutation({
+    mutationFn: api.refreshMediaTools,
+    onSuccess: (status) => {
+      queryClient.setQueryData(['media-tools-status'], status)
+      if (status.available) {
+        setInstallOpen(false)
+        message.success('已检测到 FFmpeg')
+      } else {
+        message.warning('仍未检测到 FFmpeg，请检查文件名和放置目录')
+      }
+    },
+    onError,
+  })
 
   useEffect(() => {
-    const completed = jobs.some((job) => job.status === 'succeeded' && (job.output_asset_id || job.output_staged_asset_id))
-    if (completed) {
-      void queryClient.invalidateQueries({ queryKey: ['assets', project.id] })
-      void queryClient.invalidateQueries({ queryKey: ['staged-assets', project.id] })
-      void queryClient.invalidateQueries({ queryKey: ['staged-summary', project.id] })
-    }
+    const transition = completedJobTransition(completedJobIDs.current, jobs, (job) => Boolean(job.output_asset_id || job.output_staged_asset_id))
+    completedJobIDs.current = transition.current
+    if (!transition.added.length) return
+    void queryClient.invalidateQueries({ queryKey: ['assets', project.id] })
+    void queryClient.invalidateQueries({ queryKey: ['staged-assets', project.id] })
+    void queryClient.invalidateQueries({ queryKey: ['staged-summary', project.id] })
   }, [jobs, project.id, queryClient])
 
   useEffect(() => {
+    const status = statusQuery.data
+    if (!status) return
+    if (status.installing) {
+      installWasRunning.current = true
+      return
+    }
+    if (!installWasRunning.current) return
+    installWasRunning.current = false
+    if (status.available) message.success(`FFmpeg ${status.install_version} 已安装`)
+    else if (status.install_stage === 'canceled') message.info('FFmpeg 下载已取消')
+    else if (status.install_stage === 'failed') message.error(status.message)
+  }, [message, statusQuery.data])
+
+  useEffect(() => {
     setDraft(emptyDraft(tool))
+    setSelectedAssets([])
     setSelectedJobID(undefined)
   }, [tool, project.id])
 
@@ -129,7 +208,7 @@ export function LocalToolsPage({ onError, project }: { onError: (error: unknown)
   const sourceCountValid = tool === 'merge' ? selectedSourceCount >= 2 : selectedSourceCount === 1
   const canRun = Boolean(statusQuery.data?.available && sourceCountValid)
   const updateParameters = (patch: Record<string, unknown>) => setDraft((current) => ({ ...current, parameters: { ...current.parameters, ...patch } }))
-  const switchTool = (next: MediaTool) => setTool(next)
+  const switchTool = (next: ActiveMediaTool) => setTool(next)
 
   return <div className="page page-local-tools">
     <FloatingToolbar ariaLabel="本地工具栏" items={[
@@ -149,37 +228,93 @@ export function LocalToolsPage({ onError, project }: { onError: (error: unknown)
       <div className="local-tool-workbench">
         <header>
           <h2>{toolMeta[tool].label}</h2>
-          <span>{eligibleAssets.length} 个可用素材</span>
+          <div className={`local-tool-runtime${statusQuery.data?.available ? ' ready' : ' unavailable'}`} title={statusQuery.data?.version || statusQuery.data?.message}>
+            <div className="local-tool-runtime-summary">
+              <i/>
+              <span>{statusQuery.isLoading ? '正在检查 FFmpeg' : statusQuery.data?.message || 'FFmpeg 状态未知'}</span>
+              <small>素材按页搜索，不预加载全部资产</small>
+              {!statusQuery.data?.available && !statusQuery.data?.installing && statusQuery.data?.install_supported && <Button icon={<DownloadOutlined/>} onClick={() => setInstallOpen(true)} size="small" type="link">
+                {`安装 FFmpeg ${statusQuery.data.install_version} · ${formatBytes(statusQuery.data.download_bytes)}`}
+              </Button>}
+            </div>
+            {statusQuery.data?.installing && <div className="ffmpeg-install-progress">
+              <Progress percent={Math.round(statusQuery.data.install_progress * 100)} showInfo size="small" status={statusQuery.data.install_stage === 'canceling' ? 'exception' : 'active'}/>
+              <div>
+                <span>{installStageLabel(statusQuery.data.install_stage)} · {formatBytes(statusQuery.data.downloaded_bytes)} / {formatBytes(statusQuery.data.download_bytes)}</span>
+                <small>{downloadProgressDetail(statusQuery.data.download_speed_bytes, statusQuery.data.eta_seconds, statusQuery.data.install_mode)}</small>
+              </div>
+              {statusQuery.data.can_cancel && <Button danger loading={cancelInstall.isPending} onClick={() => cancelInstall.mutate()} size="small">取消下载</Button>}
+            </div>}
+          </div>
         </header>
 
-        <div className={`local-tool-fields${tool === 'merge' ? ' merge-fields' : ''}`}>
+        <div className={`local-tool-fields${tool === 'merge' ? ' merge-fields' : tool === 'trim' ? ' trim-fields' : ''}`}>
           {tool === 'merge'
-            ? <ToolField label="源视频"><MergeVideoPicker assets={eligibleAssets} onChange={(sourceAssetIDs) => setDraft((current) => ({ ...current, sourceAssetIDs }))} value={draft.sourceAssetIDs}/></ToolField>
-            : <ToolField label="源资产">
-              <Select
-                allowClear
-                onChange={(value) => setDraft((current) => ({ ...current, sourceAssetIDs: value ? [value] : [] }))}
-                optionFilterProp="label"
-                options={eligibleAssets.map(assetOption)}
-                placeholder="选择本地资产"
-                showSearch
-                value={draft.sourceAssetIDs[0]}
-              />
-            </ToolField>}
+            ? <ToolField label="源视频"><AssetSourcePicker groups={groups} multiple onChange={(sourceAssetIDs, nextAssets) => { setDraft((current) => ({ ...current, sourceAssetIDs })); setSelectedAssets(nextAssets) }} projectID={project.id} selectedAssets={selectedAssets} tool={tool} value={draft.sourceAssetIDs}/></ToolField>
+            : <ToolField label="源资产"><AssetSourcePicker groups={groups} onChange={(sourceAssetIDs, nextAssets) => { setDraft((current) => ({ ...current, sourceAssetIDs })); setSelectedAssets(nextAssets) }} projectID={project.id} selectedAssets={selectedAssets} tool={tool} value={draft.sourceAssetIDs}/></ToolField>}
           {tool !== 'inspect' && <ToolField label="输出位置"><Select onChange={(destination) => setDraft((current) => ({ ...current, targetGroupID: destination === STAGING_DESTINATION ? undefined : destination }))} optionFilterProp="label" options={[{ value: STAGING_DESTINATION, label: '未处理暂存区 · 稍后手动入库' }, ...groupOptions(groups)]} showSearch value={draft.targetGroupID ?? STAGING_DESTINATION}/></ToolField>}
           {tool !== 'inspect' && <ToolField label="输出名称（可选）"><Input maxLength={160} onChange={(event) => setDraft((current) => ({ ...current, outputName: event.target.value }))} placeholder="未填写时根据源文件命名" value={draft.outputName}/></ToolField>}
           {tool === 'merge' && <ToolField label="快速无损合片"><div className="local-tool-switch"><Switch checked={Boolean(draft.parameters.fast)} onChange={(fast) => updateParameters({ fast })}/><span>编码一致时开启</span></div></ToolField>}
+          {tool === 'trim' && <ToolField label="快速无损裁切"><div className="local-tool-switch"><Switch checked={Boolean(draft.parameters.fast)} onChange={(fast) => updateParameters({ fast })}/><span>切点可能受关键帧影响</span></div></ToolField>}
         </div>
 
         <ToolParameters parameters={draft.parameters} tool={tool} update={updateParameters}/>
 
         {tool === 'merge' && draft.sourceAssetIDs.length > 0 && <MergeOrderList assets={assets} ids={draft.sourceAssetIDs} onChange={(sourceAssetIDs) => setDraft((current) => ({ ...current, sourceAssetIDs }))}/>}
         {(tool === 'trim' || tool === 'screenshot') && draft.sourceAssetIDs[0] && <VideoTimeline asset={assets.find((item) => item.id === draft.sourceAssetIDs[0])} mode={tool} parameters={draft.parameters} update={updateParameters}/>}
-        {tool === 'aspect' && draft.sourceAssetIDs[0] && <AspectPreview asset={assets.find((item) => item.id === draft.sourceAssetIDs[0])} parameters={draft.parameters}/>}
       </div>
 
       <MediaTaskCenter assets={assets} jobs={jobs} onSelect={setSelectedJobID} selectedJob={selectedJob}/>
     </section>
+
+    <Modal
+      cancelText="关闭"
+      confirmLoading={installTools.isPending || refreshToolchain.isPending}
+      okButtonProps={{ disabled: installMode === 'proxy' && !proxyPort }}
+      okText={installMode === 'manual' ? '重新检测' : '开始下载'}
+      onCancel={() => setInstallOpen(false)}
+      onOk={() => installMode === 'manual' ? refreshToolchain.mutate() : installTools.mutate()}
+      open={installOpen}
+      title={`安装 FFmpeg ${statusQuery.data?.install_version ?? ''}`}
+      width={680}
+    >
+      <Radio.Group
+        buttonStyle="solid"
+        onChange={(event) => setInstallMode(event.target.value)}
+        optionType="button"
+        options={[
+          { label: '直接下载', value: 'direct' },
+          { label: '代理下载', value: 'proxy' },
+          { label: '手动下载', value: 'manual' },
+        ]}
+        value={installMode}
+      />
+      {installMode === 'direct' && <div className="ffmpeg-install-option">
+        <Alert message="直接连接固定版本下载源，下载完成后会自动校验 SHA-256 并解压。" showIcon type="info"/>
+      </div>}
+      {installMode === 'proxy' && <div className="ffmpeg-install-option">
+        <Alert message="通过本机 HTTP 代理 127.0.0.1 下载；代理信息只用于本次任务，不会保存。" showIcon type="info"/>
+        <div className="ffmpeg-proxy-fields">
+          <label><span>代理端口</span><InputNumber max={65535} min={1} onChange={setProxyPort} precision={0} value={proxyPort}/></label>
+          <label><span>账户（可选）</span><Input autoComplete="off" onChange={(event) => setProxyUsername(event.target.value)} value={proxyUsername}/></label>
+          <label><span>密码（可选）</span><Input.Password autoComplete="new-password" onChange={(event) => setProxyPassword(event.target.value)} value={proxyPassword}/></label>
+        </div>
+      </div>}
+      {installMode === 'manual' && <div className="ffmpeg-install-option ffmpeg-manual-install">
+        <Alert message="下载适合当前系统架构的固定压缩包，解压后只需保留 FFmpeg 与 FFprobe。" showIcon type="warning"/>
+        {(statusQuery.data?.manual_downloads ?? []).map((asset) => <div className="ffmpeg-manual-asset" key={asset.url}>
+          <div><strong>{asset.name}</strong><small>{formatBytes(asset.size)}</small></div>
+          <Button href={asset.url} icon={<DownloadOutlined/>} target="_blank">打开下载链接</Button>
+          <code>SHA-256: {asset.sha256}</code>
+        </div>)}
+        <ol>
+          <li>解压下载的压缩包。</li>
+          <li>找到并复制 {(statusQuery.data?.manual_files ?? []).join(' 和 ')}。</li>
+          <li>将这两个文件放入：<code>{statusQuery.data?.install_directory}</code></li>
+          <li>回到这里点击“重新检测”，无需重启 SagaFlow。</li>
+        </ol>
+      </div>}
+    </Modal>
   </div>
 }
 
@@ -187,51 +322,117 @@ function ToolField({ children, className = '', label }: { children: React.ReactN
   return <label className={className}><span>{label}</span>{children}</label>
 }
 
-function ToolParameters({ parameters, tool, update }: { parameters: Record<string, unknown>; tool: MediaTool; update: (patch: Record<string, unknown>) => void }) {
-  if (tool === 'inspect' || tool === 'merge') return null
+function ToolParameters({ parameters, tool, update }: { parameters: Record<string, unknown>; tool: ActiveMediaTool; update: (patch: Record<string, unknown>) => void }) {
+  if (tool === 'inspect' || tool === 'merge' || tool === 'trim') return null
   return <div className="local-tool-parameters">
     {tool === 'transcode' && <ToolField label="输出格式"><Select onChange={(format) => update({ format })} options={[
       { value: 'mp4', label: 'MP4 · H.264 / AAC' }, { value: 'webm', label: 'WebM · VP9 / Opus' },
       { value: 'mp3', label: 'MP3 音频' }, { value: 'wav', label: 'WAV 无损音频' }, { value: 'm4a', label: 'M4A · AAC' },
     ]} value={String(parameters.format)}/></ToolField>}
-    {tool === 'aspect' && <>
-      <ToolField label="宽度"><InputNumber max={7680} min={64} onChange={(width) => update({ width: width ?? 1920 })} value={Number(parameters.width)}/></ToolField>
-      <ToolField label="高度"><InputNumber max={4320} min={64} onChange={(height) => update({ height: height ?? 1080 })} value={Number(parameters.height)}/></ToolField>
-      <ToolField label="适配方式"><Select onChange={(fit) => update({ fit })} options={[{ value: 'contain', label: '完整显示 · 留边' }, { value: 'cover', label: '裁切铺满' }]} value={String(parameters.fit)}/></ToolField>
-      {parameters.fit === 'contain' && <ToolField label="留边颜色"><input aria-label="选择留边颜色" className="local-tool-color-swatch" onChange={(event) => update({ background: event.target.value })} type="color" value={String(parameters.background)}/></ToolField>}
-    </>}
     {tool === 'audio' && <ToolField label="处理方式"><Select onChange={(audio_mode) => update({ audio_mode })} options={[
       { value: 'extract', label: '提取为 MP3' }, { value: 'normalize', label: '响度标准化为 WAV' }, { value: 'mute', label: '移除视频音轨' },
     ]} value={String(parameters.audio_mode)}/></ToolField>}
-    {tool === 'trim' && <ToolField label="快速无损裁切"><div className="local-tool-switch"><Switch checked={Boolean(parameters.fast)} onChange={(fast) => update({ fast })}/><span>切点可能受关键帧影响</span></div></ToolField>}
-    {tool === 'screenshot' && <ToolField label="图片格式"><Select onChange={(image_format) => update({ image_format })} options={[{ value: 'png', label: 'PNG' }, { value: 'jpg', label: 'JPG' }]} value={String(parameters.image_format)}/></ToolField>}
+    {tool === 'screenshot' && <>
+      <ToolField label="图片格式"><Select onChange={(image_format) => update({ image_format })} options={[{ value: 'png', label: 'PNG' }, { value: 'jpg', label: 'JPG' }]} value={String(parameters.image_format)}/></ToolField>
+      <ToolField label="输出宽度"><InputNumber max={7680} min={16} onChange={(output_width) => update({ output_width: output_width ?? 0 })} placeholder="保持原宽度" value={Number(parameters.output_width) || null}/></ToolField>
+      <ToolField label="输出高度"><InputNumber max={7680} min={16} onChange={(output_height) => update({ output_height: output_height ?? 0 })} placeholder="保持原高度" value={Number(parameters.output_height) || null}/></ToolField>
+      <ToolField label="裁剪左边距"><InputNumber min={0} onChange={(crop_x) => update({ crop_x: crop_x ?? 0 })} value={Number(parameters.crop_x)}/></ToolField>
+      <ToolField label="裁剪上边距"><InputNumber min={0} onChange={(crop_y) => update({ crop_y: crop_y ?? 0 })} value={Number(parameters.crop_y)}/></ToolField>
+      <ToolField label="裁剪尺寸"><div className="local-tool-size-pair"><InputNumber min={0} onChange={(crop_width) => update({ crop_width: crop_width ?? 0 })} placeholder="宽度" value={Number(parameters.crop_width) || null}/><span>×</span><InputNumber min={0} onChange={(crop_height) => update({ crop_height: crop_height ?? 0 })} placeholder="高度" value={Number(parameters.crop_height) || null}/></div></ToolField>
+    </>}
   </div>
 }
 
-function MergeVideoPicker({ assets, onChange, value }: { assets: Asset[]; onChange: (ids: string[]) => void; value: string[] }) {
+function AssetSourcePicker({ groups, multiple = false, onChange, projectID, selectedAssets, tool, value }: {
+  groups: AssetGroup[]
+  multiple?: boolean
+  onChange: (ids: string[], assets: Asset[]) => void
+  projectID: string
+  selectedAssets: Asset[]
+  tool: ActiveMediaTool
+  value: string[]
+}) {
   const [open, setOpen] = useState(false)
   const [pending, setPending] = useState<string[]>([])
+  const [pendingAssets, setPendingAssets] = useState<Record<string, Asset>>({})
+  const [query, setQuery] = useState('')
+  const [groupID, setGroupID] = useState<string>()
+  const [page, setPage] = useState(1)
+  const deferredQuery = useDeferredValue(query.trim())
+  const pageSize = 24
+  const paths = useMemo(() => assetGroupPaths(groups), [groups])
+  const pickerQuery = useQuery({
+    queryKey: ['assets', 'picker', projectID, { tool, groupID, name: deferredQuery, page, pageSize }],
+    queryFn: () => api.assetPage(projectID, {
+      group_id: groupID,
+      exclude_status: 'discarded',
+      media_types: acceptedMediaTypes(tool).join(','),
+      name: deferredQuery || undefined,
+      page,
+      page_size: pageSize,
+    }),
+    enabled: open,
+    placeholderData: (previous) => previous,
+  })
+  const pageAssets = pickerQuery.data?.items ?? []
+  const total = pickerQuery.data?.total ?? 0
+  useEffect(() => setPage(1), [groupID, query])
   const show = () => {
     setPending(value)
+    setPendingAssets(Object.fromEntries(selectedAssets.map((asset) => [asset.id, asset])))
+    setQuery('')
+    setGroupID(undefined)
+    setPage(1)
     setOpen(true)
   }
-  const toggle = (id: string) => setPending((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
+  const toggle = (asset: Asset) => {
+    setPending((current) => {
+      if (!multiple) return [asset.id]
+      return current.includes(asset.id) ? current.filter((item) => item !== asset.id) : [...current, asset.id]
+    })
+    setPendingAssets((current) => {
+      const next = { ...current }
+      if (multiple && pending.includes(asset.id)) delete next[asset.id]
+      else next[asset.id] = asset
+      return next
+    })
+  }
+  const selected = value.map((id) => selectedAssets.find((asset) => asset.id === id)).filter((asset): asset is Asset => Boolean(asset))
+  const confirmDisabled = multiple ? pending.length < 2 : pending.length !== 1
   return <>
-    <Button block onClick={show}>{value.length ? `已选择 ${value.length} 个视频` : '选择视频'}</Button>
-    <Modal cancelText="取消" okButtonProps={{ disabled: pending.length < 2 }} okText="确认顺序" onCancel={() => setOpen(false)} onOk={() => { onChange(pending); setOpen(false) }} open={open} title="选择参与合片的视频" width={860}>
-      <div className="merge-picker-grid">
-        {assets.map((asset) => {
+    <button className={`asset-source-trigger${selected.length ? ' selected' : ''}`} onClick={show} type="button">
+      <span className="asset-source-trigger-icon">{selected[0] ? mediaIcon(selected[0].media_type) : <SearchOutlined/>}</span>
+      <span>
+        <strong>{selected.length ? (multiple ? `已选择 ${selected.length} 个视频` : selected[0].name) : (multiple ? '从资产库选择视频' : '从资产库选择')}</strong>
+        <small>{selected.length ? (multiple ? '打开后可以继续搜索、增删和排序' : `${mediaLabel(selected[0].media_type)} · ${formatBytes(selected[0].file_size_bytes)}`) : '支持按名称和分组分页搜索'}</small>
+      </span>
+    </button>
+    <Modal cancelText="取消" okButtonProps={{ disabled: confirmDisabled }} okText={multiple ? '确认选择' : '使用这个资产'} onCancel={() => setOpen(false)} onOk={() => { onChange(pending, pending.map((id) => pendingAssets[id]).filter((asset): asset is Asset => Boolean(asset))); setOpen(false) }} open={open} title={multiple ? '选择参与合片的视频' : '选择源资产'} width={980}>
+      <div className="asset-source-picker-toolbar">
+        <Input allowClear prefix={<SearchOutlined/>} onChange={(event) => setQuery(event.target.value)} placeholder="搜索资产名称" value={query}/>
+        <Select allowClear onChange={setGroupID} optionFilterProp="label" options={groupOptions(groups)} placeholder="全部分组" showSearch value={groupID}/>
+        <span>{total} 个结果{pending.length ? ` · 已选 ${pending.length}` : ''}</span>
+      </div>
+      <div className="merge-picker-grid asset-source-picker-grid">
+        {pageAssets.map((asset) => {
           const order = pending.indexOf(asset.id)
-          return <button aria-pressed={order >= 0} className={order >= 0 ? 'selected' : ''} key={asset.id} onClick={() => toggle(asset.id)} type="button">
-            <video muted preload="metadata" src={api.assetURL(asset.id)}/>
-            {order >= 0 && <i>{order + 1}</i>}
-            <span><strong>{asset.name}</strong><small>{formatBytes(asset.file_size_bytes)}</small></span>
+          return <button aria-pressed={order >= 0} className={order >= 0 ? 'selected' : ''} key={asset.id} onClick={() => toggle(asset)} type="button">
+            <AssetPickerPreview asset={asset}/>
+            {order >= 0 && <i>{multiple ? order + 1 : '✓'}</i>}
+            <span><strong>{asset.name}</strong><small>{paths.get(asset.group_id ?? '') || mediaLabel(asset.media_type)} · {formatBytes(asset.file_size_bytes)}</small></span>
           </button>
         })}
-        {!assets.length && <div className="merge-picker-empty">资产库中还没有视频</div>}
+        {!pickerQuery.isLoading && !pageAssets.length && <div className="merge-picker-empty">当前工具没有匹配的可用资产</div>}
       </div>
+      {total > pageSize && <Pagination current={page} onChange={setPage} pageSize={pageSize} showSizeChanger={false} total={total}/>}
     </Modal>
   </>
+}
+
+function AssetPickerPreview({ asset }: { asset: Asset }) {
+  if (asset.media_type === 'image') return <img alt="" loading="lazy" src={api.assetURL(asset.id)}/>
+  if (asset.media_type === 'video') return <video muted preload="metadata" src={api.assetURL(asset.id)}/>
+  return <div className="asset-source-picker-audio"><AudioOutlined/><span>音频</span></div>
 }
 
 function MergeOrderList({ assets, ids, onChange }: { assets: Asset[]; ids: string[]; onChange: (ids: string[]) => void }) {
@@ -287,9 +488,33 @@ function VideoTimeline({ asset, mode, parameters, update }: { asset?: Asset; mod
 
 function ScreenshotTimeline({ asset, parameters, update }: { asset: Asset; parameters: Record<string, unknown>; update: (patch: Record<string, unknown>) => void }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const [duration, setDuration] = useState(0)
   const [playhead, setPlayhead] = useState(Number(parameters.time_seconds ?? 0))
   const max = duration > 0 ? duration : 1
+  const renderPreview = useCallback(() => {
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    if (!video || !canvas || !video.videoWidth || !video.videoHeight) return
+    const cropEnabled = Number(parameters.crop_width) > 0 && Number(parameters.crop_height) > 0
+    const sourceX = cropEnabled ? Math.min(Number(parameters.crop_x) || 0, Math.max(0, video.videoWidth - 2)) : 0
+    const sourceY = cropEnabled ? Math.min(Number(parameters.crop_y) || 0, Math.max(0, video.videoHeight - 2)) : 0
+    const sourceWidth = cropEnabled ? Math.min(Number(parameters.crop_width), video.videoWidth - sourceX) : video.videoWidth
+    const sourceHeight = cropEnabled ? Math.min(Number(parameters.crop_height), video.videoHeight - sourceY) : video.videoHeight
+    const requestedWidth = Number(parameters.output_width) || 0
+    const requestedHeight = Number(parameters.output_height) || 0
+    const targetRatio = requestedWidth > 0 && requestedHeight > 0
+      ? requestedWidth / requestedHeight
+      : sourceWidth / sourceHeight
+    const previewWidth = Math.min(requestedWidth || sourceWidth, 960)
+    const previewHeight = Math.max(1, Math.round(previewWidth / targetRatio))
+    canvas.width = previewWidth
+    canvas.height = previewHeight
+    const context = canvas.getContext('2d')
+    context?.clearRect(0, 0, previewWidth, previewHeight)
+    context?.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, previewWidth, previewHeight)
+  }, [parameters.crop_height, parameters.crop_width, parameters.crop_x, parameters.crop_y, parameters.output_height, parameters.output_width])
+  useEffect(() => renderPreview(), [renderPreview])
   const seek = (value: number) => {
     setPlayhead(value)
     if (videoRef.current) videoRef.current.currentTime = value
@@ -302,25 +527,39 @@ function ScreenshotTimeline({ asset, parameters, update }: { asset: Asset; param
     seek(next)
     update({ time_seconds: next })
   }
-  return <div className="video-timeline-editor">
-    <div className="video-timeline-preview">
-      <video
-        controls
-        onLoadedMetadata={loaded}
-        onPause={() => update({ time_seconds: playhead })}
-        onSeeked={() => {
-          const current = videoRef.current?.currentTime ?? 0
-          setPlayhead(current)
-          update({ time_seconds: current })
-        }}
-        onTimeUpdate={() => {
-          const current = videoRef.current?.currentTime ?? 0
-          setPlayhead(current)
-        }}
-        preload="metadata"
-        ref={videoRef}
-        src={api.assetURL(asset.id)}
-      />
+  const cropEnabled = Number(parameters.crop_width) > 0 && Number(parameters.crop_height) > 0
+  const outputSize = Number(parameters.output_width) > 0 || Number(parameters.output_height) > 0
+    ? `${Number(parameters.output_width) || '自动'} × ${Number(parameters.output_height) || '自动'}`
+    : '保持裁剪后尺寸'
+  return <div className="screenshot-timeline-editor">
+    <div className="screenshot-preview-grid">
+      <figure className="video-timeline-preview">
+        <video
+          controls
+          onLoadedData={renderPreview}
+          onLoadedMetadata={loaded}
+          onPause={() => update({ time_seconds: playhead })}
+          onSeeked={() => {
+            const current = videoRef.current?.currentTime ?? 0
+            setPlayhead(current)
+            update({ time_seconds: current })
+            renderPreview()
+          }}
+          onTimeUpdate={() => {
+            const current = videoRef.current?.currentTime ?? 0
+            setPlayhead(current)
+            renderPreview()
+          }}
+          preload="metadata"
+          ref={videoRef}
+          src={api.assetURL(asset.id)}
+        />
+        <figcaption>源视频</figcaption>
+      </figure>
+      <figure className="screenshot-output-preview">
+        <canvas ref={canvasRef}/>
+        <figcaption><strong>截图预览</strong><span>{cropEnabled ? '已裁剪' : '完整画面'} · {outputSize}</span></figcaption>
+      </figure>
     </div>
     <div className="video-timeline-track">
       <div><strong>截图位置</strong><span>{formatTimestamp(playhead)}</span></div>
@@ -359,23 +598,11 @@ function TrimTimeline({ asset, parameters, update }: { asset: Asset; parameters:
 
 function FramePreview({ asset, label, onDuration, time }: { asset: Asset; label: string; onDuration: (duration: number) => void; time: number }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const draw = () => {
-    const video = videoRef.current
-    const canvas = canvasRef.current
-    if (!video || !canvas || !video.videoWidth || !video.videoHeight) return
-    const width = Math.min(video.videoWidth, 960)
-    const height = Math.round(width * video.videoHeight / video.videoWidth)
-    canvas.width = width
-    canvas.height = height
-    canvas.getContext('2d')?.drawImage(video, 0, 0, width, height)
-  }
   const seek = () => {
     const video = videoRef.current
     if (!video || !Number.isFinite(video.duration)) return
     const target = Math.min(Math.max(0, time), Math.max(0, video.duration - .001))
-    if (Math.abs(video.currentTime - target) < .001) draw()
-    else video.currentTime = target
+    if (Math.abs(video.currentTime - target) >= .001) video.currentTime = target
   }
   useEffect(() => {
     videoRef.current?.load()
@@ -384,11 +611,9 @@ function FramePreview({ asset, label, onDuration, time }: { asset: Asset; label:
     const video = videoRef.current
     if (!video || !Number.isFinite(video.duration)) return
     const target = Math.min(Math.max(0, time), Math.max(0, video.duration - .001))
-    if (Math.abs(video.currentTime - target) < .001) draw()
-    else video.currentTime = target
+    if (Math.abs(video.currentTime - target) >= .001) video.currentTime = target
   }, [time])
   return <figure className="trim-frame-preview">
-    <canvas ref={canvasRef}/>
     <video
       aria-hidden
       muted
@@ -398,7 +623,6 @@ function FramePreview({ asset, label, onDuration, time }: { asset: Asset; label:
         onDuration(duration)
         seek()
       }}
-      onSeeked={draw}
       preload="auto"
       ref={videoRef}
       src={api.assetURL(asset.id)}
@@ -407,25 +631,12 @@ function FramePreview({ asset, label, onDuration, time }: { asset: Asset; label:
   </figure>
 }
 
-function AspectPreview({ asset, parameters }: { asset?: Asset; parameters: Record<string, unknown> }) {
-  if (!asset) return null
-  const width = Number(parameters.width ?? 1920)
-  const height = Number(parameters.height ?? 1080)
-  const fit = parameters.fit === 'cover' ? 'cover' : 'contain'
-  return <div className="aspect-preview">
-    <div><strong>输出预览</strong><span>{width} × {height}</span></div>
-    <div className="aspect-preview-frame" style={{ aspectRatio: `${width} / ${height}`, backgroundColor: String(parameters.background ?? '#F5EDE2') }}>
-      <video controls preload="metadata" src={api.assetURL(asset.id)} style={{ objectFit: fit }}/>
-    </div>
-  </div>
-}
-
 function MediaTaskCenter({ assets, jobs, onSelect, selectedJob }: { assets: Asset[]; jobs: MediaJob[]; onSelect: (id: string) => void; selectedJob?: MediaJob }) {
   return <section className="local-media-tasks">
     <div className="local-media-task-heading"><strong>处理任务</strong><span>{jobs.length ? `${jobs.length} 条记录` : '还没有本地处理任务'}</span></div>
     {jobs.length > 0 && <div className="local-media-task-list">
       {jobs.map((job) => <button className={selectedJob?.id === job.id ? 'active' : ''} key={job.id} onClick={() => onSelect(job.id)} type="button">
-        <i className={job.status}/><span><strong>{toolMeta[job.tool].label} · {job.output_name || sourceNames(job, assets)}</strong><small>{statusLabel(job.status)} · {new Date(job.created_at).toLocaleString()}</small></span>
+        <i className={job.status}/><span><strong>{mediaToolLabel(job.tool)} · {job.output_name || sourceNames(job, assets)}</strong><small>{statusLabel(job.status)} · {new Date(job.created_at).toLocaleString()}</small></span>
       </button>)}
     </div>}
     <MediaTaskDetail assets={assets} job={selectedJob}/>
@@ -436,7 +647,7 @@ function MediaTaskDetail({ assets, job }: { assets: Asset[]; job?: MediaJob }) {
   if (!job) return <div className="local-media-progress idle"><div><strong>任务进度</strong><span>提交任务后启用</span></div><Progress percent={0} showInfo={false}/></div>
   const running = job.status === 'queued' || job.status === 'running'
   return <div className={`local-media-progress${running ? ' running' : ''}`}>
-    <div><strong>{toolMeta[job.tool].label} · {sourceNames(job, assets)}</strong><span>{stageLabel(job.stage)}</span></div>
+    <div><strong>{mediaToolLabel(job.tool)} · {sourceNames(job, assets)}</strong><span>{stageLabel(job.stage)}</span></div>
     <Progress percent={Math.round(job.progress * 100)} status={job.status === 'failed' ? 'exception' : job.status === 'succeeded' ? 'success' : 'active'}/>
     {job.error_message && <p className="local-media-error">{job.error_message}</p>}
     {job.tool === 'inspect' && job.status === 'succeeded' && <ProbeSummary value={job.probe_snapshot}/>}
@@ -458,20 +669,21 @@ function ProbeSummary({ value }: { value: Record<string, unknown> }) {
   </div>
 }
 
-function acceptsAsset(tool: MediaTool, asset: Asset) {
-  if (tool === 'inspect') return ['image', 'audio', 'video'].includes(asset.media_type)
-  if (tool === 'transcode') return ['audio', 'video'].includes(asset.media_type)
-  if (tool === 'audio') return ['audio', 'video'].includes(asset.media_type)
-  return asset.media_type === 'video'
-}
-
-function assetOption(asset: Asset) {
-  return { value: asset.id, label: `${asset.name} · ${asset.media_type} · ${formatBytes(asset.file_size_bytes)}` }
+function acceptedMediaTypes(tool: MediaTool): Asset['media_type'][] {
+  if (tool === 'inspect') return ['image', 'audio', 'video']
+  if (tool === 'transcode' || tool === 'audio') return ['audio', 'video']
+  return ['video']
 }
 
 function groupOptions(groups: AssetGroup[]) {
+  const paths = assetGroupPaths(groups)
+  return groups.map((group) => ({ value: group.id, label: `${kindLabel(group.kind)} · ${paths.get(group.id)}` }))
+}
+
+function assetGroupPaths(groups: AssetGroup[]) {
   const byID = new Map(groups.map((group) => [group.id, group]))
-  const path = (group: AssetGroup) => {
+  const paths = new Map<string, string>()
+  for (const group of groups) {
     const names = [group.name]
     let parentID = group.parent_id
     const visited = new Set<string>()
@@ -482,9 +694,19 @@ function groupOptions(groups: AssetGroup[]) {
       names.unshift(parent.name)
       parentID = parent.parent_id
     }
-    return names.join(' / ')
+    paths.set(group.id, names.join(' / '))
   }
-  return groups.map((group) => ({ value: group.id, label: `${kindLabel(group.kind)} · ${path(group)}` }))
+  return paths
+}
+
+function mediaLabel(mediaType: Asset['media_type']) {
+  return ({ image: '图像', audio: '音频', video: '视频', text: '文本', file: '文件' })[mediaType]
+}
+
+function mediaIcon(mediaType: Asset['media_type']) {
+  if (mediaType === 'audio') return <AudioOutlined/>
+  if (mediaType === 'video') return <PlayCircleOutlined/>
+  return <PictureOutlined/>
 }
 
 function sourceNames(job: MediaJob, assets: Asset[]) {
@@ -496,12 +718,34 @@ function kindLabel(kind: AssetGroup['kind']) {
   return ({ character: '人物', scene: '场景', prop: '道具', material: '素材' })[kind]
 }
 
+function mediaToolLabel(tool: MediaTool) {
+  return toolMeta[tool].label
+}
+
 function statusLabel(status: MediaJob['status']) {
   return ({ queued: '排队', running: '处理中', succeeded: '已完成', failed: '失败', canceled: '已取消', interrupted: '已中断' })[status]
 }
 
 function stageLabel(stage: string) {
   return ({ queued: '等待处理', preparing: '准备文件', probing: '读取媒体信息', processing: 'FFmpeg 处理', storing: '存入本地资产', completed: '处理完成', failed: '处理失败', canceled: '已取消', interrupted: '已中断' } as Record<string, string>)[stage] ?? stage
+}
+
+function installStageLabel(stage: string) {
+  return ({
+    connecting: '正在连接',
+    downloading: '正在下载',
+    retrying: '正在重试',
+    extracting: '正在解压',
+    verifying: '正在校验',
+    canceling: '正在取消',
+  } as Record<string, string>)[stage] ?? '正在准备'
+}
+
+function downloadProgressDetail(speed: number, etaSeconds: number, mode: string) {
+  const via = mode === 'proxy' ? '代理下载' : '直接下载'
+  if (speed <= 0) return `${via} · 可以切换页面，任务会在后台继续`
+  const eta = etaSeconds > 0 ? ` · 约 ${formatDuration(etaSeconds)}` : ''
+  return `${via} · ${formatBytes(speed)}/s${eta} · 可以切换页面`
 }
 
 function probeSummaryLine(value?: Record<string, unknown>, loading?: boolean) {

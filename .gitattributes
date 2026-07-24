@@ -9,4 +9,7 @@
 *.yml text eol=lf
 internal/webui/dist/* binary
 internal/webui/dist/assets/* binary
-tools/ffmpeg/windows-x64/*.exe binary
+*.ico binary
+*.icns binary
+*.png binary
+*.syso binary

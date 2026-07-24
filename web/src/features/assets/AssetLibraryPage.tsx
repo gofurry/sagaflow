@@ -1,6 +1,6 @@
-import { useMemo, useState, type CSSProperties, type MouseEvent } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from 'react'
 import { AppstoreOutlined, AudioOutlined, BarsOutlined, CaretDownOutlined, CaretRightOutlined, CloudOutlined, CloudUploadOutlined, CompressOutlined, DeleteOutlined, EditOutlined, ExpandOutlined, EyeOutlined, FileImageOutlined, FileTextOutlined, HddOutlined, InboxOutlined, PlusOutlined, ReloadOutlined, UploadOutlined, VideoCameraOutlined } from '@ant-design/icons'
-import { App, Button, Form, Input, Modal, Popconfirm, Select, Skeleton, Tag, Tooltip, Upload } from 'antd'
+import { App, Button, Form, Input, Modal, Pagination, Popconfirm, Select, Skeleton, Tag, Tooltip, Upload } from 'antd'
 import type { UploadFile } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
@@ -23,6 +23,7 @@ const statusMeta: Record<AssetStatus, { label: string; color: string }> = {
   adopted: { label: '已采用', color: 'green' },
   discarded: { label: '已弃用', color: 'default' },
 }
+const ASSET_PAGE_SIZE = 48
 
 interface Props {
   project: Project
@@ -70,32 +71,43 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
   const [renameName, setRenameName] = useState('')
 	const [publishingAsset, setPublishingAsset] = useState<Asset | null>(null)
 	const [publishConnectionID, setPublishConnectionID] = useState<string>()
+  const [assetPage, setAssetPage] = useState(1)
 
   const groupsQuery = useQuery({ queryKey: ['asset-groups', project.id], queryFn: () => api.assetGroups(project.id) })
-  const assetsQuery = useQuery({ queryKey: ['assets', project.id], queryFn: () => api.assets(project.id) })
+  const assetFilters = videoView
+    ? { episode_id: episode?.id, media_type: 'video', ungrouped: 1, page: assetPage, page_size: ASSET_PAGE_SIZE }
+    : { group_kind: selectedKind, page: assetPage, page_size: ASSET_PAGE_SIZE }
+  const assetsQuery = useQuery({
+    queryKey: ['assets', project.id, assetFilters],
+    queryFn: () => api.assetPage(project.id, assetFilters),
+    enabled: !stagingView,
+    placeholderData: (previous) => previous,
+  })
+  const assetSummaryQuery = useQuery({ queryKey: ['asset-summary', project.id], queryFn: () => api.assetSummary(project.id) })
   const stagedSummaryQuery = useQuery({ queryKey: ['staged-summary', project.id], queryFn: () => api.stagedAssetSummary(project.id) })
 	const s3Query = useQuery({ queryKey: ['s3-connections'], queryFn: api.s3Connections })
 	const exportsQuery = useQuery({ queryKey: ['asset-exports', publishingAsset?.id], queryFn: () => api.assetExports(publishingAsset!.id), enabled: !!publishingAsset })
   const projectExportsQuery = useQuery({ queryKey: ['asset-exports', 'project', project.id], queryFn: () => api.projectAssetExports(project.id) })
   const groups = useMemo(() => groupsQuery.data ?? [], [groupsQuery.data])
-  const assets = useMemo(() => assetsQuery.data ?? [], [assetsQuery.data])
+  const assets = useMemo(() => assetsQuery.data?.items ?? [], [assetsQuery.data?.items])
   const exportsByAsset = useMemo(() => groupAssetExports(projectExportsQuery.data ?? []), [projectExportsQuery.data])
   const kindGroups = useMemo(() => groups.filter((group) => group.kind === selectedKind), [groups, selectedKind])
   const kindGroupIDs = useMemo(() => new Set(kindGroups.map((group) => group.id)), [kindGroups])
   const kindAssets = useMemo(() => assets.filter((asset) => !!asset.group_id && kindGroupIDs.has(asset.group_id)), [assets, kindGroupIDs])
-  const videoAssets = useMemo(() => assets.filter((asset) => asset.media_type === 'video' && !asset.group_id), [assets])
-  const episodeVideoAssets = useMemo(() => videoAssets.filter((asset) => asset.episode_id === episode?.id), [episode?.id, videoAssets])
+  const episodeVideoAssets = useMemo(() => videoView ? assets : [], [assets, videoView])
   const rootGroups = useMemo(() => sortedGroups(kindGroups.filter((group) => !group.parent_id)), [kindGroups])
   const selectedGroup = kindGroups.find((group) => group.id === selectedID) ?? null
-  const refreshing = groupsQuery.isFetching || assetsQuery.isFetching || stagedSummaryQuery.isFetching
+  const refreshing = groupsQuery.isFetching || assetsQuery.isFetching || assetSummaryQuery.isFetching || stagedSummaryQuery.isFetching
   const allExpanded = kindGroups.length > 0 && kindGroups.every((group) => expandedGroups.has(group.id))
   const fileList: UploadFile[] = pendingFiles.map(({ uid, file }) => ({ uid, name: file.name, size: file.size, type: file.type, status: 'done' }))
   const stagingFileList: UploadFile[] = stagingPendingFiles.map(({ uid, file }) => ({ uid, name: file.name, size: file.size, type: file.type, status: 'done' }))
+  useEffect(() => setAssetPage(1), [episode?.id, project.id])
 
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['asset-groups', project.id] }),
       queryClient.invalidateQueries({ queryKey: ['assets', project.id] }),
+      queryClient.invalidateQueries({ queryKey: ['asset-summary', project.id] }),
       queryClient.invalidateQueries({ queryKey: ['staged-assets', project.id] }),
       queryClient.invalidateQueries({ queryKey: ['staged-summary', project.id] }),
       queryClient.invalidateQueries({ queryKey: ['asset-exports', 'project', project.id] }),
@@ -315,8 +327,7 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
     <section className="asset-page-content">
       <div aria-label="资产分类" className="asset-kind-tabs" role="tablist">
         {kinds.map((kind) => {
-          const groupIDs = new Set(groups.filter((group) => group.kind === kind).map((group) => group.id))
-          const assetCount = assets.filter((asset) => !!asset.group_id && groupIDs.has(asset.group_id)).length
+          const assetCount = assetSummaryQuery.data?.by_group_kind[kind] ?? 0
           return <button
             aria-selected={!stagingView && !videoView && selectedKind === kind}
             className={!stagingView && !videoView && selectedKind === kind ? 'active' : ''}
@@ -326,6 +337,7 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
               setVideoView(false)
               setSelectedKind(kind)
               setSelectedID(null)
+              setAssetPage(1)
             }}
             role="tab"
             type="button"
@@ -343,6 +355,7 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
             setStagingView('imported')
             setVideoView(false)
             setSelectedID(null)
+            setAssetPage(1)
           }}
           role="tab"
           type="button"
@@ -357,6 +370,7 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
             setStagingView('unprocessed')
             setVideoView(false)
             setSelectedID(null)
+            setAssetPage(1)
           }}
           role="tab"
           type="button"
@@ -372,12 +386,13 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
             setStagingView(null)
             setVideoView(true)
             setSelectedID(null)
+            setAssetPage(1)
           }}
           role="tab"
           type="button"
         >
           <strong>视频</strong>
-          <em>{episodeVideoAssets.length}</em>
+          <em>{videoView ? assetsQuery.data?.total ?? 0 : assetSummaryQuery.data?.ungrouped_video_total ?? 0}</em>
         </button>
       </div>
 
@@ -412,6 +427,14 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
               selectedID={selectedID}
             />)}</div>
           : <div className="asset-tab-empty"><span>“{kindMeta[selectedKind].label}”分类还没有分组</span><Button icon={<PlusOutlined/>} onClick={() => openCreateGroup()} type="primary">新建第一个分组</Button></div>}
+      {!stagingView && (assetsQuery.data?.total ?? 0) > ASSET_PAGE_SIZE && <Pagination
+        className="asset-library-pagination"
+        current={assetPage}
+        onChange={setAssetPage}
+        pageSize={ASSET_PAGE_SIZE}
+        showSizeChanger={false}
+        total={assetsQuery.data?.total ?? 0}
+      />}
     </section>
 
     <Modal confirmLoading={saveGroup.isPending} okText="保存" onCancel={closeGroupModal} onOk={() => groupForm.submit()} open={groupOpen} title={editingGroup ? '编辑分组' : createParent ? `新建“${createParent.name}”的子分组` : `新建${kindMeta[selectedKind].label}分组`}>

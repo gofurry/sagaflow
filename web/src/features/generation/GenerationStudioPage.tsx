@@ -1,15 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppstoreOutlined, AudioOutlined, BarsOutlined, CloudOutlined, FileTextOutlined, HddOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined, VideoCameraOutlined } from '@ant-design/icons'
 import { App, AutoComplete, Button, Input, Select, Steps } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
-import type { Asset, AssetRemoteExport, Capability, CanvasEdgeDTO, CanvasNodeDTO, Episode, GenerationJob, MediaType, Model, ModelPreset, ModelProvider, Project, WorkflowCompatibility, WorkflowTemplate } from '../../api/types'
+import { queryKeys } from '../../api/queryKeys'
+import type { Asset, AssetRemoteExport, Capability, CanvasEdgeDTO, CanvasNodeDTO, Episode, GenerationJob, GenerationJobPage, MediaType, Model, ModelPreset, ModelProvider, Project, WorkflowCompatibility, WorkflowTemplate } from '../../api/types'
 import { FloatingToolbar } from '../../components/FloatingToolbar'
 import { MarkdownEditor } from '../../components/Markdown'
 import { ModelParameterEditor } from '../../components/ModelParameterEditor'
 import { GenerationReferencePicker, type GenerationReferenceDraft } from './GenerationReferencePicker'
 import { StagedAssetGallery, type ResultViewMode } from './StagedAssetGallery'
 import { assetExportLabel, preferredAssetExport, usableAssetExports } from '../assets/storage'
+import { completedJobTransition } from '../jobs/completionTransitions'
 
 type GenerationCapability = Extract<Capability, 'text' | 'image' | 'audio' | 'video'>
 interface GenerationDraft {
@@ -42,6 +44,7 @@ const capabilityMeta: Record<GenerationCapability, { label: string; references: 
 }
 const BASE_PARAMETERS = '__model_base__'
 const CUSTOM_PARAMETERS = '__custom__'
+const recentJobsFilter = { page: 1, page_size: 100 } as const
 const emptyDraft = (): GenerationDraft => ({ outputName: '', prompt: '', parameters: {}, parametersCustomized: false, inputReferences: [], remoteExportIDs: {} })
 
 export function GenerationStudioPage({ episode, onError, project }: { episode: Episode | null; onError: (error: unknown) => void; project: Project }) {
@@ -50,6 +53,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
   const [capability, setCapability] = useState<GenerationCapability>('text')
   const [viewMode, setViewMode] = useState<ResultViewMode>('grid')
   const [sessionJobIDs, setSessionJobIDs] = useState<string[]>([])
+  const completedJobIDs = useRef<Set<string> | null>(null)
   const [selectedJobIDs, setSelectedJobIDs] = useState<Partial<Record<GenerationCapability, string>>>({})
   const [drafts, setDrafts] = useState<Record<GenerationCapability, GenerationDraft>>({
     text: emptyDraft(),
@@ -63,16 +67,24 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
   const compatibilityQuery = useQuery({ queryKey: ['workflow-compatibilities'], queryFn: () => api.workflowCompatibilities() })
   const presetsQuery = useQuery({ queryKey: ['presets'], queryFn: () => api.presets() })
   const promptsQuery = useQuery({ queryKey: ['prompt-presets'], queryFn: () => api.promptPresets() })
-  const assetsQuery = useQuery({ queryKey: ['assets', project.id], queryFn: () => api.assets(project.id) })
-  const assetExportsQuery = useQuery({ queryKey: ['asset-exports', 'project', project.id], queryFn: () => api.projectAssetExports(project.id) })
+  const canvasQuery = useQuery({ queryKey: ['canvas', episode?.id], queryFn: () => api.canvas(episode!.id), enabled: capability === 'video' && !!episode })
+  const canvasAssetIDs = useMemo(() => [...new Set((canvasQuery.data?.nodes ?? []).flatMap((node) => [
+    node.data.asset_id,
+    node.data.selected_video_asset_id,
+  ]).filter((id): id is string => Boolean(id)))].sort(), [canvasQuery.data?.nodes])
+  const assetsQuery = useQuery({
+    queryKey: ['assets', 'by-ids', project.id, canvasAssetIDs],
+    queryFn: () => api.assetsByIDs(project.id, canvasAssetIDs),
+    enabled: capability === 'video' && canvasAssetIDs.length > 0,
+  })
+  const assetExportsQuery = useQuery({ queryKey: ['asset-exports', 'project', project.id], queryFn: () => api.projectAssetExports(project.id), enabled: capability === 'image' || capability === 'video' })
   const groupsQuery = useQuery({ queryKey: ['asset-groups', project.id], queryFn: () => api.assetGroups(project.id) })
   const stagedSummaryQuery = useQuery({ queryKey: ['staged-summary', project.id], queryFn: () => api.stagedAssetSummary(project.id) })
-  const voicesQuery = useQuery({ queryKey: ['voice-profiles'], queryFn: api.voiceProfiles })
-  const canvasQuery = useQuery({ queryKey: ['canvas', episode?.id], queryFn: () => api.canvas(episode!.id), enabled: !!episode })
+  const voicesQuery = useQuery({ queryKey: ['voice-profiles'], queryFn: api.voiceProfiles, enabled: capability === 'audio' })
   const jobsQuery = useQuery({
-    queryKey: ['jobs', project.id],
-    queryFn: () => api.jobs(project.id),
-    refetchInterval: (query) => (query.state.data ?? []).some((job) => job.status === 'queued' || job.status === 'running') ? 2500 : false,
+    queryKey: queryKeys.generationJobs(project.id, recentJobsFilter),
+    queryFn: () => api.jobs(project.id, recentJobsFilter),
+    refetchInterval: (query) => (query.state.data?.items ?? []).some((job) => job.status === 'queued' || job.status === 'running') ? 2500 : false,
   })
   const draft = drafts[capability]
   const allModels = useMemo(() => modelsQuery.data ?? [], [modelsQuery.data])
@@ -92,7 +104,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
   const assetExports = useMemo(() => assetExportsQuery.data ?? [], [assetExportsQuery.data])
   const modelPresets = useMemo(() => allPresets.filter((preset) => preset.model_id === draft.modelID), [allPresets, draft.modelID])
   const prompts = useMemo(() => (promptsQuery.data ?? []).filter((preset) => preset.capability === capability), [capability, promptsQuery.data])
-  const allJobs = useMemo(() => jobsQuery.data ?? [], [jobsQuery.data])
+  const allJobs = useMemo(() => jobsQuery.data?.items ?? [], [jobsQuery.data?.items])
   const relevantJobs = useMemo(() => allJobs.filter((job) => capabilities.includes(job.capability as GenerationCapability) && (job.capability !== 'video' || job.episode_id === episode?.id)), [allJobs, episode?.id])
   const jobs = useMemo(() => relevantJobs.filter((job) => job.capability === capability), [capability, relevantJobs])
   const taskJobs = useMemo(() => {
@@ -116,7 +128,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
   const selectedJob = selectedJobID ? jobs.find((job) => job.id === selectedJobID) : undefined
   const updateDraft = (patch: Partial<GenerationDraft>) => setDrafts((current) => ({ ...current, [capability]: { ...current[capability], ...patch } }))
   const refresh = () => Promise.all([
-    queryClient.invalidateQueries({ queryKey: ['jobs', project.id] }),
+    queryClient.invalidateQueries({ queryKey: ['generation-jobs', project.id] }),
     queryClient.invalidateQueries({ queryKey: ['staged-assets', project.id] }),
     queryClient.invalidateQueries({ queryKey: ['staged-summary', project.id] }),
     queryClient.invalidateQueries({ queryKey: ['prompt-presets'] }),
@@ -127,17 +139,24 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
   const createJob = useMutation({
     mutationFn: ({ request }: CreateJobVariables) => api.createJob(request),
     onSuccess: async (job, variables) => {
-      queryClient.setQueryData<GenerationJob[]>(['jobs', project.id], (current = []) => [job, ...current.filter((item) => item.id !== job.id)])
+      queryClient.setQueryData<GenerationJobPage>(queryKeys.generationJobs(project.id, recentJobsFilter), (current) => ({
+        items: [job, ...(current?.items ?? []).filter((item) => item.id !== job.id)].slice(0, 100),
+        total: Math.max(current?.total ?? 0, (current?.items.length ?? 0) + 1),
+        page: 1,
+        page_size: 100,
+      }))
       setSessionJobIDs((current) => current.includes(job.id) ? current : [job.id, ...current])
       setSelectedJobIDs((current) => ({ ...current, [variables.capability]: job.id }))
       setDrafts((current) => ({ ...current, [variables.capability]: { ...current[variables.capability], inputReferences: [] } }))
-      await queryClient.invalidateQueries({ queryKey: ['jobs', project.id] })
+      await queryClient.invalidateQueries({ queryKey: ['generation-jobs', project.id] })
       message.success('生成任务已进入队列')
     },
     onError,
   })
   useEffect(() => {
-    if (!jobs.some((job) => job.status === 'succeeded' && job.output_staged_asset_ids.length > 0)) return
+    const transition = completedJobTransition(completedJobIDs.current, jobs, (job) => job.output_staged_asset_ids.length > 0)
+    completedJobIDs.current = transition.current
+    if (!transition.added.length) return
     queryClient.invalidateQueries({ queryKey: ['staged-assets', project.id] })
     queryClient.invalidateQueries({ queryKey: ['staged-summary', project.id] })
     if (capability === 'video' && episode) {
@@ -149,6 +168,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
   useEffect(() => {
     setSessionJobIDs([])
     setSelectedJobIDs({})
+    completedJobIDs.current = null
   }, [project.id])
 
   useEffect(() => {
@@ -293,7 +313,11 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
   }
   const refreshing = stagedSummaryQuery.isFetching || jobsQuery.isFetching
   const voiceParameterKey = capability === 'audio' && draft.targetKind === 'model' && model ? modelVoiceParameter(model) : undefined
-  const modelVoices = voiceParameterKey && model ? (voicesQuery.data ?? []).filter((voice) => voice.provider_id === model.provider_id) : []
+  const modelVoices = voiceParameterKey && model
+    ? (voicesQuery.data ?? []).flatMap((profile) => profile.bindings
+        .filter((binding) => binding.model_id === model.id && binding.status === 'ready')
+        .map((binding) => ({ ...binding, profileName: profile.name })))
+    : []
   const parameterPresetValue = draft.targetKind === 'workflow' ? BASE_PARAMETERS : draft.parametersCustomized ? CUSTOM_PARAMETERS : (draft.modelPresetID ?? BASE_PARAMETERS)
   const selectedTargetKey = draft.targetKind === 'workflow' && draft.workflowID && draft.providerID
     ? `workflow:${draft.workflowID}:${draft.providerID}`
@@ -367,7 +391,6 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
         <MarkdownEditor height={360} onChange={(prompt) => updateDraft({ prompt })} placeholder={`输入${capabilityMeta[capability].label}生成 Prompt…`} value={draft.prompt}/>
         {capability !== 'video' && allowedReferences.length > 0 && <GenerationReferencePicker
           allowedMedia={allowedReferences}
-          assets={assetsQuery.data ?? []}
           exports={assetExports}
           groups={groupsQuery.data ?? []}
           onChange={(inputReferences) => updateDraft({ inputReferences })}
@@ -406,11 +429,11 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
           <span>{model.parameter_schema.properties?.[voiceParameterKey]?.title ?? '音色'}</span>
           <AutoComplete
             onChange={(voiceID) => updateDraft({ parameters: { ...draft.parameters, [voiceParameterKey]: voiceID }, parametersCustomized: true })}
-            options={modelVoices.map((voice) => ({ value: voice.voice_id, label: `${voice.name} · ${voice.voice_id}` }))}
+            options={modelVoices.map((voice) => ({ value: voice.voice_id, label: `${voice.profileName} · ${voice.voice_id}` }))}
             placeholder="输入平台音色 ID，或选择模型页创建的克隆音色"
             value={String(draft.parameters[voiceParameterKey] ?? '')}
           />
-          <small>{modelVoices.length ? `当前服务有 ${modelVoices.length} 个已管理音色，也可以直接输入平台内置音色 ID。` : '可以直接输入平台内置音色 ID；支持克隆的服务可先在“模型 → 音色”中创建音色。'}</small>
+          <small>{modelVoices.length ? `当前模型有 ${modelVoices.length} 个已绑定音色，也可以直接输入平台内置音色 ID。` : '可以直接输入平台内置音色 ID；支持克隆或设计的服务可先在“模型 → 音色”中创建绑定。'}</small>
         </label>}
         {targetDefinition && <div className="generation-parameters">
           <ModelParameterEditor definition={targetDefinition} hiddenKeys={voiceParameterKey ? [voiceParameterKey] : []} onChange={(parameters) => updateDraft({ parameters, parametersCustomized: true })} value={draft.parameters}/>

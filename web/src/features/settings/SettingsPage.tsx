@@ -1,9 +1,10 @@
 import { CloudOutlined, DeleteOutlined, EyeOutlined, FileTextOutlined, ReloadOutlined, SaveOutlined, SearchOutlined, SettingOutlined, UserOutlined } from '@ant-design/icons'
 import { Alert, App, Button, Empty, Form, Input, Modal, Pagination, Progress, Select, Spin, Timeline, Typography } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { api } from '../../api/client'
 import type { GenerationInvocation, GenerationJob, Project } from '../../api/types'
+import { queryKeys } from '../../api/queryKeys'
 import { FloatingToolbar } from '../../components/FloatingToolbar'
 import { AccountManagement, StorageManagement } from './SystemManagement'
 
@@ -20,7 +21,20 @@ export function SettingsPage({ project, onError }: { project?: Project; onError:
   const [jobStatus, setJobStatus] = useState<string>()
   const [jobCapability, setJobCapability] = useState<string>()
   const [jobPage, setJobPage] = useState(1)
-  const jobsQuery = useQuery({ queryKey: ['jobs', project?.id, 'all'], queryFn: () => api.jobs(project!.id), enabled: Boolean(project) })
+  const deferredJobSearch = useDeferredValue(jobSearch.trim())
+  const jobFilters = useMemo(() => ({
+    search: deferredJobSearch || undefined,
+    status: jobStatus,
+    capability: jobCapability,
+    page: jobPage,
+    page_size: JOB_PAGE_SIZE,
+  }), [deferredJobSearch, jobCapability, jobPage, jobStatus])
+  const jobsQuery = useQuery({
+    queryKey: queryKeys.generationJobs(project?.id ?? '', jobFilters),
+    queryFn: () => api.jobs(project!.id, jobFilters),
+    enabled: Boolean(project) && section === 'jobs',
+    placeholderData: (previous) => previous,
+  })
   const invocationQuery = useQuery({
     queryKey: ['generation-invocation', selectedJobID],
     queryFn: () => api.generationInvocation(selectedJobID!),
@@ -43,25 +57,17 @@ export function SettingsPage({ project, onError }: { project?: Project; onError:
     },
     onError,
   })
-  const jobs = useMemo(() => jobsQuery.data ?? [], [jobsQuery.data])
-  const filteredJobs = useMemo(() => {
-    const keyword = jobSearch.trim().toLocaleLowerCase()
-    return jobs.filter((job) => {
-      if (jobStatus && job.status !== jobStatus) return false
-      if (jobCapability && job.capability !== jobCapability) return false
-      return !keyword || `${job.provider_code} ${job.model_identifier} ${job.prompt} ${job.error_message}`.toLocaleLowerCase().includes(keyword)
-    })
-  }, [jobCapability, jobSearch, jobStatus, jobs])
-  const pageJobs = filteredJobs.slice((jobPage - 1) * JOB_PAGE_SIZE, jobPage * JOB_PAGE_SIZE)
+  const jobs = useMemo(() => jobsQuery.data?.items ?? [], [jobsQuery.data?.items])
+  const totalJobs = jobsQuery.data?.total ?? 0
   const selectedJob = jobs.find((item) => item.id === selectedJobID)
   useEffect(() => { if (project) form.setFieldsValue({ title: project.title, description: project.description }) }, [form, project])
   useEffect(() => {
 	if (!project && (section === 'project' || section === 'jobs')) setSection('account')
 	}, [project, section])
   useEffect(() => {
-    const lastPage = Math.max(1, Math.ceil(filteredJobs.length / JOB_PAGE_SIZE))
+    const lastPage = Math.max(1, Math.ceil(totalJobs / JOB_PAGE_SIZE))
     if (jobPage > lastPage) setJobPage(lastPage)
-  }, [filteredJobs.length, jobPage])
+  }, [jobPage, totalJobs])
   const confirmDelete = () => modal.confirm({
     title: '永久删除当前项目？',
 	content: '项目、分集、画布和本地资产记录都会删除；存在 S3 副本时需先从资产页删除副本。',
@@ -81,7 +87,7 @@ export function SettingsPage({ project, onError }: { project?: Project; onError:
     {toolbarItems.length > 0 && <FloatingToolbar ariaLabel="设置页工具栏" items={toolbarItems}/>}
     <div aria-label="设置分类" className="settings-tabs" role="tablist">
 	  {project && <button aria-selected={section === 'project'} className={section === 'project' ? 'active' : ''} onClick={() => setSection('project')} role="tab" type="button"><SettingOutlined/><span>项目</span></button>}
-	  {project && <button aria-selected={section === 'jobs'} className={section === 'jobs' ? 'active' : ''} onClick={() => setSection('jobs')} role="tab" type="button"><FileTextOutlined/><span>调用记录</span><em>{jobs.length}</em></button>}
+	  {project && <button aria-selected={section === 'jobs'} className={section === 'jobs' ? 'active' : ''} onClick={() => setSection('jobs')} role="tab" type="button"><FileTextOutlined/><span>调用记录</span>{jobsQuery.data && <em>{totalJobs}</em>}</button>}
 	  <button aria-selected={section === 'account'} className={section === 'account' ? 'active' : ''} onClick={() => setSection('account')} role="tab" type="button"><UserOutlined/><span>账号</span></button>
 	  <button aria-selected={section === 'storage'} className={section === 'storage' ? 'active' : ''} onClick={() => setSection('storage')} role="tab" type="button"><CloudOutlined/><span>S3 发布</span></button>
     </div>
@@ -100,14 +106,14 @@ export function SettingsPage({ project, onError }: { project?: Project; onError:
       </section>}
 
 	  {section === 'jobs' && project && <section className="settings-section settings-jobs-section">
-        <SettingsSectionHeading title="生成调用记录" count={`${filteredJobs.length} / ${jobs.length}`}/>
+        <SettingsSectionHeading title="生成调用记录" count={`${totalJobs}`}/>
         <div className="settings-job-filters">
           <Input allowClear onChange={(event) => { setJobSearch(event.target.value); setJobPage(1) }} placeholder="搜索 Provider、模型、Prompt 或错误" prefix={<SearchOutlined/>} value={jobSearch}/>
           <Select allowClear onChange={(value) => { setJobCapability(value); setJobPage(1) }} options={['text', 'image', 'audio', 'video'].map((value) => ({ value, label: capabilityLabel(value) }))} placeholder="全部能力" value={jobCapability}/>
           <Select allowClear onChange={(value) => { setJobStatus(value); setJobPage(1) }} options={['queued', 'running', 'succeeded', 'failed', 'canceled', 'interrupted'].map((value) => ({ value, label: jobStatusLabel(value) }))} placeholder="全部状态" value={jobStatus}/>
         </div>
-        {jobsQuery.isLoading ? <div className="settings-jobs-loading"><Spin/></div> : filteredJobs.length === 0 ? <Empty description={jobs.length ? '没有符合筛选条件的调用记录' : '还没有生成调用记录'} image={Empty.PRESENTED_IMAGE_SIMPLE}/> : <div className="settings-job-list">
-          {pageJobs.map((job) => <article className="settings-job-item" key={job.id}>
+        {jobsQuery.isLoading ? <div className="settings-jobs-loading"><Spin/></div> : jobs.length === 0 ? <Empty description={jobSearch || jobStatus || jobCapability ? '没有符合筛选条件的调用记录' : '还没有生成调用记录'} image={Empty.PRESENTED_IMAGE_SIMPLE}/> : <div className="settings-job-list">
+          {jobs.map((job) => <article className="settings-job-item" key={job.id}>
             <time>{formatDateTime(job.created_at)}</time>
             <div className="settings-job-target"><strong>{job.model_identifier || '未指定目标'}</strong><span>{job.provider_code || '未知 Provider'}</span></div>
             <span className={`settings-job-capability ${job.capability}`}>{capabilityLabel(job.capability)}</span>
@@ -117,7 +123,7 @@ export function SettingsPage({ project, onError }: { project?: Project; onError:
             {job.error_message && <p>{job.error_message}</p>}
           </article>)}
         </div>}
-        {filteredJobs.length > JOB_PAGE_SIZE && <Pagination className="settings-job-pagination" current={jobPage} hideOnSinglePage onChange={setJobPage} pageSize={JOB_PAGE_SIZE} showSizeChanger={false} total={filteredJobs.length}/>}
+        {totalJobs > JOB_PAGE_SIZE && <Pagination className="settings-job-pagination" current={jobPage} hideOnSinglePage onChange={setJobPage} pageSize={JOB_PAGE_SIZE} showSizeChanger={false} total={totalJobs}/>}
       </section>}
 	  {section === 'account' && <AccountManagement onError={onError}/>}
 	  {section === 'storage' && <StorageManagement onError={onError}/>}
