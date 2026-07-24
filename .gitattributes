@@ -4,11 +4,13 @@
 *.ts text eol=lf
 *.tsx text eol=lf
 *.css text eol=lf
+*.html text eol=lf
 *.md text eol=lf
 *.yaml text eol=lf
 *.yml text eol=lf
 internal/webui/dist/* binary
 internal/webui/dist/assets/* binary
+internal/webui/dist/index.html text eol=lf diff
 *.ico binary
 *.icns binary
 *.png binary
