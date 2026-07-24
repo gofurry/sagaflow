@@ -2,8 +2,6 @@
   <img src="web/public/logo.png" alt="SagaFlow" width="420">
 </p>
 
-<h1 align="center">SagaFlow</h1>
-
 <p align="center">
   本地优先的 AI 漫剧生产工作台：在一个应用里管理剧本、素材、模型生成、分镜画布与媒体处理。
 </p>
