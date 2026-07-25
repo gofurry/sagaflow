@@ -1,17 +1,34 @@
 package api
 
 import (
+	"crypto/subtle"
+	"net"
+	"time"
+
 	fiberzap "github.com/gofiber/contrib/v3/zap"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/gofiber/fiber/v3/middleware/requestid"
+	"github.com/gofurry/sagaflow/internal/runtimecontract"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 func (s *Server) RegisterRoutes(app *fiber.App) {
-	app.Use(recover.New(), requestid.New(), fiberzap.New(fiberzap.Config{Logger: s.log, FieldsFunc: func(c fiber.Ctx) []zap.Field { return []zap.Field{zap.String("request_id", c.RequestID())} }}))
+	app.Use(recover.New(), requestid.New(), fiberzap.New(fiberzap.Config{
+		Logger: s.log,
+		FieldsFunc: func(c fiber.Ctx) []zap.Field {
+			return []zap.Field{zap.String("request_id", c.RequestID())}
+		},
+		// Successful polling and health requests are useful while debugging but
+		// should not grow production logs indefinitely.
+		Levels: []zapcore.Level{zapcore.ErrorLevel, zapcore.WarnLevel, zapcore.DebugLevel},
+	}))
 	app.Use(limitNonMultipartBody(4 << 20))
 	app.Get("/health", s.health)
+	if s.desktopControlToken != "" && s.shutdown != nil {
+		app.Post("/_desktop/shutdown", s.desktopShutdown)
+	}
 	api := app.Group("/api")
 	auth := api.Group("/auth")
 	auth.Get("/status", s.authStatus)
@@ -131,5 +148,21 @@ func (s *Server) RegisterRoutes(app *fiber.App) {
 	p.Delete("/staged-assets/:id", s.deleteStagedAsset)
 }
 func (s *Server) health(c fiber.Ctx) error {
-	return writeOK(c, fiber.Map{"status": "ok", "version": s.cfg.App.Version})
+	return writeOK(c, fiber.Map{
+		"status": "ok", "version": s.cfg.App.Version, "api_version": runtimecontract.APIVersion,
+		"data_schema_version": runtimecontract.DataSchemaVersion,
+	})
+}
+
+func (s *Server) desktopShutdown(c fiber.Ctx) error {
+	ip := net.ParseIP(c.IP())
+	if ip == nil || !ip.IsLoopback() {
+		return fiber.ErrForbidden
+	}
+	provided := c.Get(runtimecontract.DesktopTokenHeader)
+	if subtle.ConstantTimeCompare([]byte(provided), []byte(s.desktopControlToken)) != 1 {
+		return fiber.ErrUnauthorized
+	}
+	time.AfterFunc(100*time.Millisecond, s.shutdown)
+	return c.SendStatus(fiber.StatusAccepted)
 }

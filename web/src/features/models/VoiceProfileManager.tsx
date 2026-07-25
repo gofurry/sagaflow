@@ -144,15 +144,6 @@ export function VoiceProfileManager({ models, onError }: { models: Model[]; onEr
       { key: 'refresh', label: '刷新音色列表', icon: <ReloadOutlined/>, loading: voicesQuery.isFetching, onClick: () => void refresh() },
     ]}/>
 
-    <div className="voice-capability-strip">
-      {capabilities.map((item) => <div className="voice-capability-item" key={item.provider_code}>
-        <strong>{item.provider_name}</strong>
-        {item.operations.map((operation) => <Tag color={operation === 'design' ? 'purple' : 'orange'} key={operation}>{operationLabel[operation]}</Tag>)}
-        <small>{item.clone_requires_public_url ? '克隆需公网音频链接' : item.accepted_audio.join(' / ')}</small>
-      </div>)}
-      {!capabilitiesQuery.isLoading && !capabilities.length && <Alert message="当前没有可用的音色服务连接" showIcon type="warning"/>}
-    </div>
-
     <div className="model-flat-list voice-flat-list">
       {(voicesQuery.data ?? []).map((profile) => <article className="model-flat-item voice-profile-card" key={profile.id}>
         <div className="voice-profile-heading">

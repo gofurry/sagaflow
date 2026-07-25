@@ -20,9 +20,9 @@ RUN apk add --no-cache ca-certificates tzdata && adduser -D -H -s /sbin/nologin 
 COPY --from=build /out/sagaflow /usr/local/bin/sagaflow
 RUN mkdir -p /data && chown sagaflow:sagaflow /data
 USER sagaflow
-ENV SAGAFLOW_DATA_DIR=/data SAGAFLOW_HOST=0.0.0.0 SAGAFLOW_PORT=8080
+ENV SAGAFLOW_DATA_DIR=/data SAGAFLOW_HOST=0.0.0.0 SAGAFLOW_PORT=18848
 VOLUME ["/data"]
-EXPOSE 8080
-HEALTHCHECK --interval=10s --timeout=3s --retries=12 CMD wget -qO- http://127.0.0.1:8080/health || exit 1
+EXPOSE 18848
+HEALTHCHECK --interval=10s --timeout=3s --retries=12 CMD wget -qO- http://127.0.0.1:18848/health || exit 1
 ENTRYPOINT ["sagaflow"]
 CMD ["serve"]

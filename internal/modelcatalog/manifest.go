@@ -1,6 +1,7 @@
 package modelcatalog
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -10,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -81,6 +84,132 @@ type ManifestInfo struct {
 	CatalogVersion string `json:"catalog_version"`
 	PublishedAt    string `json:"published_at,omitempty"`
 	ModelCount     int    `json:"model_count"`
+}
+
+type ManifestDiff struct {
+	Added   int `json:"added"`
+	Updated int `json:"updated"`
+	Retired int `json:"retired"`
+	Removed int `json:"removed"`
+}
+
+func EmbeddedManifest() (Manifest, error) {
+	return DecodeManifest(strings.NewReader(string(defaultManifestData)))
+}
+
+func EffectiveManifest(path string) (Manifest, error) {
+	embedded, err := EmbeddedManifest()
+	if err != nil {
+		return Manifest{}, err
+	}
+	if strings.TrimSpace(path) != "" {
+		manifest, loadErr := LoadManifest(path)
+		if loadErr == nil {
+			return mergeManifests(embedded, manifest)
+		}
+		if !errors.Is(loadErr, os.ErrNotExist) {
+			return Manifest{}, loadErr
+		}
+	}
+	return embedded, nil
+}
+
+func mergeManifests(base, overlay Manifest) (Manifest, error) {
+	baseModels, err := resolvedManifestModels(base)
+	if err != nil {
+		return Manifest{}, err
+	}
+	overlayModels, err := resolvedManifestModels(overlay)
+	if err != nil {
+		return Manifest{}, err
+	}
+	for key, model := range overlayModels {
+		baseModels[key] = model
+	}
+	keys := make([]string, 0, len(baseModels))
+	for key := range baseModels {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	models := make([]ManifestModel, 0, len(keys))
+	for _, key := range keys {
+		models = append(models, baseModels[key])
+	}
+	result := Manifest{
+		SchemaVersion: overlay.SchemaVersion, CatalogVersion: overlay.CatalogVersion,
+		PublishedAt: overlay.PublishedAt, Models: models,
+	}
+	if result.SchemaVersion == 0 {
+		result.SchemaVersion = base.SchemaVersion
+	}
+	if result.CatalogVersion == "" {
+		result.CatalogVersion = base.CatalogVersion
+	}
+	if result.PublishedAt == "" {
+		result.PublishedAt = base.PublishedAt
+	}
+	if err := ValidateManifest(result); err != nil {
+		return Manifest{}, err
+	}
+	return result, nil
+}
+
+func CompareManifests(current, next Manifest) (ManifestDiff, error) {
+	currentModels, err := resolvedManifestModels(current)
+	if err != nil {
+		return ManifestDiff{}, err
+	}
+	nextModels, err := resolvedManifestModels(next)
+	if err != nil {
+		return ManifestDiff{}, err
+	}
+	diff := ManifestDiff{}
+	for key, nextModel := range nextModels {
+		currentModel, exists := currentModels[key]
+		if !exists {
+			diff.Added++
+		} else if !reflect.DeepEqual(currentModel, nextModel) {
+			diff.Updated++
+		}
+		if nextModel.LifecycleStatus == "retired" && (!exists || currentModel.LifecycleStatus != "retired") {
+			diff.Retired++
+		}
+	}
+	for key := range currentModels {
+		if _, exists := nextModels[key]; !exists {
+			diff.Removed++
+		}
+	}
+	return diff, nil
+}
+
+func resolvedManifestModels(manifest Manifest) (map[string]ManifestModel, error) {
+	result := make(map[string]ManifestModel, len(manifest.Models))
+	for _, item := range manifest.Models {
+		resolved, err := resolveManifestModel(manifest, item)
+		if err != nil {
+			return nil, err
+		}
+		resolved.Profile = ""
+		resolved.ParameterSchema = compactJSON(resolved.ParameterSchema)
+		resolved.DefaultParameters = compactJSON(resolved.DefaultParameters)
+		if len(resolved.InputModalities) == 0 {
+			resolved.InputModalities = nil
+		}
+		if len(resolved.Features) == 0 {
+			resolved.Features = nil
+		}
+		result[definitionKey(resolved.ProviderCode, resolved.ModelID, resolved.Capability)] = resolved
+	}
+	return result, nil
+}
+
+func compactJSON(value json.RawMessage) json.RawMessage {
+	var buffer bytes.Buffer
+	if err := json.Compact(&buffer, value); err != nil {
+		return value
+	}
+	return buffer.Bytes()
 }
 
 func LoadManifest(path string) (Manifest, error) {
@@ -315,6 +444,14 @@ func ManifestStatus(path string) (ManifestInfo, error) {
 }
 
 func DownloadManifest(ctx context.Context, client *http.Client, sourceURL, destination string) (ManifestInfo, error) {
+	manifest, err := FetchManifest(ctx, client, sourceURL)
+	if err != nil {
+		return ManifestInfo{}, err
+	}
+	return installManifest(destination, manifest)
+}
+
+func FetchManifest(ctx context.Context, client *http.Client, sourceURL string) (Manifest, error) {
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -323,30 +460,22 @@ func DownloadManifest(ctx context.Context, client *http.Client, sourceURL, desti
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
 	if err != nil {
-		return ManifestInfo{}, err
+		return Manifest{}, err
 	}
 	request.Header.Set("Accept", "application/json")
 	response, err := client.Do(request)
 	if err != nil {
-		return ManifestInfo{}, fmt.Errorf("download model catalog: %w", err)
+		return Manifest{}, fmt.Errorf("download model catalog: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return ManifestInfo{}, fmt.Errorf("download model catalog: HTTP %d", response.StatusCode)
+		return Manifest{}, fmt.Errorf("download model catalog: HTTP %d", response.StatusCode)
 	}
 	manifest, err := DecodeManifest(response.Body)
 	if err != nil {
-		return ManifestInfo{}, err
+		return Manifest{}, err
 	}
-	data, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return ManifestInfo{}, err
-	}
-	data = append(data, '\n')
-	if err := writeManifestAtomically(destination, data); err != nil {
-		return ManifestInfo{}, err
-	}
-	return ManifestStatus(destination)
+	return manifest, nil
 }
 
 func InstallManifest(source, destination string) (ManifestInfo, error) {
@@ -360,6 +489,13 @@ func InstallManifest(source, destination string) (ManifestInfo, error) {
 func InstallManifestContent(reader io.Reader, destination string) (ManifestInfo, error) {
 	manifest, err := DecodeManifest(reader)
 	if err != nil {
+		return ManifestInfo{}, err
+	}
+	return installManifest(destination, manifest)
+}
+
+func InstallManifestDocument(manifest Manifest, destination string) (ManifestInfo, error) {
+	if err := ValidateManifest(manifest); err != nil {
 		return ManifestInfo{}, err
 	}
 	return installManifest(destination, manifest)
@@ -402,7 +538,23 @@ func writeManifestAtomically(destination string, data []byte) error {
 	if err := temporary.Close(); err != nil {
 		return err
 	}
+	previous := destination + ".previous"
+	if _, err := os.Stat(destination); errors.Is(err, os.ErrNotExist) {
+		if err := os.Rename(temporaryPath, destination); err != nil {
+			return fmt.Errorf("install model catalog: %w", err)
+		}
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("inspect existing model catalog: %w", err)
+	}
+	if err := os.Remove(previous); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("replace previous model catalog: %w", err)
+	}
+	if err := os.Rename(destination, previous); err != nil {
+		return fmt.Errorf("preserve previous model catalog: %w", err)
+	}
 	if err := os.Rename(temporaryPath, destination); err != nil {
+		_ = os.Rename(previous, destination)
 		return fmt.Errorf("install model catalog: %w", err)
 	}
 	return nil

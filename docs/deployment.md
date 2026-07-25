@@ -39,7 +39,7 @@ sudo /usr/local/bin/sagaflow service install \
 ```bash
 systemctl status sagaflow
 journalctl -u sagaflow -f
-curl http://127.0.0.1:8080/health
+curl http://127.0.0.1:18848/health
 ```
 
 卸载服务不会删除数据：
@@ -63,7 +63,14 @@ docker compose logs -f
 
 ## Windows 与 macOS
 
-下载或构建对应平台二进制，将其放入任意目录。首次运行：
+个人桌面建议下载 `sagaflow-desktop-<系统>-<架构>` 包并启动
+`sagaflow-desktop`。启动器会管理同目录的 `sagaflow` 内核，但不会在
+打开时自动启动它；用户启动内核并通过 `127.0.0.1:18848` 健康检查后，
+是否自动打开工作台由启动偏好控制。关闭窗口后启动器会留在系统托盘。
+启动器还可以管理 FFmpeg、模型目录和官方密钥入口。桌面内核日志按
+10 MB 轮转，最多保留 5 份并压缩。
+
+只使用内核时，下载或构建对应平台二进制并将其放入任意目录。首次运行：
 
 ```powershell
 .\sagaflow.exe account init --password "change-this-password"

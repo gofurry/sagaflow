@@ -66,6 +66,7 @@ type Toolchain struct {
 	release       platformRelease
 	httpClient    *http.Client
 	installCancel context.CancelFunc
+	installUnlock func()
 }
 
 func Discover(managedRoots ...string) *Toolchain {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,8 +14,10 @@ import (
 	"github.com/gofurry/sagaflow/internal/app"
 	"github.com/gofurry/sagaflow/internal/backup"
 	"github.com/gofurry/sagaflow/internal/config"
+	mediaffmpeg "github.com/gofurry/sagaflow/internal/media/ffmpeg"
 	applogger "github.com/gofurry/sagaflow/internal/platform/logger"
 	"github.com/gofurry/sagaflow/internal/platform/sqlite"
+	"github.com/gofurry/sagaflow/internal/runtimecontract"
 	"github.com/gofurry/sagaflow/internal/service"
 	"github.com/gofurry/sagaflow/internal/store/db"
 	"github.com/spf13/cobra"
@@ -22,21 +25,40 @@ import (
 )
 
 func NewRootCommand(version string) *cobra.Command {
-	var cfgPath string
+	var cfgPath, runtimeFile string
 	run := func(cmd *cobra.Command, _ []string) error {
 		cfg, log, err := loadRuntime(cfgPath, version)
 		if err != nil {
 			return err
 		}
 		defer log.Sync()
-		return app.Run(cmd.Context(), cfg, log)
+		return app.RunWithOptions(cmd.Context(), cfg, log, app.RunOptions{
+			RuntimeFile: runtimeFile, DesktopControlToken: os.Getenv("SAGAFLOW_DESKTOP_TOKEN"),
+		})
 	}
 	root := &cobra.Command{
 		Use: "sagaflow", Short: "SagaFlow personal AI production workbench", SilenceUsage: true, Version: version,
 		RunE: run,
 	}
 	root.PersistentFlags().StringVar(&cfgPath, "config", "", "runtime config file path")
+	root.PersistentFlags().StringVar(&runtimeFile, "runtime-file", "", "write ephemeral process information after the server is ready")
 	root.AddCommand(&cobra.Command{Use: "serve", Short: "Start the workbench", RunE: run})
+
+	var versionJSON bool
+	versionCmd := &cobra.Command{Use: "version", Short: "Print version and protocol compatibility", RunE: func(_ *cobra.Command, _ []string) error {
+		info := struct {
+			Version           string `json:"version"`
+			APIVersion        int    `json:"api_version"`
+			DataSchemaVersion int    `json:"data_schema_version"`
+		}{Version: version, APIVersion: runtimecontract.APIVersion, DataSchemaVersion: runtimecontract.DataSchemaVersion}
+		if versionJSON {
+			return json.NewEncoder(os.Stdout).Encode(info)
+		}
+		fmt.Printf("SagaFlow %s (API %d, data schema %d)\n", info.Version, info.APIVersion, info.DataSchemaVersion)
+		return nil
+	}}
+	versionCmd.Flags().BoolVar(&versionJSON, "json", false, "print machine-readable JSON")
+	root.AddCommand(versionCmd)
 
 	configCmd := &cobra.Command{Use: "config", Short: "Manage the small runtime configuration"}
 	var output string
@@ -105,7 +127,8 @@ func NewRootCommand(version string) *cobra.Command {
 	accountCmd.AddCommand(reset)
 	root.AddCommand(accountCmd)
 
-	root.AddCommand(&cobra.Command{Use: "doctor", Short: "Check the data directory and SQLite database", RunE: func(cmd *cobra.Command, _ []string) error {
+	var doctorJSON bool
+	doctorCmd := &cobra.Command{Use: "doctor", Short: "Check the data directory and SQLite database", RunE: func(cmd *cobra.Command, _ []string) error {
 		cfg, closeDB, store, err := openStore(cmd.Context(), cfgPath, version)
 		if err != nil {
 			return err
@@ -137,10 +160,30 @@ func NewRootCommand(version string) *cobra.Command {
 				return fmt.Errorf("decrypt S3 connection %s: %w", connection.ID, err)
 			}
 		}
-		fmt.Printf("data: %s\ndatabase: ok\naccount initialized: %t\nprovider credentials: %d valid\nS3 credentials: %d valid\n",
-			cfg.App.DataDir, initialized, len(credentials), len(connections))
+		ffmpegStatus := mediaffmpeg.Discover(cfg.FFmpegDir()).Status()
+		result := struct {
+			DataDir             string `json:"data_dir"`
+			Database            string `json:"database"`
+			AccountInitialized  bool   `json:"account_initialized"`
+			ProviderCredentials int    `json:"provider_credentials"`
+			S3Credentials       int    `json:"s3_credentials"`
+			FFmpegAvailable     bool   `json:"ffmpeg_available"`
+			FFmpegVersion       string `json:"ffmpeg_version,omitempty"`
+			FFmpegPath          string `json:"ffmpeg_path,omitempty"`
+		}{
+			DataDir: cfg.App.DataDir, Database: "ok", AccountInitialized: initialized,
+			ProviderCredentials: len(credentials), S3Credentials: len(connections),
+			FFmpegAvailable: ffmpegStatus.Available, FFmpegVersion: ffmpegStatus.Version, FFmpegPath: ffmpegStatus.FFmpegPath,
+		}
+		if doctorJSON {
+			return json.NewEncoder(os.Stdout).Encode(result)
+		}
+		fmt.Printf("data: %s\ndatabase: %s\naccount initialized: %t\nprovider credentials: %d valid\nS3 credentials: %d valid\nFFmpeg available: %t\n",
+			result.DataDir, result.Database, result.AccountInitialized, result.ProviderCredentials, result.S3Credentials, result.FFmpegAvailable)
 		return nil
-	}})
+	}}
+	doctorCmd.Flags().BoolVar(&doctorJSON, "json", false, "print machine-readable JSON")
+	root.AddCommand(doctorCmd)
 
 	backupCmd := &cobra.Command{Use: "backup", Short: "Back up or restore the complete personal workspace"}
 	var backupOutput string

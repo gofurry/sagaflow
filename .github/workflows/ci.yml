@@ -28,7 +28,9 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache-dependency-path: go.sum
+          cache-dependency-path: |
+            go.sum
+            cmd/sagaflow-desktop/go.sum
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -65,14 +67,26 @@ jobs:
       - name: Test Go packages
         run: go test ./...
 
+      - name: Test desktop launcher
+        working-directory: cmd/sagaflow-desktop
+        run: go test -tags ci ./...
+
       - name: Check Go formatting
         run: test -z "$(gofmt -l $(git ls-files '*.go'))"
 
       - name: Vet Go packages
         run: go vet ./...
 
+      - name: Vet desktop launcher
+        working-directory: cmd/sagaflow-desktop
+        run: go vet -tags ci ./...
+
       - name: Scan reachable Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+
+      - name: Scan reachable desktop vulnerabilities
+        working-directory: cmd/sagaflow-desktop
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 -tags=ci ./...
 
       - name: Build smoke-test binary
         run: |
@@ -138,3 +152,57 @@ jobs:
 
       - name: Build image
         run: docker build --build-arg VERSION=v0.1.0-ci.${{ github.run_number }} -t sagaflow:ci .
+
+  desktop-packages:
+    name: Build desktop ${{ matrix.goos }}-${{ matrix.goarch }}
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            goos: windows
+            goarch: amd64
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - runner: macos-15-intel
+            goos: darwin
+            goarch: amd64
+          - runner: macos-latest
+            goos: darwin
+            goarch: arm64
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            cmd/sagaflow-desktop/go.sum
+
+      - name: Install Linux desktop build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev
+
+      - name: Build desktop package
+        shell: pwsh
+        run: >-
+          ./.github/workflows/scripts/build-desktop.ps1
+          -TargetOS "${{ matrix.goos }}"
+          -TargetArch "${{ matrix.goarch }}"
+          -Version "v0.1.0-ci.${{ github.run_number }}+${{ github.sha }}"
+          -OutputDirectory "dist"
+
+      - name: Upload desktop package
+        uses: actions/upload-artifact@v7
+        with:
+          name: sagaflow-desktop-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/sagaflow-desktop-${{ matrix.goos }}-${{ matrix.goarch }}
+          if-no-files-found: error
+          retention-days: 14

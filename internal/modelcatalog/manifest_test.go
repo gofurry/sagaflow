@@ -141,6 +141,70 @@ func TestDownloadManifestValidatesBeforeAtomicInstall(t *testing.T) {
 	}
 }
 
+func TestInstallManifestPreservesPreviousVersion(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), "catalog", "model-catalog.json")
+	first, err := DecodeManifest(strings.NewReader(validManifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installManifest(destination, first); err != nil {
+		t.Fatal(err)
+	}
+	second := first
+	second.CatalogVersion = "2026.07.24.1"
+	if _, err := installManifest(destination, second); err != nil {
+		t.Fatal(err)
+	}
+	previous, err := LoadManifest(destination + ".previous")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if previous.CatalogVersion != first.CatalogVersion {
+		t.Fatalf("expected previous version %q, got %q", first.CatalogVersion, previous.CatalogVersion)
+	}
+}
+
+func TestCompareManifestsReportsVisibleChanges(t *testing.T) {
+	current, err := DecodeManifest(strings.NewReader(validManifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := current
+	next.Models = append([]ManifestModel(nil), current.Models...)
+	next.Models[0].DisplayName = "Updated Chat"
+	added := next.Models[0]
+	added.ModelID = "example/chat-next"
+	added.LifecycleStatus = "retired"
+	next.Models = append(next.Models, added)
+	diff, err := CompareManifests(current, next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff.Added != 1 || diff.Updated != 1 || diff.Retired != 1 || diff.Removed != 0 {
+		t.Fatalf("unexpected manifest diff: %+v", diff)
+	}
+}
+
+func TestMergeManifestsKeepsUnchangedBuiltIns(t *testing.T) {
+	base, err := DecodeManifest(strings.NewReader(validManifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := base.Models[0]
+	second.ModelID = "example/second"
+	base.Models = append(base.Models, second)
+	overlay := base
+	overlay.Models = append([]ManifestModel(nil), base.Models[:1]...)
+	overlay.Models[0].DisplayName = "Overridden"
+	merged, err := mergeManifests(base, overlay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(merged.Models) != 2 {
+		t.Fatalf("expected partial overlay to keep both models, got %d", len(merged.Models))
+	}
+}
+
 func TestMergeDefinitionsPreservesBuiltInID(t *testing.T) {
 	base := Builtins()[:1]
 	overlay := base[0]

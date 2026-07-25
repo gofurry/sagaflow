@@ -230,8 +230,8 @@ export function LocalToolsPage({ onError, project }: { onError: (error: unknown)
           <h2>{toolMeta[tool].label}</h2>
           <div className={`local-tool-runtime${statusQuery.data?.available ? ' ready' : ' unavailable'}`} title={statusQuery.data?.version || statusQuery.data?.message}>
             <div className="local-tool-runtime-summary">
-              <i/>
               <span>{statusQuery.isLoading ? '正在检查 FFmpeg' : statusQuery.data?.message || 'FFmpeg 状态未知'}</span>
+              <i/>
               <small>素材按页搜索，不预加载全部资产</small>
               {!statusQuery.data?.available && !statusQuery.data?.installing && statusQuery.data?.install_supported && <Button icon={<DownloadOutlined/>} onClick={() => setInstallOpen(true)} size="small" type="link">
                 {`安装 FFmpeg ${statusQuery.data.install_version} · ${formatBytes(statusQuery.data.download_bytes)}`}

@@ -14,6 +14,10 @@
 
 SagaFlow 面向希望在自己的电脑、NAS 或小型服务器上完成 AI 漫剧生产的个人创作者。应用由单个 Go 进程提供 API、任务执行和内嵌的 React 工作台，默认只依赖 SQLite 与本地文件系统，不需要 PostgreSQL、Redis、独立 Worker 或强制 S3。
 
+桌面用户还可以使用独立的 Fyne 启动器管理内核进程。启动器只负责启动、
+状态、托盘和本机维护；项目、模型与媒体操作仍由浏览器工作台统一提供。
+服务器和 Docker 部署只运行 `sagaflow` 内核，不携带任何图形依赖。
+
 > 当前处于积极开发阶段，功能已经形成完整生产闭环，但数据结构和交互仍可能在正式版本前调整。
 
 ## 核心能力
@@ -75,7 +79,40 @@ go build -ldflags="-X main.version=v0.1.0" -o ./bin/sagaflow ./cmd/sagaflow
 ./bin/sagaflow serve
 ```
 
-打开 [http://127.0.0.1:8080](http://127.0.0.1:8080)，首次进入时按引导创建唯一的本地账号。应用默认在二进制同目录创建 `data/`；移动或备份整个目录即可带走工作台数据。
+打开 [http://127.0.0.1:18848](http://127.0.0.1:18848)，首次进入时按引导创建唯一的本地账号。应用默认在二进制同目录创建 `data/`；移动或备份整个目录即可带走工作台数据。
+
+### 桌面启动器
+
+桌面发布包会把两个程序放在同一目录：
+
+```text
+sagaflow-desktop-<goos>-<goarch>/
+├── sagaflow-desktop[.exe]  # Windows/Linux Fyne 启动器
+├── SagaFlow.app/           # macOS 启动器与内核应用包
+├── sagaflow[.exe]          # Windows/Linux 无界面内核
+├── sagaflow.ico / sagaflow.icns / share/icons
+└── SAGAFLOW-LICENSE.txt
+```
+
+打开 `sagaflow-desktop` 后，由用户决定何时在 `127.0.0.1:18848`
+启动内核；“启动内核后自动打开工作台”可以控制健康检查通过后是否打开
+浏览器。关闭窗口会最小化到系统托盘；选择“退出”时，由启动器启动的
+内核也会安全停止。检测到已经运行的兼容内核时只会连接，不会擅自终止
+外部进程。启动器还提供数据与日志目录、系统诊断、即时备份、历史日志
+清理、FFmpeg 直接/代理/手动安装、内置模型目录更新和厂商密钥入口。
+内核日志按 10 MB 轮转，最多保留 5 份、14 天并压缩历史文件。
+Windows/Linux 桌面包继续使用包内 `data/`；macOS 使用用户的
+`Application Support/SagaFlow`，避免向 `.app` 应用包写入运行数据。
+
+从源码构建启动器还需要本机 C 编译器和 Fyne 所需图形开发库：
+
+```powershell
+.\.github\workflows\scripts\build-desktop.ps1 `
+  -TargetOS windows -TargetArch amd64 -OutputDirectory bin
+```
+
+桌面端使用独立 Go 模块，位于 `cmd/sagaflow-desktop`，因此 Fyne/CGo
+不会进入内核的依赖图、Docker 镜像或服务器构建。
 
 也可以提前通过命令行初始化账号：
 
@@ -100,7 +137,7 @@ docker compose run --rm sagaflow account init \
 docker compose up -d
 ```
 
-访问 [http://localhost:8080](http://localhost:8080)。停止应用使用 `docker compose down`；除非确认要删除全部数据，否则不要添加 `-v`。
+访问 [http://localhost:18848](http://localhost:18848)。停止应用使用 `docker compose down`；除非确认要删除全部数据，否则不要添加 `-v`。
 
 ## FFmpeg 与多平台发布
 
@@ -114,9 +151,10 @@ sagaflow-<goos>-<goarch>/
 ```
 
 SagaFlow 会依次从数据目录的托管工具区、程序同目录、当前工作目录和
-系统 `PATH` 自动发现 FFmpeg。缺失时，工具页可为 Windows、Linux、
-macOS 的 amd64/arm64 一键下载固定资产；下载会校验声明大小和
-SHA-256，再原子启用。这样源码、应用二进制和发布归档都保持轻量。
+系统 `PATH` 自动发现 FFmpeg。缺失时，工具页或桌面启动器可为
+Windows、Linux、macOS 的 amd64/arm64 下载固定资产，支持直接连接、
+本机 HTTP 代理和手动放置；下载会校验声明大小和 SHA-256，再原子启用。
+跨进程安装锁会阻止工作台与启动器同时修改工具目录。
 
 固定版本、下载来源和第三方许可证说明见
 [`docs/ffmpeg.md`](docs/ffmpeg.md)。
@@ -176,8 +214,9 @@ make docker-down
 
 GitHub Actions 会在 `main`、`dev` 和 Pull Request 上执行前端 lint/构建、
 Go 测试与 vet、Docker 构建，并生成 Windows、Linux、macOS 的
-amd64/arm64 构建产物。跨平台构建入口位于
-`.github/workflows/scripts/build.ps1`。
+amd64/arm64 内核构建产物；桌面构建使用原生 Windows、Linux 和 macOS
+Runner，生成 Windows amd64、Linux amd64 以及 macOS amd64/arm64
+启动器包。构建入口位于 `.github/workflows/scripts/`。
 
 ## 运维
 

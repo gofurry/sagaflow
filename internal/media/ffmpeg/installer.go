@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 const managedBundleRevision = "2026.07"
 
 var ErrInstallUnsupported = errors.New("FFmpeg managed installation is unsupported on this platform")
+var ErrInstallInProgress = errors.New("another SagaFlow process is installing FFmpeg")
 
 type InstallOptions struct {
 	Mode          string
@@ -140,13 +142,19 @@ func (t *Toolchain) StartInstall(options InstallOptions) (Status, error) {
 	if err != nil {
 		return status, err
 	}
+	unlock, err := acquireInstallLock(t.managedRoot)
+	if err != nil {
+		return status, err
+	}
 	client, err := t.installHTTPClient(options)
 	if err != nil {
+		unlock()
 		return status, err
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.installCancel = cancel
+	t.installUnlock = unlock
 	t.setInstallState(true, true, "connecting", fmt.Sprintf("正在连接 FFmpeg %s 下载源", t.release.Version), 0)
 	t.setInstallMode(options.Mode)
 	go t.runInstall(ctx, client)
@@ -240,8 +248,13 @@ func (t *Toolchain) runInstall(ctx context.Context, client *http.Client) {
 
 func (t *Toolchain) clearInstallCancel() {
 	t.installMu.Lock()
+	unlock := t.installUnlock
 	t.installCancel = nil
+	t.installUnlock = nil
 	t.installMu.Unlock()
+	if unlock != nil {
+		unlock()
+	}
 }
 
 func (t *Toolchain) setInstallState(installing, canCancel bool, stage, message string, downloaded int64) {
@@ -604,6 +617,9 @@ func (t *Toolchain) cleanupStaleInstallDirectories() {
 	if err != nil {
 		return
 	}
+	if installLockActive(root) {
+		return
+	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return
@@ -617,6 +633,57 @@ func (t *Toolchain) cleanupStaleInstallDirectories() {
 			_ = os.RemoveAll(target)
 		}
 	}
+}
+
+func acquireInstallLock(root string) (func(), error) {
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return nil, fmt.Errorf("create managed tools directory: %w", err)
+	}
+	lockPath := filepath.Join(root, ".ffmpeg-install.lock")
+	for attempt := 0; attempt < 2; attempt++ {
+		lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			_, writeErr := fmt.Fprintf(lock, "pid=%d\nstarted=%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339))
+			closeErr := lock.Close()
+			if writeErr != nil {
+				_ = os.Remove(lockPath)
+				return nil, fmt.Errorf("write FFmpeg installation lock: %w", writeErr)
+			}
+			if closeErr != nil {
+				_ = os.Remove(lockPath)
+				return nil, fmt.Errorf("close FFmpeg installation lock: %w", closeErr)
+			}
+			var once sync.Once
+			return func() { once.Do(func() { _ = os.Remove(lockPath) }) }, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, fmt.Errorf("create FFmpeg installation lock: %w", err)
+		}
+		if !removeStaleInstallLock(lockPath) {
+			return nil, fmt.Errorf("%w；请等待另一处下载完成", ErrInstallInProgress)
+		}
+	}
+	return nil, ErrInstallInProgress
+}
+
+func installLockActive(root string) bool {
+	lockPath := filepath.Join(root, ".ffmpeg-install.lock")
+	if _, err := os.Stat(lockPath); err != nil {
+		return false
+	}
+	return !removeStaleInstallLock(lockPath)
+}
+
+func removeStaleInstallLock(path string) bool {
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	if err != nil || time.Since(info.ModTime()) < 2*time.Hour {
+		return false
+	}
+	removeErr := os.Remove(path)
+	return removeErr == nil || errors.Is(removeErr, os.ErrNotExist)
 }
 
 func (r *downloadProgressReader) Read(buffer []byte) (int, error) {

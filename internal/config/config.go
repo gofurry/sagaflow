@@ -55,7 +55,7 @@ func Default() Config {
 			DataDir:  defaultDataDir(),
 			LogLevel: "info",
 		},
-		Server: ServerConfig{Host: "127.0.0.1", Port: 8080},
+		Server: ServerConfig{Host: "127.0.0.1", Port: 18848},
 		Auth: AuthConfig{
 			SessionTTL: "720h",
 			CookieName: "sagaflow_session",
@@ -208,7 +208,7 @@ func (c *Config) normalize() {
 		c.Server.Host = "127.0.0.1"
 	}
 	if c.Server.Port == 0 {
-		c.Server.Port = 8080
+		c.Server.Port = 18848
 	}
 	if c.Auth.SessionTTL == "" {
 		c.Auth.SessionTTL = "720h"

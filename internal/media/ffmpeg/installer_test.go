@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -237,6 +238,23 @@ func TestUnpackTarXZPair(t *testing.T) {
 			t.Fatalf("unexpected %s content %q: %v", name, content, readErr)
 		}
 	}
+}
+
+func TestInstallLockPreventsConcurrentInstallers(t *testing.T) {
+	root := t.TempDir()
+	unlock, err := acquireInstallLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := acquireInstallLock(root); !errors.Is(err, ErrInstallInProgress) {
+		t.Fatalf("expected concurrent installation error, got %v", err)
+	}
+	unlock()
+	secondUnlock, err := acquireInstallLock(root)
+	if err != nil {
+		t.Fatalf("expected released lock to be reusable: %v", err)
+	}
+	secondUnlock()
 }
 
 func writeTestZIP(t *testing.T, source string, entries map[string]string) {
