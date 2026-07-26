@@ -529,7 +529,7 @@ function modelFeatureLabel(value: string) { return ({
   thinking: '深度思考', reasoning: '推理', tools: '工具调用（待接入）', vision: '视觉理解', completion: '基础生成',
   coding: '代码能力', agent: 'Agent 任务', rolling_release: '持续更新', responses_api: 'Responses API', roleplay: '角色扮演',
 	dialogue: '对白生成', long_context: '长上下文', fast: '高速生成', image_generation: '图像生成', image_edit: '图像编辑',
-	outpaint: '扩图', inpaint: 'Mask 重绘', mask_input: '精确 Mask', local_reference: '本地参考直传',
+	outpaint: '扩图', inpaint: '重绘', mask_input: '区域控制', local_reference: '本地参考直传',
   multi_reference: '多参考', sequential_images: '组图生成', knowledge_grounding: '知识增强', video_generation: '视频生成',
   audio_generation: '同步声音', speech_generation: '语音生成', speech_recognition: '语音识别', voice_clone: '音色克隆',
   dynamic_voice: '动态音色', two_speaker_dialogue: '双人对话', long_audio: '长音频', text_to_video: '文生视频',

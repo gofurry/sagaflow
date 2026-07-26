@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { DeleteOutlined, RedoOutlined, UndoOutlined } from '@ant-design/icons'
-import { Alert, Button, Modal, Segmented, Slider } from 'antd'
+import { ClearOutlined, DeleteOutlined, HighlightOutlined, RedoOutlined, UndoOutlined } from '@ant-design/icons'
+import { Alert, Button, Modal, Slider, Tooltip } from 'antd'
 import type { GenerationImageTask } from '../../api/types'
 import { binarizeMaskAlpha } from './imageMask'
 
@@ -36,6 +36,7 @@ export function ImageEditWorkbench({ initialTask, mode, onApply, onCancel, open,
   const baseCanvasRef = useRef<HTMLCanvasElement>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const brushCursorRef = useRef<HTMLDivElement>(null)
   const imageRef = useRef<HTMLImageElement | null>(null)
   const outpaintDragRef = useRef<OutpaintDrag | null>(null)
   const activeStrokeRef = useRef<MaskStroke | null>(null)
@@ -188,6 +189,7 @@ export function ImageEditWorkbench({ initialTask, mode, onApply, onCancel, open,
     const canvas = event.currentTarget
     const mask = maskCanvasRef.current
     if (!mask) return
+    updateBrushCursor(brushCursorRef.current, canvas, event, brushSize, maskTool, mask.width)
     if (phase === 'start') {
       canvas.setPointerCapture(event.pointerId)
       const stroke: MaskStroke = { erase: maskTool === 'erase', size: brushSize, points: [maskPoint(canvas, event, mask)] }
@@ -267,7 +269,14 @@ export function ImageEditWorkbench({ initialTask, mode, onApply, onCancel, open,
               <Button onClick={() => setScales(defaultScales)} size="small">重置画幅</Button>
             </>
           : <>
-              <Segmented onChange={(value) => setMaskTool(value as 'paint' | 'erase')} options={[{ label: 'Mask 画笔', value: 'paint' }, { label: '擦除 Mask', value: 'erase' }]} value={maskTool}/>
+              <div className="image-edit-mask-tools">
+                <Tooltip title="涂抹重绘区域">
+                  <Button aria-label="涂抹重绘区域" icon={<HighlightOutlined/>} onClick={() => setMaskTool('paint')} type={maskTool === 'paint' ? 'primary' : 'default'}/>
+                </Tooltip>
+                <Tooltip title="擦除重绘区域">
+                  <Button aria-label="擦除重绘区域" icon={<ClearOutlined/>} onClick={() => setMaskTool('erase')} type={maskTool === 'erase' ? 'primary' : 'default'}/>
+                </Tooltip>
+              </div>
               <label><span>画笔大小</span><Slider max={240} min={12} onChange={setBrushSize} value={brushSize}/><em>{brushSize}px</em></label>
               <Button disabled={!strokes.length} icon={<UndoOutlined/>} onClick={() => {
                 const last = strokes.at(-1)
@@ -296,22 +305,47 @@ export function ImageEditWorkbench({ initialTask, mode, onApply, onCancel, open,
           ref={baseCanvasRef}
         />
         {mode === 'inpaint' && <canvas
-          aria-label="Mask 绘制区域"
+          aria-label="绘制重绘区域"
           className="image-edit-mask-canvas"
           onPointerDown={(event) => maskPointer(event, 'start')}
+          onPointerEnter={(event) => {
+            const sourceWidth = maskCanvasRef.current?.width
+            if (sourceWidth) updateBrushCursor(brushCursorRef.current, event.currentTarget, event, brushSize, maskTool, sourceWidth)
+          }}
+          onPointerLeave={() => hideBrushCursor(brushCursorRef.current)}
           onPointerMove={(event) => maskPointer(event, 'move')}
           onPointerUp={(event) => maskPointer(event, 'end')}
           ref={overlayCanvasRef}
         />}
+        {mode === 'inpaint' && <div aria-hidden className={`image-edit-brush-cursor ${maskTool}`} ref={brushCursorRef}/>}
       </div>
       {imageSize.width > 0 && <div className="image-edit-status">
         <span>源图 {imageSize.width} × {imageSize.height}</span>
         {mode === 'outpaint' && outpaintGeometry
           ? <><span>输出 {outpaintGeometry.width} × {outpaintGeometry.height}</span><span>原图位置 {outpaintGeometry.sourceX}, {outpaintGeometry.sourceY}</span></>
-          : <span>红色区域会被重绘；最终提交纯黑白同尺寸 Mask</span>}
+          : <span>红色区域会被重绘；提交时自动转换为同尺寸黑白引导图</span>}
       </div>}
     </div>
   </Modal>
+}
+
+function updateBrushCursor(cursor: HTMLDivElement | null, canvas: HTMLCanvasElement, event: React.PointerEvent<HTMLCanvasElement>, brushSize: number, tool: 'paint' | 'erase', sourceWidth: number) {
+  if (!cursor) return
+  const canvasRect = canvas.getBoundingClientRect()
+  const stageRect = canvas.parentElement?.getBoundingClientRect()
+  if (!stageRect || !sourceWidth) return
+  const diameter = Math.max(4, brushSize * canvasRect.width / sourceWidth)
+  cursor.style.width = `${diameter}px`
+  cursor.style.height = `${diameter}px`
+  cursor.style.left = `${event.clientX - stageRect.left}px`
+  cursor.style.top = `${event.clientY - stageRect.top}px`
+  cursor.classList.toggle('erase', tool === 'erase')
+  cursor.classList.toggle('paint', tool === 'paint')
+  cursor.style.opacity = '1'
+}
+
+function hideBrushCursor(cursor: HTMLDivElement | null) {
+  if (cursor) cursor.style.opacity = '0'
 }
 
 function clampScale(value: number) { return Math.min(2, Math.max(1, Math.round(value * 1000) / 1000)) }
@@ -382,7 +416,7 @@ function maskHasPaint(mask: HTMLCanvasElement) {
 }
 
 function canvasBlob(canvas: HTMLCanvasElement) {
-  return new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('无法导出 Mask')), 'image/png'))
+  return new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('无法导出重绘区域')), 'image/png'))
 }
 
 function safeName(value: string) {

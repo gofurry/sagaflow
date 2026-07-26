@@ -469,6 +469,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .image-edit-workbench { display: flex; min-height: 620px; flex-direction: column; gap: 12px; }
 .image-edit-toolbar { display: flex; min-height: 38px; align-items: center; gap: 9px; }
 .image-edit-toolbar > span { margin-right: auto; color: #8d776a; font-size: var(--font-size-supporting); }
+.image-edit-mask-tools { display: flex; flex: 0 0 auto; gap: 5px; }
+.image-edit-mask-tools .ant-btn { width: 34px; padding-inline: 0; }
 .image-edit-toolbar label { display: grid; grid-template-columns: auto 180px 54px; align-items: center; gap: 9px; margin-right: auto; color: #806b5f; font-size: var(--font-size-supporting); }
 .image-edit-toolbar label .ant-slider { margin: 0; }
 .image-edit-toolbar label em { color: #a08b7e; font-style: normal; text-align: right; }
@@ -476,7 +478,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .image-edit-stage.outpaint { background: #ddd7cf; }
 .image-edit-base-canvas { display: block; max-width: 100%; max-height: 560px; background: #fff; }
 .image-edit-stage.outpaint .image-edit-base-canvas { border: 2px solid #c8753f; box-shadow: 0 8px 24px rgba(79, 58, 44, .14); touch-action: none; }
-.image-edit-mask-canvas { position: absolute; max-width: 100%; max-height: 560px; cursor: crosshair; touch-action: none; }
+.image-edit-mask-canvas { position: absolute; max-width: 100%; max-height: 560px; cursor: none; touch-action: none; }
+.image-edit-brush-cursor { position: absolute; z-index: 2; border: 2px solid rgba(255, 255, 255, .96); border-radius: 50%; opacity: 0; pointer-events: none; box-shadow: 0 0 0 1px rgba(109, 71, 49, .9), 0 2px 7px rgba(63, 42, 30, .22); transform: translate(-50%, -50%); }
+.image-edit-brush-cursor.erase { border-style: dashed; box-shadow: 0 0 0 1px rgba(73, 65, 59, .92), 0 2px 7px rgba(63, 42, 30, .2); }
 .image-edit-status { display: flex; flex-wrap: wrap; gap: 8px 18px; color: #887266; font-size: var(--font-size-supporting); }
 .image-edit-status span + span::before { margin-right: 18px; color: #c4b4aa; content: '·'; }
 .generation-shot-selector { display: flex; align-items: flex-end; justify-content: space-between; gap: 22px; margin-bottom: 20px; padding: 14px 0 17px; border-bottom: 1px solid rgba(139, 105, 82, .13); }.generation-shot-selector label { width: min(440px, 100%); display: flex; flex-direction: column; gap: 7px; }.generation-shot-selector label > span { color: #806b5e; font-size: var(--font-size-supporting); font-weight: 650; }.generation-shot-selector p { margin: 0 0 8px; color: #9d887b; font-size: var(--font-size-caption); }

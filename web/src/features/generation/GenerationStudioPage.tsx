@@ -297,7 +297,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
     if (capability === 'video' && missingVideoReferences.length > 0) return message.warning('部分画布参考还没有可用的 S3 副本，请先到资产页发布')
     if (capability !== 'video' && missingDraftReferences.length > 0) return message.warning('部分参考还没有可用的 S3 副本，请先到资产页发布')
 		if (capability === 'image' && imageOperation !== 'generate' && !imageSource) return message.warning('请先选择一张源图像')
-		if (capability === 'image' && imageOperation !== 'generate' && !specialImageReady) return message.warning(imageOperation === 'outpaint' ? '请先设置扩图画幅' : '请先绘制需要重绘的 Mask 区域')
+		if (capability === 'image' && imageOperation !== 'generate' && !specialImageReady) return message.warning(imageOperation === 'outpaint' ? '请先设置扩图画幅' : '请先绘制需要重绘的区域')
     if (!draft.prompt.trim()) return message.warning('请输入 Prompt')
 		const imageReferences = capability === 'image' && imageOperation === 'inpaint' && draft.maskReference
 			? [...draft.inputReferences.slice(0, 1), draft.maskReference]
@@ -377,7 +377,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
 			{([
 				{ key: 'generate' as const, label: '普通生成', note: '文生图或多图参考' },
 				{ key: 'outpaint' as const, label: '扩图', note: '拖动画幅扩展边界', icon: <ExpandOutlined/> },
-				{ key: 'inpaint' as const, label: 'Mask 重绘', note: '精确指定修改区域', icon: <HighlightOutlined/> },
+				{ key: 'inpaint' as const, label: '重绘', note: '精确指定修改区域', icon: <HighlightOutlined/> },
 			]).map((item) => <button aria-selected={imageOperation === item.key} className={imageOperation === item.key ? 'active' : ''} key={item.key} onClick={() => selectImageOperation(item.key)} role="tab" type="button">
 				{item.icon}<span><strong>{item.label}</strong><small>{item.note}</small></span>
 			</button>)}
@@ -450,15 +450,15 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
 			{imageSource && <div className={`image-task-preparation ${draft.imageTask?.type === imageOperation ? 'ready' : ''}`}>
 				<img alt={imageSource.name} src={imageSourceURL}/>
 				<div>
-					<strong>{imageOperation === 'outpaint' ? '扩图画幅' : '重绘 Mask'}</strong>
+					<strong>{imageOperation === 'outpaint' ? '扩图画幅' : '重绘区域'}</strong>
 					<span>{draft.imageTask?.type === imageOperation
 						? imageOperation === 'outpaint'
 							? `已设置 ${draft.imageTask.target_width} × ${draft.imageTask.target_height} 画幅`
-							: 'Mask 已准备，将以纯黑白图提交'
+							: '重绘区域已准备，将以黑白引导图提交'
 						: imageOperation === 'outpaint' ? '尚未设置扩展范围' : '尚未绘制重绘区域'}</span>
 				</div>
 				<Button icon={imageOperation === 'outpaint' ? <ExpandOutlined/> : <HighlightOutlined/>} onClick={() => setImageEditorOpen(true)} type="primary">
-					{draft.imageTask?.type === imageOperation ? '重新编辑' : imageOperation === 'outpaint' ? '设置扩图范围' : '绘制 Mask'}
+					{draft.imageTask?.type === imageOperation ? '重新编辑' : imageOperation === 'outpaint' ? '设置扩图范围' : '绘制重绘区域'}
 				</Button>
 			</div>}
 			{imageSource && <Suspense fallback={null}><ImageEditWorkbench
@@ -473,7 +473,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
 					discardMaskReference(draft.maskReference)
 					updateDraft({ imageTask: result.task, maskReference })
 					setImageEditorOpen(false)
-					message.success(imageOperation === 'outpaint' ? '扩图画幅已应用' : 'Mask 已应用')
+					message.success(imageOperation === 'outpaint' ? '扩图画幅已应用' : '重绘区域已应用')
 				}}
 				onCancel={() => setImageEditorOpen(false)}
 				open={imageEditorOpen}
