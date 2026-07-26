@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppstoreOutlined, AudioOutlined, BarsOutlined, CloudOutlined, ExpandOutlined, FileTextOutlined, HighlightOutlined, HddOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined, VideoCameraOutlined } from '@ant-design/icons'
 import { App, AutoComplete, Button, Input, Select, Steps } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -9,13 +9,13 @@ import { FloatingToolbar } from '../../components/FloatingToolbar'
 import { MarkdownEditor } from '../../components/Markdown'
 import { ModelParameterEditor } from '../../components/ModelParameterEditor'
 import { GenerationReferencePicker, type GenerationReferenceDraft } from './GenerationReferencePicker'
+import { ImageEditWorkbench } from './ImageEditWorkbench'
 import { StagedAssetGallery, type ResultViewMode } from './StagedAssetGallery'
 import { assetExportLabel, preferredAssetExport, usableAssetExports } from '../assets/storage'
 import { completedJobTransition } from '../jobs/completionTransitions'
 
 type GenerationCapability = Extract<Capability, 'text' | 'image' | 'audio' | 'video'>
 type ImageOperation = 'generate' | 'outpaint' | 'inpaint'
-const ImageEditWorkbench = lazy(() => import('./ImageEditWorkbench').then((module) => ({ default: module.ImageEditWorkbench })))
 interface GenerationDraft {
   targetKind?: 'model' | 'workflow'
   modelID?: string
@@ -463,7 +463,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
 					{draft.imageTask?.type === imageOperation ? '重新编辑' : imageOperation === 'outpaint' ? '设置扩图范围' : '绘制重绘区域'}
 				</Button>
 			</div>}
-			{imageSource && <Suspense fallback={null}><ImageEditWorkbench
+			{imageSource && <ImageEditWorkbench
 				initialTask={draft.imageTask}
 				mode={imageOperation as 'outpaint' | 'inpaint'}
 				onApply={async (result) => {
@@ -481,7 +481,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
 				open={imageEditorOpen}
 				sourceName={imageSource.name}
 				sourceURL={imageSourceURL}
-			/></Suspense>}
+			/>}
 		</div>}
         <MarkdownEditor height={360} onChange={(prompt) => updateDraft({ prompt })} placeholder={`输入${capabilityMeta[capability].label}生成 Prompt…`} value={draft.prompt}/>
 		{capability !== 'video' && allowedReferences.length > 0 && !(capability === 'image' && imageOperation !== 'generate') && <GenerationReferencePicker

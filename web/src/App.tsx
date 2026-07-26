@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { App as AntApp, Avatar, Button, Form, Input, Layout, Modal, Popover, Select, Skeleton, Space, Typography } from 'antd'
 import { AppstoreOutlined, BgColorsOutlined, BranchesOutlined, FolderOpenOutlined, GithubOutlined, HomeOutlined, LogoutOutlined, PlusOutlined, SettingOutlined, ThunderboltOutlined, ToolOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -9,15 +9,29 @@ import { EmptyState } from './components/EmptyState'
 import { PageScrollOrb } from './components/PageScrollOrb'
 import { HomePage } from './features/home/HomePage'
 
-const EpisodesPage = lazy(() => import('./features/episodes/EpisodesPage').then((module) => ({ default: module.EpisodesPage })))
-const AssetLibraryPage = lazy(() => import('./features/assets/AssetLibraryPage').then((module) => ({ default: module.AssetLibraryPage })))
-const CanvasComposer = lazy(() => import('./features/canvas/CanvasComposer').then((module) => ({ default: module.CanvasComposer })))
-const ModelHubPage = lazy(() => import('./features/models/ModelHubPage').then((module) => ({ default: module.ModelHubPage })))
-const SettingsPage = lazy(() => import('./features/settings/SettingsPage').then((module) => ({ default: module.SettingsPage })))
-const GenerationStudioPage = lazy(() => import('./features/generation/GenerationStudioPage').then((module) => ({ default: module.GenerationStudioPage })))
-const LocalToolsPage = lazy(() => import('./features/tools/LocalToolsPage').then((module) => ({ default: module.LocalToolsPage })))
-
 type ModuleKey = 'home' | 'episodes' | 'assets' | 'generation' | 'canvas' | 'tools' | 'models' | 'settings'
+type LazyModuleKey = Exclude<ModuleKey, 'home'>
+const moduleLoaders = {
+  episodes: () => import('./features/episodes/EpisodesPage'),
+  assets: () => import('./features/assets/AssetLibraryPage'),
+  generation: () => import('./features/generation/GenerationStudioPage'),
+  canvas: () => import('./features/canvas/CanvasComposer'),
+  tools: () => import('./features/tools/LocalToolsPage'),
+  models: () => import('./features/models/ModelHubPage'),
+  settings: () => import('./features/settings/SettingsPage'),
+} satisfies Record<LazyModuleKey, () => Promise<unknown>>
+const EpisodesPage = lazy(() => moduleLoaders.episodes().then((module) => ({ default: module.EpisodesPage })))
+const AssetLibraryPage = lazy(() => moduleLoaders.assets().then((module) => ({ default: module.AssetLibraryPage })))
+const CanvasComposer = lazy(() => moduleLoaders.canvas().then((module) => ({ default: module.CanvasComposer })))
+const ModelHubPage = lazy(() => moduleLoaders.models().then((module) => ({ default: module.ModelHubPage })))
+const SettingsPage = lazy(() => moduleLoaders.settings().then((module) => ({ default: module.SettingsPage })))
+const GenerationStudioPage = lazy(() => moduleLoaders.generation().then((module) => ({ default: module.GenerationStudioPage })))
+const LocalToolsPage = lazy(() => moduleLoaders.tools().then((module) => ({ default: module.LocalToolsPage })))
+
+function preloadModule(key: ModuleKey) {
+  if (key !== 'home') void moduleLoaders[key]().catch(() => undefined)
+}
+
 const moduleMeta: Record<ModuleKey, { label: string; icon: React.ReactNode }> = {
   home: { label: '主页', icon: <HomeOutlined/> }, episodes: { label: '剧本', icon: <FolderOpenOutlined/> }, assets: { label: '资产', icon: <AppstoreOutlined/> }, generation: { label: '生成', icon: <ThunderboltOutlined/> }, canvas: { label: '画布', icon: <BranchesOutlined/> }, tools: { label: '工具', icon: <ToolOutlined/> }, models: { label: '模型', icon: <BgColorsOutlined/> }, settings: { label: '设置', icon: <SettingOutlined/> },
 }
@@ -40,7 +54,12 @@ export default function App() {
 function Workspace({ onError, sessionUser }: { onError: (error: unknown) => void; sessionUser: Principal }) {
   const queryClient = useQueryClient(); const { message } = AntApp.useApp(); const [form] = Form.useForm();
   const [active, setActive] = useState<ModuleKey>('home'); const [projectModal, setProjectModal] = useState(false)
+  const [isSwitchingModule, startModuleTransition] = useTransition()
   const contentRef = useRef<HTMLElement | null>(null)
+	const selectModule = (key: ModuleKey) => {
+		preloadModule(key)
+		startModuleTransition(() => setActive(key))
+	}
 	const projectStorageKey = `sagaflow.${sessionUser.account_id}.project`
 	const episodeStorageKey = `sagaflow.${sessionUser.account_id}.episode`
   const [projectID, setProjectID] = useState(() => localStorage.getItem(projectStorageKey) ?? '')
@@ -56,20 +75,25 @@ function Workspace({ onError, sessionUser }: { onError: (error: unknown) => void
   useEffect(() => { localStorage.setItem(projectStorageKey, projectID); setEpisodeID((current) => episodes.some((item) => item.id === current) ? current : (episodes[0]?.id ?? '')) }, [episodes, projectID, projectStorageKey])
 	useEffect(() => { localStorage.setItem(episodeStorageKey, episodeID) }, [episodeID, episodeStorageKey])
   useEffect(() => { contentRef.current?.scrollTo({ top: 0 }) }, [active, projectID])
-  const createProject = useMutation({ mutationFn: api.createProject, onSuccess: async (created) => { await queryClient.invalidateQueries({ queryKey: ['projects'] }); setProjectID(created.id); setActive('episodes'); setProjectModal(false); form.resetFields(); message.success('项目已创建，开始编写第一集吧') }, onError })
+	useEffect(() => {
+		const commonTimer = window.setTimeout(() => (['episodes', 'assets', 'generation', 'tools', 'settings'] as ModuleKey[]).forEach(preloadModule), 0)
+		const remainingTimer = window.setTimeout(() => (['canvas', 'models'] as ModuleKey[]).forEach(preloadModule), 800)
+		return () => { window.clearTimeout(commonTimer); window.clearTimeout(remainingTimer) }
+	}, [])
+  const createProject = useMutation({ mutationFn: api.createProject, onSuccess: async (created) => { await queryClient.invalidateQueries({ queryKey: ['projects'] }); setProjectID(created.id); selectModule('episodes'); setProjectModal(false); form.resetFields(); message.success('项目已创建，开始编写第一集吧') }, onError })
   const logout = useMutation({ mutationFn: api.logout, onSuccess: async () => { await queryClient.cancelQueries(); queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'auth' }); await queryClient.invalidateQueries({ queryKey: ['auth'] }) }, onError })
 	const projectOptions = useMemo(() => projects.map((item) => ({ label: item.title, value: item.id })), [projects])
   const selectEpisode = (value: string) => setEpisodeID(value)
-  const openProject = (id: string) => { setProjectID(id); setActive('episodes') }
+  const openProject = (id: string) => { setProjectID(id); selectModule('episodes') }
   return <Layout className="app-layout">
     <nav aria-label="主菜单" className="floating-nav">
-      {(Object.keys(moduleMeta) as ModuleKey[]).map((key) => <button aria-current={active === key ? 'page' : undefined} className={`floating-nav-button${active === key ? ' active' : ''}`} key={key} onClick={() => setActive(key)} type="button"><span className="floating-nav-icon">{moduleMeta[key].icon}</span><span>{moduleMeta[key].label}</span></button>)}
+      {(Object.keys(moduleMeta) as ModuleKey[]).map((key) => <button aria-current={active === key ? 'page' : undefined} className={`floating-nav-button${active === key ? ' active' : ''}`} key={key} onClick={() => selectModule(key)} onFocus={() => preloadModule(key)} onPointerEnter={() => preloadModule(key)} type="button"><span className="floating-nav-icon">{moduleMeta[key].icon}</span><span>{moduleMeta[key].label}</span></button>)}
       <a className="floating-nav-button floating-nav-open-source" href="https://github.com/gofurry/sagaflow" rel="noreferrer" target="_blank"><span className="floating-nav-icon"><GithubOutlined/></span><span>开源</span></a>
     </nav>
     <Layout>
       <Layout.Header className="app-header">
         <div className="header-left">
-          <button aria-label="返回主页" className="header-brand-logo" onClick={() => setActive('home')} type="button"><img alt="SagaFlow" src="/logo-header.png"/></button>
+          <button aria-label="返回主页" className="header-brand-logo" onClick={() => selectModule('home')} type="button"><img alt="SagaFlow" src="/logo-header.png"/></button>
           <div className="header-title"><strong>{moduleMeta[active].label}</strong></div>
           {active !== 'home' && <div className="header-project">
             <Select className="project-select" options={projectOptions} placeholder="选择项目" value={projectID || undefined} onChange={setProjectID} popupMatchSelectWidth={300}/>
@@ -87,7 +111,7 @@ function Workspace({ onError, sessionUser }: { onError: (error: unknown) => void
 			  <div className="user-status-profile"><div><strong>{currentUser?.display_name || currentUser?.username || '当前用户'}</strong><span>本地账号</span></div></div>
 			  <div className="user-session-state">项目与素材默认保存在本机</div>
               <div className="user-status-actions">
-                <button onClick={() => setActive('settings')} type="button"><SettingOutlined/><span>设置</span></button>
+                <button onClick={() => selectModule('settings')} onPointerEnter={() => preloadModule('settings')} type="button"><SettingOutlined/><span>设置</span></button>
                 <button disabled={logout.isPending} onClick={() => logout.mutate()} type="button"><LogoutOutlined/><span>{logout.isPending ? '正在退出…' : '退出登录'}</span></button>
               </div>
             </div>}
@@ -98,7 +122,7 @@ function Workspace({ onError, sessionUser }: { onError: (error: unknown) => void
           </Popover>
         </Space>
       </Layout.Header>
-      <Layout.Content className={`app-content module-${active}`} ref={contentRef}>
+      <Layout.Content aria-busy={isSwitchingModule} className={`app-content module-${active}`} ref={contentRef}>
         <Suspense fallback={<div className="module-loading"><Skeleton active paragraph={{ rows: 5 }}/></div>}>
           {active === 'home'
             ? <HomePage activeProjectID={projectID} loading={projectsQuery.isLoading} onCreate={() => setProjectModal(true)} onOpenProject={openProject} projects={projects}/>
