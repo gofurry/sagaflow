@@ -167,7 +167,7 @@ export interface GenerationImageTask {
   left_scale?: number
   right_scale?: number
 }
-export interface GenerationReferenceUpload { id: ID; project_id: ID; job_id: ID | null; name: string; media_type: MediaType; mime_type: string; file_size_bytes: number; created_at: string }
+export interface GenerationReferenceUpload { id: ID; project_id: ID; job_id: ID | null; name: string; media_type: MediaType; mime_type: string; file_size_bytes: number; metadata: Record<string, unknown>; created_at: string }
 export interface GenerationJob { id: ID; project_id: ID; episode_id: ID | null; canvas_node_id: ID | null; target_asset_group_id: ID | null; prompt_preset_id: ID | null; model_preset_id: ID | null; target_kind: 'model' | 'workflow'; provider_id: ID | null; model_id: ID | null; workflow_template_id: ID | null; capability: Capability; prompt: string; parameters: Record<string, unknown>; input_references: GenerationInputReference[]; output_name: string; output_staged_asset_ids: ID[]; status: JobStatus; stage: JobStage; provider_job_id: string; error_message: string; provider_code: string; model_identifier: string; created_at: string; updated_at: string }
 export interface InferenceInputSnapshot { id: string; name: string; media_type: MediaType | string; mime_type: string; provider_url: boolean; content_stream: boolean }
 export interface InferenceRequestSnapshot { request_id: string; provider_code: string; adapter_code: string; endpoint: string; target_kind: 'model' | 'workflow'; target_id: string; capability: Capability; operation?: string; control?: Record<string, unknown>; prompt: string; parameters: Record<string, unknown>; inputs: InferenceInputSnapshot[] }

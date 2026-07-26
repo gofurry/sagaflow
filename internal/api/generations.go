@@ -337,6 +337,7 @@ func (s *Server) validateGenerationReferences(c fiber.Ctx, projectID uuid.UUID, 
 		}
 		seen[requestedReference.ID] = struct{}{}
 		var mediaType string
+		var publicSourceURL string
 		switch requestedReference.Source {
 		case "asset":
 			asset, err := s.store.GetAsset(c.Context(), requestedReference.ID)
@@ -356,6 +357,7 @@ func (s *Server) validateGenerationReferences(c fiber.Ctx, projectID uuid.UUID, 
 				return nil, fmt.Errorf("%w: temporary reference is unavailable", service.ErrInvalidInput)
 			}
 			mediaType = upload.MediaType
+			publicSourceURL = generationReferenceSourceURL(upload.Metadata)
 		default:
 			return nil, fmt.Errorf("%w: reference source must be asset or upload", service.ErrInvalidInput)
 		}
@@ -365,10 +367,11 @@ func (s *Server) validateGenerationReferences(c fiber.Ctx, projectID uuid.UUID, 
 		remoteExportID := requestedReference.RemoteExportID
 		requiresRemote := providerRequiresRemoteReferences(adapterCode) && !slices.Contains(features, "local_reference")
 		if requiresRemote || slices.Contains(features, "remote_reference_required") {
-			if requestedReference.Source != "asset" {
+			if requestedReference.Source == "upload" && publicSourceURL != "" {
+				remoteExportID = nil
+			} else if requestedReference.Source != "asset" {
 				return nil, fmt.Errorf("%w: temporary references cannot be sent to a cloud model; import and publish the asset first", service.ErrInvalidInput)
-			}
-			if remoteExportID == nil {
+			} else if remoteExportID == nil {
 				exports, exportErr := s.store.ListAssetRemoteExports(c.Context(), requestedReference.ID)
 				if exportErr != nil {
 					return nil, exportErr
@@ -390,12 +393,14 @@ func (s *Server) validateGenerationReferences(c fiber.Ctx, projectID uuid.UUID, 
 					}
 				}
 			}
-			if remoteExportID == nil {
+			if requestedReference.Source == "asset" && remoteExportID == nil {
 				return nil, fmt.Errorf("%w: publish reference asset %s to S3 before using it with a cloud model", service.ErrInvalidInput, requestedReference.ID)
 			}
-			exported, exportErr := s.store.GetAssetRemoteExport(c.Context(), *remoteExportID)
-			if exportErr != nil || exported.AssetID != requestedReference.ID || exported.State != "ready" || !exported.ConnectionEnabled {
-				return nil, fmt.Errorf("%w: remote export does not belong to the reference asset", service.ErrInvalidInput)
+			if remoteExportID != nil {
+				exported, exportErr := s.store.GetAssetRemoteExport(c.Context(), *remoteExportID)
+				if exportErr != nil || exported.AssetID != requestedReference.ID || exported.State != "ready" || !exported.ConnectionEnabled {
+					return nil, fmt.Errorf("%w: remote export does not belong to the reference asset", service.ErrInvalidInput)
+				}
 			}
 		}
 		references = append(references, db.GenerationInputReference{Source: requestedReference.Source, ID: requestedReference.ID, RemoteExportID: remoteExportID})

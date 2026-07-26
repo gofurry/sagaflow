@@ -583,7 +583,7 @@ function requiresPublishedReferences(model: Model, providers: ModelProvider[]) {
 
 function compatibleDraftReferences(references: GenerationReferenceDraft[], inputModalities: MediaType[], publishedOnly: boolean, exports: AssetRemoteExport[]) {
   return references
-    .filter((reference) => inputModalities.includes(reference.mediaType) && (!publishedOnly || reference.source === 'asset'))
+    .filter((reference) => inputModalities.includes(reference.mediaType) && (!publishedOnly || reference.source === 'asset' || reference.online))
     .map((reference) => {
       if (!publishedOnly || reference.source !== 'asset') return { ...reference, remote_export_id: undefined }
       const available = usableAssetExports(exports, reference.id)

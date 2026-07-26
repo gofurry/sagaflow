@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeftOutlined, ArrowRightOutlined, AudioOutlined, CloseOutlined, CloudOutlined, FileTextOutlined, FolderOpenOutlined, HddOutlined, InboxOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, ArrowRightOutlined, AudioOutlined, CloseOutlined, CloudOutlined, FileTextOutlined, FolderOpenOutlined, HddOutlined, InboxOutlined, LinkOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons'
 import { App, Button, Checkbox, Empty, Input, Modal, Pagination, Select, Spin, Tooltip, Tree } from 'antd'
 import { useQuery } from '@tanstack/react-query'
 import type { DataNode } from 'antd/es/tree'
@@ -10,6 +10,7 @@ import { assetExportLabel, preferredAssetExport, usableAssetExports } from '../a
 export interface GenerationReferenceDraft extends GenerationInputReference {
   name: string
   mediaType: MediaType
+  online?: boolean
 }
 
 export function GenerationReferencePicker({
@@ -39,6 +40,9 @@ export function GenerationReferencePicker({
   const inputRef = useRef<HTMLInputElement>(null)
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [linkOpen, setLinkOpen] = useState(false)
+  const [linkURL, setLinkURL] = useState('')
+  const [importingLink, setImportingLink] = useState(false)
   const allowed = useMemo(() => new Set(allowedMedia), [allowedMedia])
 
   const remove = async (reference: GenerationReferenceDraft) => {
@@ -86,13 +90,39 @@ export function GenerationReferencePicker({
     }
   }
 
+  const importLink = async () => {
+    if (!linkURL.trim()) return
+    setImportingLink(true)
+    let created: GenerationReferenceUpload | undefined
+    try {
+      created = await api.importGenerationReferenceURL(projectID, linkURL.trim())
+      if (!allowed.has(created.media_type)) {
+        await api.deleteGenerationReference(created.id)
+        created = undefined
+        throw new Error('链接内容不是当前模型支持的参考类型')
+      }
+      const linked = { source: 'upload' as const, id: created.id, name: created.name, mediaType: created.media_type, online: true }
+      const next = maxItems === 1 ? [linked] : [...value, linked]
+      if (maxItems === 1) value.filter((item) => item.source === 'upload' && item.id !== linked.id).forEach((item) => void api.deleteGenerationReference(item.id).catch(() => undefined))
+      onChange(next)
+      setLinkURL('')
+      setLinkOpen(false)
+      message.success('在线参考已缓存，可以开始生成')
+    } catch (error) {
+      if (created) await api.deleteGenerationReference(created.id).catch(() => undefined)
+      onError(error)
+    } finally {
+      setImportingLink(false)
+    }
+  }
+
   return <div className="generation-reference-picker">
     <div className="reference-picker-heading">
       <div>
 		<strong>{title}</strong>
         <span>{value.length
           ? `${value.length} 项 · 生成时按当前顺序提交`
-          : requiresPublishedAssets ? '当前模型只接受已在资产页发布到 S3 的资产' : '可从资产库选择，或上传仅用于本次生成的临时参考'}</span>
+          : requiresPublishedAssets ? '可选择已发布到 S3 的资产，或导入公开链接' : '可从资产库选择、上传文件或导入公开链接'}</span>
       </div>
       <div className="reference-add-actions">
         <Tooltip title="从资产库添加">
@@ -101,6 +131,9 @@ export function GenerationReferencePicker({
         {!requiresPublishedAssets && <Tooltip title="上传本次参考；提交后作为任务快照保留，不进入资产库">
           <Button aria-label="上传临时参考" icon={uploading ? <Spin size="small"/> : <UploadOutlined/>} onClick={() => inputRef.current?.click()} shape="circle"/>
         </Tooltip>}
+		<Tooltip title="导入公开 HTTP/HTTPS 链接；本机会保存一份任务快照">
+		  <Button aria-label="导入在线参考" icon={<LinkOutlined/>} onClick={() => setLinkOpen(true)} shape="circle"/>
+		</Tooltip>
 		<input accept={acceptFor(allowedMedia)} hidden multiple={maxItems !== 1} onChange={(event) => void upload(event.target.files)} ref={inputRef} type="file"/>
       </div>
     </div>
@@ -109,7 +142,7 @@ export function GenerationReferencePicker({
           <div className="reference-preview-media">
             <ReferencePreview reference={reference}/>
             <em>{referenceLabel(reference.mediaType, index)}</em>
-            <span>{reference.source === 'asset' ? '资产' : '临时'}</span>
+            <span>{reference.source === 'asset' ? '资产' : reference.online ? '在线' : '临时'}</span>
           </div>
           <div className="reference-preview-footer">
             <strong title={reference.name}>{reference.name}</strong>
@@ -151,6 +184,19 @@ export function GenerationReferencePicker({
       projectID={projectID}
       selected={value.filter((item) => item.source === 'asset').map((item) => item.id)}
     />
+	<Modal
+	  cancelText="取消"
+	  okButtonProps={{ disabled: !linkURL.trim() }}
+	  okText="导入参考"
+	  confirmLoading={importingLink}
+	  onCancel={() => { if (!importingLink) { setLinkOpen(false); setLinkURL('') } }}
+	  onOk={() => void importLink()}
+	  open={linkOpen}
+	  title="导入在线参考"
+	>
+	  <p className="reference-link-help">填写可公开访问的 HTTP/HTTPS 图片、视频或音频地址。SagaFlow 会先下载并缓存一份，避免链接失效影响任务记录。</p>
+	  <Input autoFocus onChange={(event) => setLinkURL(event.target.value)} onPressEnter={() => void importLink()} placeholder="https://example.com/reference.png" prefix={<LinkOutlined/>} value={linkURL}/>
+	</Modal>
   </div>
 }
 
@@ -261,7 +307,7 @@ function ReferenceTransport({ exports, reference, requiresPublishedAssets, onCha
   requiresPublishedAssets: boolean
   onChange: (remoteExportID?: string) => void
 }) {
-  if (reference.source === 'upload') return <div className="reference-transport local"><HddOutlined/><span>临时文件直传</span></div>
+  if (reference.source === 'upload') return <div className="reference-transport local">{reference.online ? <LinkOutlined/> : <HddOutlined/>}<span>{reference.online ? '公开链接 · 已缓存' : '临时文件直传'}</span></div>
   if (!requiresPublishedAssets) return <div className="reference-transport local"><HddOutlined/><span>本地文件直传</span></div>
   const available = usableAssetExports(exports, reference.id)
   if (!available.length) return <div className="reference-transport missing"><CloudOutlined/><span>缺少可用的 S3 副本</span></div>
@@ -291,5 +337,5 @@ function acceptFor(types: MediaType[]) {
 function referenceHint(types: MediaType[], requiresPublishedAssets: boolean) {
   const labels = types.map((type) => ({ image: '图像', video: '视频', audio: '音频', text: '文本', file: '文件' })[type])
   const media = labels.length > 1 ? labels.join('、') : labels[0] ?? '素材'
-  return requiresPublishedAssets ? `选择已发布到 S3 的${media}资产` : `${media}会按当前顺序传给模型`
+  return requiresPublishedAssets ? `选择已发布到 S3 的${media}资产，或导入公开链接` : `${media}会按当前顺序传给模型`
 }

@@ -138,6 +138,7 @@ func (s *Server) RegisterRoutes(app *fiber.App) {
 	p.Get("/generation-jobs/:id/invocation", s.getGenerationInvocation)
 	p.Get("/generation-jobs/:id", s.getGenerationJob)
 	p.Post("/projects/:id/generation-reference-uploads", s.withUploadSlot(s.uploadGenerationReference))
+	p.Post("/projects/:id/generation-reference-urls", s.withUploadSlot(s.importGenerationReferenceURL))
 	p.Get("/generation-reference-uploads/:id/file", s.getGenerationReferenceFile)
 	p.Delete("/generation-reference-uploads/:id", s.deleteGenerationReference)
 	p.Get("/projects/:id/staged-assets", s.listStagedAssets)
