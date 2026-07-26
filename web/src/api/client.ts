@@ -87,6 +87,7 @@ export const api = {
   importModelCatalog: (manifest: Record<string, unknown>) => request<CatalogImportResult>('/model-catalog/update', { method: 'POST', body: body(manifest) }),
   createModel: (input: Partial<Model>) => request<Model>('/model-catalog', { method: 'POST', body: body(input) }),
   updateModel: (id: ID, input: Partial<Model>) => request<Model>(`/model-catalog/${id}`, { method: 'PATCH', body: body(input) }),
+  deleteModel: (id: ID) => request<{ deleted: boolean }>(`/model-catalog/${id}`, { method: 'DELETE' }),
   presets: (modelID?: ID) => request<ModelPreset[]>(`/model-presets${query({ model_id: modelID })}`),
   createPreset: (input: Partial<ModelPreset>) => request<ModelPreset>('/model-presets', { method: 'POST', body: body(input) }),
   updatePreset: (id: ID, input: Partial<ModelPreset>) => request<ModelPreset>(`/model-presets/${id}`, { method: 'PATCH', body: body(input) }),

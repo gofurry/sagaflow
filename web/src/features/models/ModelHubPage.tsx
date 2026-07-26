@@ -3,7 +3,7 @@ import { ApiOutlined, AudioOutlined, CheckCircleOutlined, CloudServerOutlined, C
 import { App, Button, Checkbox, Col, Empty, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Switch, Upload } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
-import type { Capability, CloudModelDiscovery, Model, ModelLifecycleStatus, ModelProvider, ModelSupportStatus, OllamaDiscovery, PromptPreset } from '../../api/types'
+import type { Capability, CloudModelDiscovery, MediaType, Model, ModelLifecycleStatus, ModelProvider, ModelSupportStatus, OllamaDiscovery, PromptPreset } from '../../api/types'
 import { FloatingToolbar } from '../../components/FloatingToolbar'
 import { JSONCodeEditor } from '../../components/JSONCodeEditor'
 import { MarkdownEditor, MarkdownPreview } from '../../components/Markdown'
@@ -16,6 +16,61 @@ type ModelView = 'catalog' | 'providers' | 'workflows' | 'credentials'
 const capabilities: Capability[] = ['text', 'image', 'audio', 'video', 'multimodal']
 const promptCapabilities: PromptPreset['capability'][] = ['text', 'image', 'audio', 'video']
 const catalogCapabilities: Capability[] = ['text', 'image', 'audio', 'video']
+const inputModalities: MediaType[] = ['text', 'image', 'audio', 'video', 'file']
+type ModelTemplate = { label: string; capability?: Capability; inputModalities: MediaType[]; features: string[]; schema: Record<string, unknown>; defaults: Record<string, unknown> }
+const modelTemplates: Record<string, ModelTemplate> = {
+  none: { label: '无可调参数', inputModalities: ['text'], features: [], schema: { type: 'object', properties: {} }, defaults: {} },
+  openai_text: {
+    label: 'OpenAI 兼容文本模型', capability: 'text', inputModalities: ['text'], features: ['completion'],
+    schema: { type: 'object', properties: {
+      max_tokens: { type: 'integer', title: '最大输出 Token', minimum: 1, maximum: 32768 },
+      temperature: { type: 'number', title: '温度', description: '数值越高，输出越具有随机性', minimum: 0, maximum: 2, multipleOf: 0.1 },
+      top_p: { type: 'number', title: 'Top P', minimum: 0, maximum: 1, multipleOf: 0.05 },
+      response_format: { type: 'string', title: '输出格式', enum: ['text', 'json_object'] },
+      stop: { type: 'array', title: '停止序列', items: { type: 'string' } },
+    } },
+    defaults: { max_tokens: 4096, temperature: 0.7, top_p: 0.9, response_format: 'text', stop: [] },
+  },
+  minimax_image: {
+    label: 'MiniMax 图像模型', capability: 'image', inputModalities: ['text', 'image'], features: ['image_generation', 'character_reference'],
+    schema: { type: 'object', properties: {
+      aspect_ratio: { type: 'string', title: '画面比例', enum: ['1:1', '16:9', '4:3', '3:2', '2:3', '3:4', '9:16', '21:9'] },
+      width: { type: 'integer', title: '宽度', minimum: 512, maximum: 2048 },
+      height: { type: 'integer', title: '高度', minimum: 512, maximum: 2048 },
+      n: { type: 'integer', title: '生成数量', minimum: 1, maximum: 4 },
+      response_format: { type: 'string', title: '返回格式', enum: ['url', 'base64'] },
+    } },
+    defaults: { aspect_ratio: '16:9', n: 1, response_format: 'url' },
+  },
+  minimax_video: {
+    label: 'MiniMax 视频模型', capability: 'video', inputModalities: ['text', 'image'], features: ['video_generation', 'text_to_video', 'image_to_video'],
+    schema: { type: 'object', properties: {
+      duration: { type: 'integer', title: '时长', enum: [6, 10] },
+      resolution: { type: 'string', title: '分辨率', enum: ['768P', '1080P'] },
+      reference_mode: { type: 'string', title: '参考方式', enum: ['first_frame', 'first_last_frame', 'subject'] },
+      prompt_optimizer: { type: 'boolean', title: 'Prompt 优化' },
+    } },
+    defaults: { duration: 6, resolution: '1080P', reference_mode: 'first_frame', prompt_optimizer: true },
+  },
+  minimax_speech: {
+    label: 'MiniMax 语音模型', capability: 'audio', inputModalities: ['text'], features: ['speech_generation'],
+    schema: { type: 'object', properties: {
+      voice_id: { type: 'string', title: '音色 ID' }, speed: { type: 'number', title: '语速', minimum: 0.5, maximum: 2, multipleOf: 0.1 },
+      volume: { type: 'number', title: '音量', minimum: 0, maximum: 10, multipleOf: 0.1 }, pitch: { type: 'integer', title: '音高', minimum: -12, maximum: 12 },
+      emotion: { type: 'string', title: '情绪', enum: ['calm', 'happy', 'sad', 'angry', 'fearful', 'surprised'] },
+      format: { type: 'string', title: '音频格式', enum: ['mp3', 'wav', 'flac', 'pcm'] },
+    } },
+    defaults: { voice_id: 'Chinese (Mandarin)_Lyrical_Voice', speed: 1, volume: 1, pitch: 0, emotion: 'calm', format: 'mp3' },
+  },
+  bailian_image_edit: {
+    label: '阿里云百炼扩图 / 重绘模型', capability: 'image', inputModalities: ['text', 'image'], features: ['image_edit', 'outpaint', 'inpaint', 'mask_input', 'local_reference'],
+    schema: { type: 'object', properties: {
+      n: { type: 'integer', title: '生成数量', minimum: 1, maximum: 4 }, seed: { type: 'integer', title: '随机种子', minimum: 0, maximum: 2147483647 },
+      watermark: { type: 'boolean', title: '添加水印' },
+    } },
+    defaults: { n: 1, watermark: false },
+  },
+}
 const ollamaRecommendations = [
   { modelID: 'qwen3.5:4b', name: 'Qwen3.5 4B', summary: '3.4 GB · 视觉理解 · 工具调用 · 256K 上下文', fit: '轻量默认，适合日常开发验证' },
   { modelID: 'qwen3.5:9b', name: 'Qwen3.5 9B', summary: '6.6 GB · 视觉理解 · 工具调用 · 256K 上下文', fit: '质量与显存占用较均衡' },
@@ -35,6 +90,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
   const [discovery, setDiscovery] = useState<OllamaDiscovery | CloudModelDiscovery | null>(null)
   const [selectedRemoteModels, setSelectedRemoteModels] = useState<string[]>([])
   const [modelOpen, setModelOpen] = useState(false)
+  const [editingModel, setEditingModel] = useState<Model | null>(null)
   const [credentialOpen, setCredentialOpen] = useState(false)
   const [presetModel, setPresetModel] = useState<Model | null>(null)
   const [editingPrompt, setEditingPrompt] = useState<PromptPreset | null>(null)
@@ -62,6 +118,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
   const promptCapability = Form.useWatch('capability', promptForm) as PromptPreset['capability'] | undefined
   const promptModelID = Form.useWatch('model_id', promptForm) as string | undefined
   const providerAdapter = Form.useWatch('adapter_code', providerForm) as string | undefined
+  const modelCapability = Form.useWatch('capability', modelForm) as Capability | undefined
   const providersQuery = useQuery({ queryKey: ['providers'], queryFn: api.providers })
   const modelsQuery = useQuery({ queryKey: ['models', 'catalog'], queryFn: () => api.models() })
   const catalogUpdateStatusQuery = useQuery({ queryKey: ['model-catalog-update'], queryFn: api.modelCatalogUpdateStatus, enabled: catalogUpdateOpen })
@@ -127,8 +184,20 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
     onSuccess: async () => { await refresh(['providers']); message.success('连接并发设置已更新') },
     onError,
   })
-  const createModel = useMutation({ mutationFn: (values: Record<string, unknown>) => api.createModel({ ...values, parameter_schema: parseJSON(values.parameter_schema as string), default_parameters: parseJSON(values.default_parameters as string) }), onSuccess: async () => { await refresh(['models']); setModelOpen(false); modelForm.resetFields(); message.success('模型已加入目录') }, onError })
-  const toggleModel = useMutation({ mutationFn: ({ model, enabled }: { model: Model; enabled: boolean }) => api.updateModel(model.id, { ...model, enabled }), onSuccess: () => refresh(['models']), onError })
+  const saveModel = useMutation({
+    mutationFn: ({ template: _template, ...values }: Record<string, unknown>) => {
+      const input = { ...values, parameter_schema: parseJSON(values.parameter_schema as string), default_parameters: parseJSON(values.default_parameters as string), metadata: editingModel?.metadata }
+      return editingModel ? api.updateModel(editingModel.id, input) : api.createModel(input)
+    },
+    onSuccess: async () => {
+      await refresh(['models'], ['presets'])
+      closeModelEditor()
+      message.success(editingModel ? '模型已更新' : '模型已加入目录')
+    },
+    onError,
+  })
+  const removeModel = useMutation({ mutationFn: api.deleteModel, onSuccess: async () => { await refresh(['models'], ['presets'], ['prompt-presets'], ['voice-profiles']); message.success('自定义模型已删除') }, onError })
+  const toggleModel = useMutation({ mutationFn: ({ model, enabled }: { model: Model; enabled: boolean }) => api.updateModel(model.id, { enabled }), onSuccess: () => refresh(['models']), onError })
   const importCatalog = useMutation({
     mutationFn: (manifest: Record<string, unknown>) => api.importModelCatalog(manifest),
     onSuccess: async (result) => {
@@ -244,7 +313,7 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
     if (section === 'prompts') return openPrompt()
     if (view === 'providers') return openProviderEditor()
     if (view === 'credentials') return setCredentialOpen(true)
-    setModelOpen(true)
+    openModelEditor()
   }
   const createLabel = section === 'prompts' ? '新建 Prompt 预设' : view === 'providers' ? '添加服务连接' : view === 'credentials' ? '添加凭证' : '添加模型'
   const canCreateCurrent = section === 'prompts' || section === 'models'
@@ -260,6 +329,50 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
     } catch {
       message.error('请输入完整、有效的模型目录 JSON')
     }
+  }
+
+  function openModelEditor(model?: Model) {
+    const template = modelTemplates.none
+    setEditingModel(model ?? null)
+    modelForm.setFieldsValue(model ? {
+      provider_id: model.provider_id,
+      capability: model.capability,
+      model_id: model.model_id,
+      display_name: model.display_name,
+      input_modalities: model.input_modalities,
+      features: model.features,
+      template: 'none',
+      parameter_schema: pretty(model.parameter_schema),
+      default_parameters: pretty(model.default_parameters),
+    } : {
+      provider_id: providers[0]?.id,
+      capability: 'text',
+      model_id: '',
+      display_name: '',
+      input_modalities: template.inputModalities,
+      features: template.features,
+      template: 'none',
+      parameter_schema: pretty(template.schema),
+      default_parameters: pretty(template.defaults),
+    })
+    setModelOpen(true)
+  }
+
+  function closeModelEditor() {
+    setModelOpen(false)
+    setEditingModel(null)
+    modelForm.resetFields()
+  }
+
+  function applyModelTemplate(key: string) {
+    const template = modelTemplates[key] ?? modelTemplates.none
+    modelForm.setFieldsValue({
+      capability: template.capability ?? modelCapability,
+      input_modalities: template.inputModalities,
+      features: template.features,
+      parameter_schema: pretty(template.schema),
+      default_parameters: pretty(template.defaults),
+    })
   }
 
   return <div className="page page-models">
@@ -309,11 +422,17 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
             return <article className={`model-flat-item${isExpanded ? ' expanded' : ''}`} key={item.id}>
               <div className="model-flat-row model-catalog-row">
                 <button aria-expanded={isExpanded} aria-label={`${isExpanded ? '收起' : '展开'} ${item.display_name}`} className="model-row-expand" onClick={() => setExpandedModelID(isExpanded ? undefined : item.id)} type="button"><DownOutlined/></button>
-                <div className="model-row-primary"><strong>{item.display_name}</strong><code>{item.model_id}</code></div>
+                <div className="model-row-primary"><strong>{item.display_name}{catalogManaged(item) && <em className="model-source-badge">内置</em>}</strong><code>{item.model_id}</code></div>
                 <span className="model-row-provider">{item.provider_name}<em className={`model-support-status ${modelSupportStatus(item)}`}>{modelSupportLabel(modelSupportStatus(item))}</em>{modelLifecycleStatus(item) !== 'active' && <em className={`model-lifecycle-status ${modelLifecycleStatus(item)}`}>{modelLifecycleLabel(modelLifecycleStatus(item))}</em>}</span>
                 <span className={`model-capability ${item.capability}`}>{capabilityLabel(item.capability)}</span>
                 <label className="model-row-switch"><Switch checked={item.enabled} onChange={(enabled) => toggleModel.mutate({ model: item, enabled })}/><span>{item.enabled ? '已启用' : '已停用'}</span></label>
-                <Button icon={<SettingOutlined/>} onClick={() => setPresetModel(item)} size="small">参数预设 {modelPresets.length}</Button>
+                <div className="model-row-actions">
+                  <Button icon={<SettingOutlined/>} onClick={() => setPresetModel(item)} size="small">参数预设 {modelPresets.length}</Button>
+                  {!catalogManaged(item) && <>
+                    <Button icon={<EditOutlined/>} onClick={() => openModelEditor(item)} size="small">编辑</Button>
+                    <Popconfirm cancelText="取消" description="参数预设和音色绑定会一并删除，生成历史仍会保留模型快照。" okButtonProps={{ danger: true }} okText="删除" onConfirm={() => removeModel.mutate(item.id)} title="删除这个自定义模型？"><Button danger icon={<DeleteOutlined/>} size="small" type="text"/></Popconfirm>
+                  </>}
+                </div>
               </div>
               {isExpanded && <div className="model-flat-detail">
                 <ModelDetailGroup empty="跟随模型服务默认值" label="默认参数" values={parameterEntries(item.default_parameters)}/>
@@ -452,7 +571,27 @@ export function ModelHubPage({ onError }: { onError: (error: unknown) => void })
         <Form.Item label="输出能力" name="capabilities" rules={[{ required: true }]}><Select mode="multiple" options={capabilities.map((value) => ({ value, label: capabilityLabel(value) }))}/></Form.Item>
       </Form>
     </Modal>
-    <Modal title="添加模型" open={modelOpen} onCancel={() => setModelOpen(false)} onOk={() => modelForm.submit()} width={980} confirmLoading={createModel.isPending}><Form form={modelForm} layout="vertical" onFinish={(values) => createModel.mutate(values)} requiredMark={false} initialValues={{ enabled: true, parameter_schema: '{\n  "type": "object",\n  "properties": {}\n}', default_parameters: '{}' }}><Row gutter={12}><Col span={12}><Form.Item label="服务连接" name="provider_id" rules={[{ required: true }]}><Select options={providers.map((item) => ({ value: item.id, label: item.display_name }))}/></Form.Item></Col><Col span={12}><Form.Item label="输出能力" name="capability" rules={[{ required: true }]}><Select options={capabilities.map((value) => ({ value, label: capabilityLabel(value) }))}/></Form.Item></Col></Row><Row gutter={12}><Col span={12}><Form.Item label="Model ID" name="model_id" rules={[{ required: true }]}><Input/></Form.Item></Col><Col span={12}><Form.Item label="显示名称" name="display_name" rules={[{ required: true }]}><Input/></Form.Item></Col></Row><Row gutter={16}><Col span={12}><Form.Item extra="描述生成页如何把参数映射为表单组件。" label="参数 JSON Schema" name="parameter_schema" rules={[jsonRule]}><JSONCodeEditor height={330}/></Form.Item></Col><Col span={12}><Form.Item extra="只写需要由 SagaFlow 主动覆盖的默认值。" label="默认参数" name="default_parameters" rules={[jsonRule]}><JSONCodeEditor height={330}/></Form.Item></Col></Row></Form></Modal>
+    <Modal title={editingModel ? '编辑自定义模型' : '添加模型'} open={modelOpen} onCancel={closeModelEditor} onOk={() => modelForm.submit()} width={1040} confirmLoading={saveModel.isPending}>
+      <Form form={modelForm} layout="vertical" onFinish={(values) => saveModel.mutate(values)} requiredMark={false}>
+        <Row gutter={12}>
+          <Col span={12}><Form.Item label="服务连接" name="provider_id" rules={[{ required: true }]}><Select options={providers.map((item) => ({ value: item.id, label: item.display_name }))}/></Form.Item></Col>
+          <Col span={12}><Form.Item label="输出能力" name="capability" rules={[{ required: true }]}><Select options={capabilities.map((value) => ({ value, label: capabilityLabel(value) }))}/></Form.Item></Col>
+        </Row>
+        <Row gutter={12}>
+          <Col span={12}><Form.Item label="Model ID" name="model_id" rules={[{ required: true }]}><Input placeholder="厂商 API 使用的准确模型标识"/></Form.Item></Col>
+          <Col span={12}><Form.Item label="显示名称" name="display_name" rules={[{ required: true }]}><Input/></Form.Item></Col>
+        </Row>
+        <Row gutter={12}>
+          <Col span={12}><Form.Item extra="模型能够接收的输入内容；Prompt 文本也应勾选“文本”。" label="可接收内容" name="input_modalities" rules={[{ required: true, type: 'array', min: 1 }]}><Select mode="multiple" options={inputModalities.map((value) => ({ value, label: mediaTypeLabel(value) }))}/></Form.Item></Col>
+          <Col span={12}><Form.Item extra="决定参考图、扩图、重绘和视频参考等生成行为。" label="原生能力" name="features"><Select allowClear mode="tags" options={modelFeatureOptions(modelCapability)} tokenSeparators={[',', ' ']}/></Form.Item></Col>
+        </Row>
+        <Form.Item extra="模板只填入 SagaFlow 已支持的字段；最终参数仍应以厂商文档为准。" label="参数模板" name="template"><Select onChange={applyModelTemplate} options={Object.entries(modelTemplates).map(([value, item]) => ({ value, label: item.label }))}/></Form.Item>
+        <Row gutter={16}>
+          <Col span={12}><Form.Item extra="支持 string、number、integer、boolean、object、array、enum、数值范围和 textarea。" label="参数 JSON Schema" name="parameter_schema" rules={[modelSchemaRule]}><JSONCodeEditor height={360}/></Form.Item></Col>
+          <Col span={12}><Form.Item extra="键名和类型必须与左侧 Schema 一致；生成页以这里的值初始化。" label="默认参数" name="default_parameters" rules={[jsonObjectRule]}><JSONCodeEditor height={360}/></Form.Item></Col>
+        </Row>
+      </Form>
+    </Modal>
     <Modal cancelText="取消" confirmLoading={importCatalog.isPending} okButtonProps={{ disabled: !catalogUpdateJSON.trim() }} okText="校验并更新" onCancel={() => setCatalogUpdateOpen(false)} onOk={submitCatalogUpdate} open={catalogUpdateOpen} title="更新模型目录" width={1040}>
       <div className="catalog-update-heading">
         <div>
@@ -519,8 +658,19 @@ function ModelDetailGroup({ empty, label, note, values }: { empty: string; label
   </div>
 }
 
-const jsonRule = { validator: (_: unknown, value: string) => { try { JSON.parse(value || '{}'); return Promise.resolve() } catch { return Promise.reject(new Error('请输入有效 JSON')) } } }
+const jsonObjectRule = { validator: (_: unknown, value: string) => { try { const parsed = JSON.parse(value || '{}'); return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? Promise.resolve() : Promise.reject(new Error('请输入 JSON 对象')) } catch { return Promise.reject(new Error('请输入有效 JSON 对象')) } } }
+const modelSchemaRule = { validator: async (_: unknown, value: string) => {
+  try {
+    const parsed = JSON.parse(value || '{}') as { type?: unknown; properties?: unknown }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Schema 必须是 JSON 对象')
+    if (parsed.type !== undefined && parsed.type !== 'object') throw new Error('Schema 顶层 type 必须是 object')
+    if (parsed.properties !== undefined && (!parsed.properties || typeof parsed.properties !== 'object' || Array.isArray(parsed.properties))) throw new Error('Schema properties 必须是对象')
+  } catch (error) {
+    return Promise.reject(error instanceof Error ? error : new Error('请输入有效的参数 Schema'))
+  }
+} }
 function parseJSON(value: string) { try { return JSON.parse(value || '{}') as Record<string, unknown> } catch { return {} } }
+function pretty(value: unknown) { return JSON.stringify(value ?? {}, null, 2) }
 function parameterEntries(parameters: Record<string, unknown>): Array<[string, string]> { return Object.entries(parameters).map(([key, value]) => [key, typeof value === 'object' ? JSON.stringify(value) : String(value)]) }
 function schemaEntries(properties: NonNullable<Model['parameter_schema']['properties']>): Array<[string, string]> { return Object.entries(properties).map(([key, schema]) => [schema.title || key, key]) }
 function capabilityLabel(value: string) { return ({ text: '文本', image: '图像', audio: '音频', video: '视频', multimodal: '多模态' } as Record<string, string>)[value] ?? value }
@@ -537,6 +687,19 @@ function modelFeatureLabel(value: string) { return ({
   remote_reference_required: '参考需手动发布 S3',
   translation: '翻译',
 } as Record<string, string>)[value] ?? value }
+function modelFeatureOptions(capability?: Capability) {
+  const common = capability === 'text'
+    ? ['completion', 'thinking', 'reasoning', 'vision', 'structured_output', 'tools', 'fast']
+    : capability === 'image'
+      ? ['image_generation', 'image_edit', 'character_reference', 'multi_reference', 'outpaint', 'inpaint', 'mask_input', 'local_reference', 'remote_reference_required']
+      : capability === 'audio'
+        ? ['speech_generation', 'speech_recognition', 'voice_clone', 'voice_design', 'instruction_control', 'multilingual']
+        : capability === 'video'
+          ? ['video_generation', 'text_to_video', 'image_to_video', 'first_frame', 'first_last_frame', 'subject_reference', 'multi_reference', 'video_continuation', 'audio_driven', 'native_audio']
+          : ['reasoning', 'vision', 'tools', 'structured_output']
+  return common.map((value) => ({ value, label: `${modelFeatureLabel(value)} · ${value}` }))
+}
+function catalogManaged(model: Model) { return model.metadata.source === 'builtin' }
 function isLocalAdapter(value?: string) { return value === 'ollama' || value === 'comfyui' }
 function providerDefaults(value: string) {
   switch (value) {

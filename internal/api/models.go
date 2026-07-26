@@ -242,7 +242,7 @@ func (s *Server) createModel(c fiber.Ctx) error {
 	if len(modalities) == 0 {
 		modalities = []string{"text"}
 	}
-	item, err := s.store.CreateModel(c.Context(), db.Model{ProviderID: req.ProviderID, ModelID: req.ModelID, DisplayName: req.DisplayName, Capability: req.Capability, InputModalities: modalities, Features: req.Features, ParameterSchema: req.ParameterSchema, DefaultParameters: req.DefaultParameters, Enabled: enabled, Available: available, Metadata: req.Metadata})
+	item, err := s.store.CreateModel(c.Context(), db.Model{ProviderID: req.ProviderID, ModelID: req.ModelID, DisplayName: req.DisplayName, Capability: req.Capability, InputModalities: modalities, Features: req.Features, ParameterSchema: req.ParameterSchema, DefaultParameters: req.DefaultParameters, Enabled: enabled, Available: available, Metadata: userModelMetadata(req.Metadata)})
 	if err != nil {
 		return err
 	}
@@ -257,8 +257,19 @@ func (s *Server) updateModel(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(c.Body(), &fields); err != nil {
+		return fiber.NewError(400, "invalid JSON body")
+	}
+	if catalogManagedModel(model.Metadata) {
+		for field := range fields {
+			if field != "enabled" {
+				return fmt.Errorf("%w: built-in catalog models only allow enabled to be changed", service.ErrInvalidInput)
+			}
+		}
+	}
 	var req modelRequest
-	if err := c.Bind().JSON(&req); err != nil {
+	if err := json.Unmarshal(c.Body(), &req); err != nil {
 		return fiber.NewError(400, "invalid JSON body")
 	}
 	if req.ProviderID != uuid.Nil {
@@ -292,7 +303,14 @@ func (s *Server) updateModel(c fiber.Ctx) error {
 		model.Available = *req.Available
 	}
 	if len(req.Metadata) > 0 {
-		model.Metadata = req.Metadata
+		model.Metadata = userModelMetadata(req.Metadata)
+	}
+	if err := validateModelRequest(modelRequest{
+		ProviderID: model.ProviderID, ModelID: model.ModelID, DisplayName: model.DisplayName,
+		Capability: model.Capability, InputModalities: model.InputModalities, Features: model.Features,
+		ParameterSchema: model.ParameterSchema, DefaultParameters: model.DefaultParameters,
+	}); err != nil {
+		return err
 	}
 	item, err := s.store.UpdateModel(c.Context(), model)
 	if err != nil {
@@ -300,15 +318,57 @@ func (s *Server) updateModel(c fiber.Ctx) error {
 	}
 	return writeOK(c, item)
 }
+
+func (s *Server) deleteModel(c fiber.Ctx) error {
+	id, err := idParam(c, "id")
+	if err != nil {
+		return err
+	}
+	model, err := s.store.GetModel(c.Context(), id)
+	if err != nil {
+		return err
+	}
+	if catalogManagedModel(model.Metadata) {
+		return fmt.Errorf("%w: built-in catalog models cannot be deleted; disable the model instead", service.ErrInvalidInput)
+	}
+	active, err := s.store.ModelHasActiveGenerationJobs(c.Context(), id)
+	if err != nil {
+		return err
+	}
+	if active {
+		return fmt.Errorf("%w: model has queued or running generation jobs", db.ErrConflict)
+	}
+	if err := s.store.DeleteModel(c.Context(), id); err != nil {
+		return err
+	}
+	return writeOK(c, fiber.Map{"deleted": true})
+}
 func validateModelRequest(req modelRequest) error {
 	if req.ProviderID == uuid.Nil || strings.TrimSpace(req.ModelID) == "" || strings.TrimSpace(req.DisplayName) == "" {
 		return fmt.Errorf("%w: provider_id, model_id and display_name are required", service.ErrInvalidInput)
 	}
 	switch req.Capability {
 	case "text", "image", "audio", "video", "multimodal":
-		return nil
+		// Continue with the parameter and capability declarations below.
+	default:
+		return fmt.Errorf("%w: invalid capability", service.ErrInvalidInput)
 	}
-	return fmt.Errorf("%w: invalid capability", service.ErrInvalidInput)
+	for _, modality := range req.InputModalities {
+		switch modality {
+		case "text", "image", "audio", "video", "file":
+		default:
+			return fmt.Errorf("%w: unsupported input modality %q", service.ErrInvalidInput, modality)
+		}
+	}
+	for _, feature := range req.Features {
+		if !validFeatureName(feature) {
+			return fmt.Errorf("%w: invalid model feature %q", service.ErrInvalidInput, feature)
+		}
+	}
+	if err := validateParameterSchema(req.ParameterSchema, req.DefaultParameters); err != nil {
+		return fmt.Errorf("%w: %v", service.ErrInvalidInput, err)
+	}
+	return nil
 }
 
 type presetRequest struct {
