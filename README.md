@@ -79,22 +79,33 @@ go build -ldflags="-X main.version=v0.1.0" -o ./bin/sagaflow ./cmd/sagaflow
 ./bin/sagaflow serve
 ```
 
-打开 [http://127.0.0.1:18848](http://127.0.0.1:18848)，首次进入时按引导创建唯一的本地账号。应用默认在二进制同目录创建 `data/`；移动或备份整个目录即可带走工作台数据。
+打开 [http://127.0.0.1:18848](http://127.0.0.1:18848)，首次进入时按引导创建唯一的本地账号。独立内核默认在二进制同目录创建 `data/`，便携桌面版在发行包根目录创建 `data/`；移动或备份整个目录即可带走工作台数据。
 
 ### 桌面启动器
 
-桌面发布包会把两个程序放在同一目录：
+桌面发布包的根目录只保留一个用户入口；内核放在平台约定的内部目录，
+由启动器自动定位和管理：
 
 ```text
-sagaflow-desktop-<goos>-<goarch>/
-├── sagaflow-desktop[.exe]  # Windows/Linux Fyne 启动器
-├── SagaFlow.app/           # macOS 启动器与内核应用包
-├── sagaflow[.exe]          # Windows/Linux 无界面内核
-├── sagaflow.ico / sagaflow.icns / share/icons
+Windows/
+├── SagaFlow.exe
+├── runtime/sagaflow-core.exe
+└── SAGAFLOW-LICENSE.txt
+
+Linux/
+├── sagaflow
+├── libexec/sagaflow-core
+├── share/icons/...
+└── SAGAFLOW-LICENSE.txt
+
+macOS/
+├── SagaFlow.app/Contents/MacOS/SagaFlow
+├── SagaFlow.app/Contents/Helpers/sagaflow-core
+├── SagaFlow.app/Contents/Resources/sagaflow.icns
 └── SAGAFLOW-LICENSE.txt
 ```
 
-打开 `sagaflow-desktop` 后，由用户决定何时在 `127.0.0.1:18848`
+打开根目录的 `SagaFlow.exe`、`sagaflow` 或 `SagaFlow.app` 后，由用户决定何时在 `127.0.0.1:18848`
 启动内核；“启动内核后自动打开工作台”可以控制健康检查通过后是否打开
 浏览器。关闭窗口会最小化到系统托盘；选择“退出”时，由启动器启动的
 内核也会安全停止。检测到已经运行的兼容内核时只会连接，不会擅自终止
@@ -113,6 +124,11 @@ Windows/Linux 桌面包继续使用包内 `data/`；macOS 使用用户的
 
 桌面端使用独立 Go 模块，位于 `cmd/sagaflow-desktop`，因此 Fyne/CGo
 不会进入内核的依赖图、Docker 镜像或服务器构建。
+
+每个版本发布 Windows、Linux、macOS 的 amd64/arm64 桌面包与独立内核包；
+Windows 使用 `.zip`，Linux/macOS 使用 `.tar.gz`。GHCR 中的同版本 Docker
+标签同时提供 `linux/amd64` 和 `linux/arm64`。`SHA256SUMS` 与
+`model-catalog.json` 是校验和在线目录更新所需的辅助资产。
 
 也可以提前通过命令行初始化账号：
 
@@ -144,9 +160,8 @@ docker compose up -d
 FFmpeg 不内嵌到 SagaFlow 二进制，发布包也不携带第三方媒体工具：
 
 ```text
-sagaflow-<goos>-<goarch>/
+sagaflow-core-<goos>-<goarch>/
 ├── sagaflow[.exe]
-├── sagaflow.ico / sagaflow.icns / share/icons
 └── SAGAFLOW-LICENSE.txt
 ```
 

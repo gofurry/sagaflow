@@ -44,25 +44,41 @@ if (Test-Path -LiteralPath $packageDirectory) {
 }
 New-Item -ItemType Directory -Force -Path $packageDirectory | Out-Null
 
-$coreName = if ($TargetOS -eq "windows") { "sagaflow.exe" } else { "sagaflow" }
-$desktopName = if ($TargetOS -eq "windows") { "sagaflow-desktop.exe" } else { "sagaflow-desktop" }
-$corePath = Join-Path $packageDirectory $coreName
+$coreName = if ($TargetOS -eq "windows") { "sagaflow-core.exe" } else { "sagaflow-core" }
+$desktopName = if ($TargetOS -eq "windows") { "SagaFlow.exe" } else { "sagaflow" }
 $desktopPath = Join-Path $packageDirectory $desktopName
-if ($TargetOS -eq "darwin") {
-    $appContents = Join-Path (Join-Path $packageDirectory "SagaFlow.app") "Contents"
-    $appMacOS = Join-Path $appContents "MacOS"
-    $appResources = Join-Path $appContents "Resources"
-    New-Item -ItemType Directory -Force -Path $appMacOS, $appResources | Out-Null
-    $corePath = Join-Path $appMacOS "sagaflow"
-    $desktopPath = Join-Path $appMacOS "SagaFlow"
+$corePath = switch ($TargetOS) {
+    "windows" {
+        $runtimeDirectory = Join-Path $packageDirectory "runtime"
+        New-Item -ItemType Directory -Force -Path $runtimeDirectory | Out-Null
+        Join-Path $runtimeDirectory $coreName
+    }
+    "linux" {
+        $libexecDirectory = Join-Path $packageDirectory "libexec"
+        New-Item -ItemType Directory -Force -Path $libexecDirectory | Out-Null
+        Join-Path $libexecDirectory $coreName
+    }
+    "darwin" {
+        $appContents = Join-Path (Join-Path $packageDirectory "SagaFlow.app") "Contents"
+        $appMacOS = Join-Path $appContents "MacOS"
+        $appHelpers = Join-Path $appContents "Helpers"
+        $appResources = Join-Path $appContents "Resources"
+        New-Item -ItemType Directory -Force -Path $appMacOS, $appHelpers, $appResources | Out-Null
+        $desktopPath = Join-Path $appMacOS "SagaFlow"
+        Join-Path $appHelpers $coreName
+    }
 }
 
 $previousGOOS = $env:GOOS
 $previousGOARCH = $env:GOARCH
 $previousCGO = $env:CGO_ENABLED
+$previousCC = $env:CC
 try {
     $env:GOOS = $TargetOS
     $env:GOARCH = $TargetArch
+    if ($TargetOS -eq "windows" -and $TargetArch -eq "arm64" -and [string]::IsNullOrWhiteSpace($env:CC)) {
+        $env:CC = "clang"
+    }
 
     Push-Location $repo
     try {
@@ -111,16 +127,13 @@ finally {
     $env:GOOS = $previousGOOS
     $env:GOARCH = $previousGOARCH
     $env:CGO_ENABLED = $previousCGO
+    $env:CC = $previousCC
 }
 
 Copy-Item -LiteralPath (Join-Path $repo "LICENSE") -Destination (Join-Path $packageDirectory "SAGAFLOW-LICENSE.txt") -Force
 $iconRoot = Join-Path $repo "packaging\icons"
 switch ($TargetOS) {
-    "windows" {
-        Copy-Item -LiteralPath (Join-Path $iconRoot "windows\sagaflow.ico") -Destination (Join-Path $packageDirectory "sagaflow.ico") -Force
-    }
     "darwin" {
-        Copy-Item -LiteralPath (Join-Path $iconRoot "macos\sagaflow.icns") -Destination (Join-Path $packageDirectory "sagaflow.icns") -Force
         Copy-Item -LiteralPath (Join-Path $iconRoot "macos\sagaflow.icns") -Destination (Join-Path $appResources "sagaflow.icns") -Force
         $bundleVersion = ($Version -replace "^v", "") -replace "[^0-9.].*$", ""
         if ([string]::IsNullOrWhiteSpace($bundleVersion)) {

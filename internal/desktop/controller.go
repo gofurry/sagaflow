@@ -557,10 +557,10 @@ func ResolveCorePath(configured string) (string, error) {
 	}
 	if executable, err := os.Executable(); err == nil {
 		executableDir := filepath.Dir(executable)
-		candidates = append(candidates, filepath.Join(executableDir, binaryName))
+		candidates = append(candidates, packagedCoreCandidates(executableDir)...)
 		if runtime.GOOS == "darwin" {
-			// Released macOS launchers live in SagaFlow.app/Contents/MacOS
-			// while the portable core and data directory remain beside the app.
+			// Keep compatibility with early portable packages that placed the core
+			// beside SagaFlow.app instead of under Contents/Helpers.
 			candidates = append(candidates, filepath.Join(executableDir, "..", "..", "..", binaryName))
 		}
 	}
@@ -577,7 +577,26 @@ func ResolveCorePath(configured string) (string, error) {
 			return absolute, nil
 		}
 	}
-	return "", fmt.Errorf("未找到 SagaFlow 内核，请将 %s 与桌面启动器放在同一目录", binaryName)
+	return "", fmt.Errorf("未找到 SagaFlow 内核，桌面发行包可能不完整")
+}
+
+func packagedCoreCandidates(executableDir string) []string {
+	legacyName := "sagaflow"
+	coreName := "sagaflow-core"
+	if runtime.GOOS == "windows" {
+		legacyName += ".exe"
+		coreName += ".exe"
+	}
+	switch runtime.GOOS {
+	case "windows":
+		return []string{filepath.Join(executableDir, "runtime", coreName), filepath.Join(executableDir, legacyName)}
+	case "linux":
+		return []string{filepath.Join(executableDir, "libexec", coreName), filepath.Join(executableDir, legacyName)}
+	case "darwin":
+		return []string{filepath.Join(executableDir, "..", "Helpers", coreName), filepath.Join(executableDir, legacyName)}
+	default:
+		return []string{filepath.Join(executableDir, legacyName)}
+	}
 }
 
 func dataDirectory(corePath string) string {
@@ -590,7 +609,11 @@ func dataDirectory(corePath string) string {
 		}
 	}
 	if corePath != "" {
-		return filepath.Join(filepath.Dir(corePath), "data")
+		coreDir := filepath.Dir(corePath)
+		if directory := filepath.Base(coreDir); directory == "runtime" || directory == "libexec" {
+			return filepath.Join(filepath.Dir(coreDir), "data")
+		}
+		return filepath.Join(coreDir, "data")
 	}
 	if cwd, err := os.Getwd(); err == nil {
 		return filepath.Join(cwd, "data")

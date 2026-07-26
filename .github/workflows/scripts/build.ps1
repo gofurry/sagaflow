@@ -25,7 +25,7 @@ if (-not [System.IO.Path]::IsPathRooted($OutputDirectory)) {
 
 $platform = "$TargetOS-$TargetArch"
 $outputRoot = [System.IO.Path]::GetFullPath($OutputDirectory)
-$packageDirectory = [System.IO.Path]::GetFullPath((Join-Path $outputRoot "sagaflow-$platform"))
+$packageDirectory = [System.IO.Path]::GetFullPath((Join-Path $outputRoot "sagaflow-core-$platform"))
 $outputPrefix = $outputRoot.TrimEnd(
     [System.IO.Path]::DirectorySeparatorChar,
     [System.IO.Path]::AltDirectorySeparatorChar
@@ -62,20 +62,5 @@ finally {
 }
 
 Copy-Item -LiteralPath (Join-Path $repo "LICENSE") -Destination (Join-Path $packageDirectory "SAGAFLOW-LICENSE.txt") -Force
-
-$iconRoot = Join-Path $repo "packaging\icons"
-switch ($TargetOS) {
-    "windows" {
-        Copy-Item -LiteralPath (Join-Path $iconRoot "windows\sagaflow.ico") -Destination (Join-Path $packageDirectory "sagaflow.ico") -Force
-    }
-    "darwin" {
-        Copy-Item -LiteralPath (Join-Path $iconRoot "macos\sagaflow.icns") -Destination (Join-Path $packageDirectory "sagaflow.icns") -Force
-    }
-    "linux" {
-        $iconsDirectory = Join-Path $packageDirectory "share\icons"
-        New-Item -ItemType Directory -Force -Path $iconsDirectory | Out-Null
-        Copy-Item -LiteralPath (Join-Path $iconRoot "linux\hicolor") -Destination (Join-Path $iconsDirectory "hicolor") -Recurse -Force
-    }
-}
 
 Write-Host "Built $platform package at $packageDirectory"

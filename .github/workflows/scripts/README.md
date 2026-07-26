@@ -2,7 +2,8 @@
 
 - `build.ps1` builds the six headless core packages with `CGO_ENABLED=0`.
 - `build-desktop.ps1` runs on a native desktop runner and packages the Fyne
-  launcher beside the matching core binary.
+  launcher as the only root entry point, with the matching core under
+  `runtime`, `libexec`, or `SagaFlow.app/Contents/Helpers`.
 - `archive-package.ps1` produces the `.zip`/`.tar.gz` assets consumed by the
   tag-driven release workflow.
 

@@ -80,6 +80,45 @@ func TestResolveCorePathUsesExplicitBinary(t *testing.T) {
 	}
 }
 
+func TestPackagedCoreCandidatePrecedesLegacyLayout(t *testing.T) {
+	root := t.TempDir()
+	candidates := packagedCoreCandidates(root)
+	if len(candidates) < 2 {
+		t.Fatalf("expected packaged and legacy candidates, got %v", candidates)
+	}
+	var expected string
+	switch runtime.GOOS {
+	case "windows":
+		expected = filepath.Join(root, "runtime", "sagaflow-core.exe")
+	case "linux":
+		expected = filepath.Join(root, "libexec", "sagaflow-core")
+	case "darwin":
+		expected = filepath.Join(root, "..", "Helpers", "sagaflow-core")
+	default:
+		t.Skip("desktop package layout is only defined for Windows, Linux, and macOS")
+	}
+	if candidates[0] != expected {
+		t.Fatalf("expected packaged core candidate %s, got %s", expected, candidates[0])
+	}
+}
+
+func TestDataDirectoryStaysAtPortablePackageRoot(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("macOS stores application data under Application Support")
+	}
+	root := t.TempDir()
+	subdirectory := "libexec"
+	name := "sagaflow-core"
+	if runtime.GOOS == "windows" {
+		subdirectory = "runtime"
+		name += ".exe"
+	}
+	expected := filepath.Join(root, "data")
+	if actual := dataDirectory(filepath.Join(root, subdirectory, name)); actual != expected {
+		t.Fatalf("expected portable data directory %s, got %s", expected, actual)
+	}
+}
+
 func TestEnvironmentOverridesExistingValueOnce(t *testing.T) {
 	t.Setenv("SAGAFLOW_PORT", "9999")
 	environment := environmentWith(map[string]string{"SAGAFLOW_PORT": "18848"})
