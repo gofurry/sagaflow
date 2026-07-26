@@ -121,6 +121,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
   const videoShots = useMemo(() => (canvasQuery.data?.nodes ?? []).filter((node) => node.data.kind === 'video').sort((left, right) => (left.data.shot_number ?? 0) - (right.data.shot_number ?? 0)), [canvasQuery.data?.nodes])
   const selectedShot = videoShots.find((node) => node.id === draft.shotID)
   const videoReferences = useMemo(() => selectedShot ? canvasReferenceAssets(selectedShot, canvasQuery.data?.nodes ?? [], canvasQuery.data?.edges ?? [], assetsQuery.data ?? []) : [], [assetsQuery.data, canvasQuery.data?.edges, canvasQuery.data?.nodes, selectedShot])
+  const videoReferenceRequired = capability === 'video' && draft.targetKind === 'model' && !!model && videoModelRequiresReference(model) && videoReferences.length === 0
   const unsupportedVideoReferences = useMemo(() => targetDefinition && capability === 'video'
     ? videoReferences.filter((asset) => !allowedReferences.includes(asset.media_type))
     : [], [allowedReferences, capability, targetDefinition, videoReferences])
@@ -293,6 +294,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
   const run = () => {
     if (capability === 'video' && (!episode || !draft.shotID)) return message.warning('请先选择当前分集的视频分镜')
     if (!draft.targetKind || (draft.targetKind === 'model' ? !draft.modelID : !draft.workflowID || !draft.providerID)) return message.warning('请先选择生成目标')
+    if (videoReferenceRequired) return message.warning('当前模型是图生视频模型，请先在画布中为该分镜连接参考图像')
     if (capability === 'video' && unsupportedVideoReferences.length > 0) return message.warning('画布包含当前生成目标不支持的参考类型，请更换目标或调整参考连线')
     if (capability === 'video' && missingVideoReferences.length > 0) return message.warning('部分画布参考还没有可用的 S3 副本，请先到资产页发布')
     if (capability !== 'video' && missingDraftReferences.length > 0) return message.warning('部分参考还没有可用的 S3 副本，请先到资产页发布')
@@ -359,7 +361,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
 
   return <div className="page page-generation">
     <FloatingToolbar ariaLabel="生成工具栏" items={[
-		{ key: 'run', label: `开始生成${capabilityMeta[capability].label}`, icon: <ThunderboltOutlined/>, active: true, disabled: !selectedTargetKey || !targetDefinition || !draft.prompt.trim() || !specialImageReady || missingDraftReferences.length > 0 || (capability === 'video' && (!draft.shotID || unsupportedVideoReferences.length > 0 || missingVideoReferences.length > 0)), loading: createJob.isPending, onClick: run },
+      { key: 'run', label: `开始生成${capabilityMeta[capability].label}`, icon: <ThunderboltOutlined/>, active: true, disabled: !selectedTargetKey || !targetDefinition || !draft.prompt.trim() || !specialImageReady || missingDraftReferences.length > 0 || (capability === 'video' && (!draft.shotID || videoReferenceRequired || unsupportedVideoReferences.length > 0 || missingVideoReferences.length > 0)), loading: createJob.isPending, onClick: run },
       { key: 'new', label: '新建生成', icon: <PlusOutlined/>, onClick: resetDraft },
       { key: 'refresh', label: '刷新任务与结果', icon: <ReloadOutlined/>, loading: refreshing, onClick: () => void refresh() },
     ]}/>
@@ -512,7 +514,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
                   : <div className="reference-transport missing"><CloudOutlined/><span>缺少可用的 S3 副本</span></div>
                 : <div className="reference-transport local"><HddOutlined/><span>本地文件直传</span></div>}
             </div>
-          })}</div> : <p className="generation-canvas-reference-empty">这个分镜还没有连接参考资产，可以无参考生成。</p>}
+          })}</div> : <p className="generation-canvas-reference-empty">{videoReferenceRequired ? '当前模型需要参考图像，请返回画布连接图像资产。' : '这个分镜还没有连接参考资产，可以无参考生成。'}</p>}
           {unsupportedVideoReferences.length > 0 && <p className="generation-reference-warning">当前目标不支持 {unsupportedVideoReferences.map((asset) => asset.name).join('、')} 的媒体类型，请返回画布调整参考连线或更换生成目标。</p>}
           {requiresPublishedAssets && videoReferences.length > 0 && <p className="generation-reference-notice">当前云模型要求这些参考资产已在“资产”页手动发布到 S3。</p>}
           {missingVideoReferences.length > 0 && <p className="generation-reference-warning">缺少 S3 副本：{missingVideoReferences.map((asset) => asset.name).join('、')}。请先到资产页发布，再返回这里选择公网副本。</p>}
@@ -558,6 +560,12 @@ function imageModelSupportsOperation(model: Model, operation: ImageOperation) {
 	if (operation === 'outpaint') return model.features.includes('outpaint')
 	if (operation === 'inpaint') return model.features.includes('inpaint') && model.features.includes('mask_input')
 	return model.features.includes('image_generation')
+}
+
+function videoModelRequiresReference(model: Model) {
+  if (model.capability !== 'video' || model.features.includes('text_to_video')) return false
+  return ['image_to_video', 'first_frame', 'first_last_frame', 'multi_reference', 'subject_reference', 'video_continuation', 'audio_driven']
+    .some((feature) => model.features.includes(feature))
 }
 
 function modelVoiceParameter(model: Model) {

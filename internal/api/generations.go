@@ -125,6 +125,9 @@ func (s *Server) createGenerationJob(c fiber.Ctx) error {
 	} else if req.CanvasNodeID != nil {
 		return fmt.Errorf("%w: only video generation can be bound to a storyboard shot", service.ErrInvalidInput)
 	}
+	if err := validateVideoReferences(target, req.InputReferences); err != nil {
+		return err
+	}
 	if len(req.Parameters) > 0 {
 		var parameterObject map[string]any
 		if err := json.Unmarshal(req.Parameters, &parameterObject); err != nil || parameterObject == nil {
@@ -189,6 +192,18 @@ func (s *Server) createGenerationJob(c fiber.Ctx) error {
 		return err
 	}
 	return writeCreated(c, job)
+}
+
+func validateVideoReferences(target resolvedGenerationTarget, references []generationInputReferenceRequest) error {
+	if target.Kind != "model" || target.Capability != "video" || len(references) > 0 || slices.Contains(target.Features, "text_to_video") {
+		return nil
+	}
+	for _, feature := range []string{"image_to_video", "first_frame", "first_last_frame", "multi_reference", "subject_reference", "video_continuation", "audio_driven"} {
+		if slices.Contains(target.Features, feature) {
+			return fmt.Errorf("%w: selected video model requires at least one storyboard reference", service.ErrInvalidInput)
+		}
+	}
+	return nil
 }
 
 func validateImageTask(target resolvedGenerationTarget, task *generationImageTaskRequest, references []generationInputReferenceRequest) error {

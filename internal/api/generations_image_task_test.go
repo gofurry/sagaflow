@@ -52,3 +52,28 @@ func TestValidateImageTask(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateVideoReferences(t *testing.T) {
+	reference := generationInputReferenceRequest{Source: "asset", ID: uuid.New()}
+
+	t.Run("rejects image-only video model without a storyboard reference", func(t *testing.T) {
+		target := resolvedGenerationTarget{Kind: "model", Capability: "video", Features: []string{"video_generation", "image_to_video"}}
+		if err := validateVideoReferences(target, nil); err == nil {
+			t.Fatal("expected missing storyboard reference error")
+		}
+	})
+
+	t.Run("accepts image-only video model with a storyboard reference", func(t *testing.T) {
+		target := resolvedGenerationTarget{Kind: "model", Capability: "video", Features: []string{"video_generation", "image_to_video"}}
+		if err := validateVideoReferences(target, []generationInputReferenceRequest{reference}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("accepts text-to-video model without a storyboard reference", func(t *testing.T) {
+		target := resolvedGenerationTarget{Kind: "model", Capability: "video", Features: []string{"video_generation", "text_to_video", "image_to_video"}}
+		if err := validateVideoReferences(target, nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
