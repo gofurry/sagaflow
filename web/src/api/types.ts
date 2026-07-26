@@ -154,10 +154,23 @@ export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancele
 export type JobStage = 'queued' | 'requesting' | 'generating' | 'fetching' | 'storing' | 'completed' | 'failed' | 'canceled' | 'interrupted'
 export type GenerationReferenceSource = 'asset' | 'upload'
 export interface GenerationInputReference { source: GenerationReferenceSource; id: ID; remote_export_id?: ID }
+export interface GenerationImageTask {
+  type: 'outpaint' | 'inpaint'
+  source_width: number
+  source_height: number
+  target_width?: number
+  target_height?: number
+  source_x?: number
+  source_y?: number
+  top_scale?: number
+  bottom_scale?: number
+  left_scale?: number
+  right_scale?: number
+}
 export interface GenerationReferenceUpload { id: ID; project_id: ID; job_id: ID | null; name: string; media_type: MediaType; mime_type: string; file_size_bytes: number; created_at: string }
 export interface GenerationJob { id: ID; project_id: ID; episode_id: ID | null; canvas_node_id: ID | null; target_asset_group_id: ID | null; prompt_preset_id: ID | null; model_preset_id: ID | null; target_kind: 'model' | 'workflow'; provider_id: ID | null; model_id: ID | null; workflow_template_id: ID | null; capability: Capability; prompt: string; parameters: Record<string, unknown>; input_references: GenerationInputReference[]; output_name: string; output_staged_asset_ids: ID[]; status: JobStatus; stage: JobStage; provider_job_id: string; error_message: string; provider_code: string; model_identifier: string; created_at: string; updated_at: string }
 export interface InferenceInputSnapshot { id: string; name: string; media_type: MediaType | string; mime_type: string; provider_url: boolean; content_stream: boolean }
-export interface InferenceRequestSnapshot { request_id: string; provider_code: string; adapter_code: string; endpoint: string; target_kind: 'model' | 'workflow'; target_id: string; capability: Capability; prompt: string; parameters: Record<string, unknown>; inputs: InferenceInputSnapshot[] }
+export interface InferenceRequestSnapshot { request_id: string; provider_code: string; adapter_code: string; endpoint: string; target_kind: 'model' | 'workflow'; target_id: string; capability: Capability; operation?: string; control?: Record<string, unknown>; prompt: string; parameters: Record<string, unknown>; inputs: InferenceInputSnapshot[] }
 export interface InferenceArtifactSnapshot { media_type: MediaType | string; mime_type: string; source_url?: string; metadata: Record<string, unknown> }
 export interface InferenceResultSnapshot { artifacts: InferenceArtifactSnapshot[]; usage: Record<string, unknown> }
 export interface GenerationInvocationEvent { id: ID; invocation_id: ID; sequence: number; stage: string; progress: number; message: string; provider_job_id: string; usage_snapshot: Record<string, unknown>; detail_snapshot: Record<string, unknown>; elapsed_ms: number; created_at: string }

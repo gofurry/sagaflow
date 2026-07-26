@@ -105,7 +105,7 @@ func (c *Controller) CheckModelCatalog(ctx context.Context) (CatalogUpdateCheck,
 	remote, err := modelcatalog.FetchManifest(ctx, c.resources.catalogClient, c.resources.catalogURL)
 	if err != nil {
 		if strings.Contains(err.Error(), "HTTP 404") {
-			return CatalogUpdateCheck{}, errors.New("官方 Release 暂无模型目录更新文件；v0.1.0 发布后此入口会自动可用")
+			return CatalogUpdateCheck{}, errors.New("官方模型目录当前没有可用更新，请稍后重试")
 		}
 		return CatalogUpdateCheck{}, fmt.Errorf("检查模型目录更新：%w", err)
 	}

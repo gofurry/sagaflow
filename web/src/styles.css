@@ -450,6 +450,35 @@ button { -webkit-tap-highlight-color: transparent; }
 .generation-kind-tabs em { min-width: 18px; color: #b39f92; font-size: var(--font-size-caption); font-style: normal; }
 .generation-kind-tabs button.active em { color: rgba(255, 255, 255, .72); }
 .generation-workbench { padding: 4px 0 34px; }
+.image-operation-switch { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+.image-operation-switch button { display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 10px 14px; border: 1px solid rgba(139, 105, 82, .14); border-radius: 10px; color: #785f52; background: rgba(255, 252, 248, .72); cursor: pointer; text-align: left; transition: border-color .15s ease, background-color .15s ease; }
+.image-operation-switch button:hover { border-color: rgba(200, 117, 63, .4); }
+.image-operation-switch button.active { border-color: #c8753f; color: #8b4f2d; background: rgba(200, 117, 63, .1); }
+.image-operation-switch button > .anticon { font-size: 20px; }
+.image-operation-switch button span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.image-operation-switch button strong { font-size: var(--font-size-body); }
+.image-operation-switch button small { color: #a28d80; font-size: var(--font-size-caption); font-weight: 400; }
+.image-special-task .generation-reference-picker { margin-top: 4px; }
+.image-task-preparation { display: grid; grid-template-columns: 86px minmax(0, 1fr) auto; align-items: center; gap: 14px; margin-top: 12px; padding: 12px; border-radius: 10px; background: rgba(145, 123, 107, .07); }
+.image-task-preparation.ready { background: rgba(93, 135, 77, .08); }
+.image-task-preparation img { width: 86px; height: 64px; border-radius: 7px; object-fit: cover; background: #fff; }
+.image-task-preparation > div { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.image-task-preparation strong { color: #6e5548; font-size: var(--font-size-body); }
+.image-task-preparation span { color: #9b877a; font-size: var(--font-size-supporting); }
+.image-edit-workbench-modal .ant-modal-body { min-height: 650px; }
+.image-edit-workbench { display: flex; min-height: 620px; flex-direction: column; gap: 12px; }
+.image-edit-toolbar { display: flex; min-height: 38px; align-items: center; gap: 9px; }
+.image-edit-toolbar > span { margin-right: auto; color: #8d776a; font-size: var(--font-size-supporting); }
+.image-edit-toolbar label { display: grid; grid-template-columns: auto 180px 54px; align-items: center; gap: 9px; margin-right: auto; color: #806b5f; font-size: var(--font-size-supporting); }
+.image-edit-toolbar label .ant-slider { margin: 0; }
+.image-edit-toolbar label em { color: #a08b7e; font-style: normal; text-align: right; }
+.image-edit-stage { position: relative; display: grid; min-height: 560px; flex: 1; place-items: center; overflow: hidden; border-radius: 12px; background: #e9e5df; }
+.image-edit-stage.outpaint { background: #ddd7cf; }
+.image-edit-base-canvas { display: block; max-width: 100%; max-height: 560px; background: #fff; }
+.image-edit-stage.outpaint .image-edit-base-canvas { border: 2px solid #c8753f; box-shadow: 0 8px 24px rgba(79, 58, 44, .14); touch-action: none; }
+.image-edit-mask-canvas { position: absolute; max-width: 100%; max-height: 560px; cursor: crosshair; touch-action: none; }
+.image-edit-status { display: flex; flex-wrap: wrap; gap: 8px 18px; color: #887266; font-size: var(--font-size-supporting); }
+.image-edit-status span + span::before { margin-right: 18px; color: #c4b4aa; content: '·'; }
 .generation-shot-selector { display: flex; align-items: flex-end; justify-content: space-between; gap: 22px; margin-bottom: 20px; padding: 14px 0 17px; border-bottom: 1px solid rgba(139, 105, 82, .13); }.generation-shot-selector label { width: min(440px, 100%); display: flex; flex-direction: column; gap: 7px; }.generation-shot-selector label > span { color: #806b5e; font-size: var(--font-size-supporting); font-weight: 650; }.generation-shot-selector p { margin: 0 0 8px; color: #9d887b; font-size: var(--font-size-caption); }
 .generation-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 10px; }
 .generation-fields label, .generation-import-form label { min-width: 0; display: flex; flex-direction: column; gap: 7px; }

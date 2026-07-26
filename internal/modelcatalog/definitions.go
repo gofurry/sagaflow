@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const manifestVersion = 5
+const manifestVersion = 6
 
 func Builtins() []Definition {
 	embedded, err := embeddedDefinitions()
@@ -103,6 +103,9 @@ func compiledBuiltins() []Definition {
 		model("20000000-0000-0000-0000-000000000020", "aliyun_bailian", "wan2.7-image", "Wan 2.7 Image", "image",
 			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "fast"}, bailianImageSchema(), values("size", "2K", "n", 1, "watermark", false, "thinking_mode", true),
 			"https://help.aliyun.com/zh/model-studio/wan-image-generation-api-reference"),
+		model("20000000-0000-0000-0000-000000000036", "aliyun_bailian", "wanx2.1-imageedit", "Wan 2.1 精确图像编辑", "image",
+			[]string{"text", "image"}, []string{"image_edit", "outpaint", "inpaint", "mask_input", "local_reference"}, bailianImageEditSchema(), values("n", 1, "watermark", false),
+			"https://help.aliyun.com/zh/model-studio/wanx-image-edit-api-reference"),
 		model("20000000-0000-0000-0000-000000000021", "aliyun_bailian", "qwen-audio-3.0-tts-plus", "Qwen Audio 3.0 TTS Plus", "audio",
 			[]string{"text"}, []string{"speech_generation", "voice_clone", "instruction_control", "multilingual"}, bailianSpeechSchema(), bailianSpeechDefaults("longanlingxin"),
 			"https://help.aliyun.com/zh/model-studio/qwen-tts-api"),

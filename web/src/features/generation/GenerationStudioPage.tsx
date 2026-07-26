@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { AppstoreOutlined, AudioOutlined, BarsOutlined, CloudOutlined, FileTextOutlined, HddOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined, VideoCameraOutlined } from '@ant-design/icons'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { AppstoreOutlined, AudioOutlined, BarsOutlined, CloudOutlined, ExpandOutlined, FileTextOutlined, HighlightOutlined, HddOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined, VideoCameraOutlined } from '@ant-design/icons'
 import { App, AutoComplete, Button, Input, Select, Steps } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
-import type { Asset, AssetRemoteExport, Capability, CanvasEdgeDTO, CanvasNodeDTO, Episode, GenerationJob, GenerationJobPage, MediaType, Model, ModelPreset, ModelProvider, Project, WorkflowCompatibility, WorkflowTemplate } from '../../api/types'
+import type { Asset, AssetRemoteExport, Capability, CanvasEdgeDTO, CanvasNodeDTO, Episode, GenerationImageTask, GenerationJob, GenerationJobPage, MediaType, Model, ModelPreset, ModelProvider, Project, WorkflowCompatibility, WorkflowTemplate } from '../../api/types'
 import { FloatingToolbar } from '../../components/FloatingToolbar'
 import { MarkdownEditor } from '../../components/Markdown'
 import { ModelParameterEditor } from '../../components/ModelParameterEditor'
@@ -14,6 +14,8 @@ import { assetExportLabel, preferredAssetExport, usableAssetExports } from '../a
 import { completedJobTransition } from '../jobs/completionTransitions'
 
 type GenerationCapability = Extract<Capability, 'text' | 'image' | 'audio' | 'video'>
+type ImageOperation = 'generate' | 'outpaint' | 'inpaint'
+const ImageEditWorkbench = lazy(() => import('./ImageEditWorkbench').then((module) => ({ default: module.ImageEditWorkbench })))
 interface GenerationDraft {
   targetKind?: 'model' | 'workflow'
   modelID?: string
@@ -28,6 +30,9 @@ interface GenerationDraft {
   parametersCustomized: boolean
   inputReferences: GenerationReferenceDraft[]
   remoteExportIDs: Record<string, string>
+	imageOperation: ImageOperation
+	imageTask?: GenerationImageTask
+	maskReference?: GenerationReferenceDraft
 }
 
 interface CreateJobVariables {
@@ -45,7 +50,7 @@ const capabilityMeta: Record<GenerationCapability, { label: string; references: 
 const BASE_PARAMETERS = '__model_base__'
 const CUSTOM_PARAMETERS = '__custom__'
 const recentJobsFilter = { page: 1, page_size: 100 } as const
-const emptyDraft = (): GenerationDraft => ({ outputName: '', prompt: '', parameters: {}, parametersCustomized: false, inputReferences: [], remoteExportIDs: {} })
+const emptyDraft = (): GenerationDraft => ({ outputName: '', prompt: '', parameters: {}, parametersCustomized: false, inputReferences: [], remoteExportIDs: {}, imageOperation: 'generate' })
 
 export function GenerationStudioPage({ episode, onError, project }: { episode: Episode | null; onError: (error: unknown) => void; project: Project }) {
   const queryClient = useQueryClient()
@@ -55,6 +60,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
   const [sessionJobIDs, setSessionJobIDs] = useState<string[]>([])
   const completedJobIDs = useRef<Set<string> | null>(null)
   const [selectedJobIDs, setSelectedJobIDs] = useState<Partial<Record<GenerationCapability, string>>>({})
+	const [imageEditorOpen, setImageEditorOpen] = useState(false)
   const [drafts, setDrafts] = useState<Record<GenerationCapability, GenerationDraft>>({
     text: emptyDraft(),
     image: emptyDraft(),
@@ -87,16 +93,17 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
     refetchInterval: (query) => (query.state.data?.items ?? []).some((job) => job.status === 'queued' || job.status === 'running') ? 2500 : false,
   })
   const draft = drafts[capability]
+	const imageOperation = capability === 'image' ? draft.imageOperation : 'generate'
   const allModels = useMemo(() => modelsQuery.data ?? [], [modelsQuery.data])
   const providers = useMemo(() => providersQuery.data ?? [], [providersQuery.data])
   const workflows = useMemo(() => workflowsQuery.data ?? [], [workflowsQuery.data])
   const compatibilities = useMemo(() => compatibilityQuery.data ?? [], [compatibilityQuery.data])
   const allPresets = useMemo(() => presetsQuery.data ?? [], [presetsQuery.data])
-  const models = useMemo(() => allModels.filter((model) => model.enabled && model.available && model.capability === capability), [allModels, capability])
+  const models = useMemo(() => allModels.filter((model) => model.enabled && model.available && model.capability === capability && imageModelSupportsOperation(model, imageOperation)), [allModels, capability, imageOperation])
   const model = models.find((item) => item.id === draft.modelID)
   const workflow = workflows.find((item) => item.id === draft.workflowID)
   const targetDefinition = draft.targetKind === 'workflow' ? workflow : model
-  const readyWorkflowTargets = useMemo(() => workflowTargets(workflows, compatibilities, providers, capability), [capability, compatibilities, providers, workflows])
+  const readyWorkflowTargets = useMemo(() => imageOperation === 'generate' ? workflowTargets(workflows, compatibilities, providers, capability) : [], [capability, compatibilities, imageOperation, providers, workflows])
   const allowedReferences = useMemo(() => targetDefinition
     ? targetDefinition.input_modalities.filter((item): item is MediaType => item !== 'text')
     : capabilityMeta[capability].references, [capability, targetDefinition])
@@ -123,10 +130,30 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
   const missingDraftReferences = useMemo(() => requiresPublishedAssets
     ? draft.inputReferences.filter((reference) => reference.source === 'asset' && !preferredAssetExport(assetExports, reference.id))
     : [], [assetExports, draft.inputReferences, requiresPublishedAssets])
+	const imageSource = capability === 'image' && imageOperation !== 'generate' ? draft.inputReferences[0] : undefined
+	const imageSourceURL = imageSource ? imageSource.source === 'asset' ? api.assetURL(imageSource.id) : api.generationReferenceURL(imageSource.id) : ''
+	const specialImageReady = imageOperation === 'generate' || Boolean(imageSource && draft.imageTask?.type === imageOperation && (imageOperation !== 'inpaint' || draft.maskReference))
   const videoNotes = useMemo(() => selectedShot ? canvasNotes(selectedShot, canvasQuery.data?.nodes ?? [], canvasQuery.data?.edges ?? []) : [], [canvasQuery.data?.edges, canvasQuery.data?.nodes, selectedShot])
   const selectedJobID = selectedJobIDs[capability]
   const selectedJob = selectedJobID ? jobs.find((job) => job.id === selectedJobID) : undefined
   const updateDraft = (patch: Partial<GenerationDraft>) => setDrafts((current) => ({ ...current, [capability]: { ...current[capability], ...patch } }))
+	const discardMaskReference = (reference?: GenerationReferenceDraft) => {
+		if (reference?.source === 'upload') void api.deleteGenerationReference(reference.id).catch(() => undefined)
+	}
+	const selectImageOperation = (operation: ImageOperation) => {
+		if (capability !== 'image' || operation === draft.imageOperation) return
+		discardMaskReference(draft.maskReference)
+		const currentModel = allModels.find((item) => item.id === draft.modelID)
+		const keepTarget = currentModel ? imageModelSupportsOperation(currentModel, operation) : operation === 'generate'
+		updateDraft({
+			imageOperation: operation,
+			imageTask: undefined,
+			maskReference: undefined,
+			inputReferences: operation === 'generate' ? draft.inputReferences : draft.inputReferences.slice(0, 1),
+			...(keepTarget ? {} : { targetKind: undefined, modelID: undefined, modelPresetID: undefined, parameters: {}, parametersCustomized: false }),
+		})
+		setImageEditorOpen(false)
+	}
   const refresh = () => Promise.all([
     queryClient.invalidateQueries({ queryKey: ['generation-jobs', project.id] }),
     queryClient.invalidateQueries({ queryKey: ['staged-assets', project.id] }),
@@ -147,7 +174,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
       }))
       setSessionJobIDs((current) => current.includes(job.id) ? current : [job.id, ...current])
       setSelectedJobIDs((current) => ({ ...current, [variables.capability]: job.id }))
-      setDrafts((current) => ({ ...current, [variables.capability]: { ...current[variables.capability], inputReferences: [] } }))
+		setDrafts((current) => ({ ...current, [variables.capability]: { ...current[variables.capability], inputReferences: [], imageTask: undefined, maskReference: undefined } }))
       await queryClient.invalidateQueries({ queryKey: ['generation-jobs', project.id] })
       message.success('生成任务已进入队列')
     },
@@ -269,7 +296,12 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
     if (capability === 'video' && unsupportedVideoReferences.length > 0) return message.warning('画布包含当前生成目标不支持的参考类型，请更换目标或调整参考连线')
     if (capability === 'video' && missingVideoReferences.length > 0) return message.warning('部分画布参考还没有可用的 S3 副本，请先到资产页发布')
     if (capability !== 'video' && missingDraftReferences.length > 0) return message.warning('部分参考还没有可用的 S3 副本，请先到资产页发布')
+		if (capability === 'image' && imageOperation !== 'generate' && !imageSource) return message.warning('请先选择一张源图像')
+		if (capability === 'image' && imageOperation !== 'generate' && !specialImageReady) return message.warning(imageOperation === 'outpaint' ? '请先设置扩图画幅' : '请先绘制需要重绘的 Mask 区域')
     if (!draft.prompt.trim()) return message.warning('请输入 Prompt')
+		const imageReferences = capability === 'image' && imageOperation === 'inpaint' && draft.maskReference
+			? [...draft.inputReferences.slice(0, 1), draft.maskReference]
+			: capability === 'image' && imageOperation === 'outpaint' ? draft.inputReferences.slice(0, 1) : draft.inputReferences
     createJob.mutate({
       capability,
       request: {
@@ -285,13 +317,14 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
         output_name: draft.outputName.trim() || undefined,
         prompt: draft.prompt,
         parameters: draft.parameters,
+			image_task: capability === 'image' && imageOperation !== 'generate' ? draft.imageTask : undefined,
         input_references: capability === 'video'
           ? videoReferences.map((asset) => {
               const available = usableAssetExports(assetExports, asset.id)
               const selected = available.find((item) => item.id === draft.remoteExportIDs[asset.id]) ?? available[0]
               return { source: 'asset' as const, id: asset.id, remote_export_id: requiresPublishedAssets ? selected?.id : undefined }
             })
-          : draft.inputReferences.map(({ source, id, remote_export_id }) => {
+			: imageReferences.map(({ source, id, remote_export_id }) => {
               const selected = source === 'asset'
                 ? usableAssetExports(assetExports, id).find((item) => item.id === remote_export_id) ?? preferredAssetExport(assetExports, id)
                 : undefined
@@ -302,6 +335,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
   }
   const resetDraft = () => {
     draft.inputReferences.filter((reference) => reference.source === 'upload').forEach((reference) => void api.deleteGenerationReference(reference.id).catch(() => undefined))
+		discardMaskReference(draft.maskReference)
     setDrafts((current) => ({ ...current, [capability]: emptyDraft() }))
     setSelectedJobIDs((current) => ({ ...current, [capability]: undefined }))
   }
@@ -325,7 +359,7 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
 
   return <div className="page page-generation">
     <FloatingToolbar ariaLabel="生成工具栏" items={[
-      { key: 'run', label: `开始生成${capabilityMeta[capability].label}`, icon: <ThunderboltOutlined/>, active: true, disabled: !selectedTargetKey || !draft.prompt.trim() || missingDraftReferences.length > 0 || (capability === 'video' && (!draft.shotID || unsupportedVideoReferences.length > 0 || missingVideoReferences.length > 0)), loading: createJob.isPending, onClick: run },
+		{ key: 'run', label: `开始生成${capabilityMeta[capability].label}`, icon: <ThunderboltOutlined/>, active: true, disabled: !selectedTargetKey || !targetDefinition || !draft.prompt.trim() || !specialImageReady || missingDraftReferences.length > 0 || (capability === 'video' && (!draft.shotID || unsupportedVideoReferences.length > 0 || missingVideoReferences.length > 0)), loading: createJob.isPending, onClick: run },
       { key: 'new', label: '新建生成', icon: <PlusOutlined/>, onClick: resetDraft },
       { key: 'refresh', label: '刷新任务与结果', icon: <ReloadOutlined/>, loading: refreshing, onClick: () => void refresh() },
     ]}/>
@@ -339,6 +373,15 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
       </div>
 
       <div className="generation-workbench">
+		{capability === 'image' && <div className="image-operation-switch" aria-label="图像任务类型" role="tablist">
+			{([
+				{ key: 'generate' as const, label: '普通生成', note: '文生图或多图参考' },
+				{ key: 'outpaint' as const, label: '扩图', note: '拖动画幅扩展边界', icon: <ExpandOutlined/> },
+				{ key: 'inpaint' as const, label: 'Mask 重绘', note: '精确指定修改区域', icon: <HighlightOutlined/> },
+			]).map((item) => <button aria-selected={imageOperation === item.key} className={imageOperation === item.key ? 'active' : ''} key={item.key} onClick={() => selectImageOperation(item.key)} role="tab" type="button">
+				{item.icon}<span><strong>{item.label}</strong><small>{item.note}</small></span>
+			</button>)}
+		</div>}
         {capability === 'video' && <div className="generation-shot-selector">
           <label>
             <span>当前分集视频分镜</span>
@@ -388,8 +431,58 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
           <span>素材名称（可选）</span>
           <Input maxLength={160} onChange={(event) => updateDraft({ outputName: event.target.value })} placeholder="例如：林默雨巷镜头；多结果会自动添加 01、02…" value={draft.outputName}/>
         </label>
+		{capability === 'image' && imageOperation !== 'generate' && <div className="image-special-task">
+			<GenerationReferencePicker
+				allowedMedia={['image']}
+				exports={assetExports}
+				groups={groupsQuery.data ?? []}
+				maxItems={1}
+				onChange={(inputReferences) => {
+					discardMaskReference(draft.maskReference)
+					updateDraft({ inputReferences: inputReferences.slice(0, 1), imageTask: undefined, maskReference: undefined })
+				}}
+				onError={onError}
+				projectID={project.id}
+				requiresPublishedAssets={requiresPublishedAssets}
+				title="源图像"
+				value={draft.inputReferences.slice(0, 1)}
+			/>
+			{imageSource && <div className={`image-task-preparation ${draft.imageTask?.type === imageOperation ? 'ready' : ''}`}>
+				<img alt={imageSource.name} src={imageSourceURL}/>
+				<div>
+					<strong>{imageOperation === 'outpaint' ? '扩图画幅' : '重绘 Mask'}</strong>
+					<span>{draft.imageTask?.type === imageOperation
+						? imageOperation === 'outpaint'
+							? `已设置 ${draft.imageTask.target_width} × ${draft.imageTask.target_height} 画幅`
+							: 'Mask 已准备，将以纯黑白图提交'
+						: imageOperation === 'outpaint' ? '尚未设置扩展范围' : '尚未绘制重绘区域'}</span>
+				</div>
+				<Button icon={imageOperation === 'outpaint' ? <ExpandOutlined/> : <HighlightOutlined/>} onClick={() => setImageEditorOpen(true)} type="primary">
+					{draft.imageTask?.type === imageOperation ? '重新编辑' : imageOperation === 'outpaint' ? '设置扩图范围' : '绘制 Mask'}
+				</Button>
+			</div>}
+			{imageSource && <Suspense fallback={null}><ImageEditWorkbench
+				initialTask={draft.imageTask}
+				mode={imageOperation as 'outpaint' | 'inpaint'}
+				onApply={async (result) => {
+					let maskReference: GenerationReferenceDraft | undefined
+					if (result.maskFile) {
+						const uploaded = await api.uploadGenerationReference(project.id, result.maskFile)
+						maskReference = { source: 'upload', id: uploaded.id, name: uploaded.name, mediaType: uploaded.media_type }
+					}
+					discardMaskReference(draft.maskReference)
+					updateDraft({ imageTask: result.task, maskReference })
+					setImageEditorOpen(false)
+					message.success(imageOperation === 'outpaint' ? '扩图画幅已应用' : 'Mask 已应用')
+				}}
+				onCancel={() => setImageEditorOpen(false)}
+				open={imageEditorOpen}
+				sourceName={imageSource.name}
+				sourceURL={imageSourceURL}
+			/></Suspense>}
+		</div>}
         <MarkdownEditor height={360} onChange={(prompt) => updateDraft({ prompt })} placeholder={`输入${capabilityMeta[capability].label}生成 Prompt…`} value={draft.prompt}/>
-        {capability !== 'video' && allowedReferences.length > 0 && <GenerationReferencePicker
+		{capability !== 'video' && allowedReferences.length > 0 && !(capability === 'image' && imageOperation !== 'generate') && <GenerationReferencePicker
           allowedMedia={allowedReferences}
           exports={assetExports}
           groups={groupsQuery.data ?? []}
@@ -458,6 +551,13 @@ export function GenerationStudioPage({ episode, onError, project }: { episode: E
 
 function defaultModelPreset(presets: ModelPreset[], model: Model) {
   return presets.find((preset) => preset.model_id === model.id && preset.is_default)
+}
+
+function imageModelSupportsOperation(model: Model, operation: ImageOperation) {
+	if (model.capability !== 'image') return true
+	if (operation === 'outpaint') return model.features.includes('outpaint')
+	if (operation === 'inpaint') return model.features.includes('inpaint') && model.features.includes('mask_input')
+	return model.features.includes('image_generation')
 }
 
 function modelVoiceParameter(model: Model) {

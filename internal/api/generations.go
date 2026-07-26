@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 
@@ -27,6 +28,21 @@ type generationRequest struct {
 	Prompt             string                            `json:"prompt"`
 	Parameters         json.RawMessage                   `json:"parameters"`
 	InputReferences    []generationInputReferenceRequest `json:"input_references"`
+	ImageTask          *generationImageTaskRequest       `json:"image_task"`
+}
+
+type generationImageTaskRequest struct {
+	Type         string  `json:"type"`
+	SourceWidth  int     `json:"source_width"`
+	SourceHeight int     `json:"source_height"`
+	TargetWidth  int     `json:"target_width,omitempty"`
+	TargetHeight int     `json:"target_height,omitempty"`
+	SourceX      int     `json:"source_x,omitempty"`
+	SourceY      int     `json:"source_y,omitempty"`
+	TopScale     float64 `json:"top_scale,omitempty"`
+	BottomScale  float64 `json:"bottom_scale,omitempty"`
+	LeftScale    float64 `json:"left_scale,omitempty"`
+	RightScale   float64 `json:"right_scale,omitempty"`
 }
 
 type generationInputReferenceRequest struct {
@@ -63,6 +79,9 @@ func (s *Server) createGenerationJob(c fiber.Ctx) error {
 	}
 	target, err := s.resolveGenerationTarget(c, req)
 	if err != nil {
+		return err
+	}
+	if err := validateImageTask(target, req.ImageTask, req.InputReferences); err != nil {
 		return err
 	}
 	if target.Capability == "video" {
@@ -152,7 +171,7 @@ func (s *Server) createGenerationJob(c fiber.Ctx) error {
 	snapshot := db.JSON(map[string]any{
 		"prompt": req.Prompt, "prompt_preset_id": req.PromptPresetID, "model_preset_id": req.ModelPresetID,
 		"input_references": references, "target_kind": target.Kind, "target_id": target.Identifier, "provider": target.ProviderCode,
-		"parameters": json.RawMessage(parameters), "output_name": strings.TrimSpace(req.OutputName),
+		"parameters": json.RawMessage(parameters), "output_name": strings.TrimSpace(req.OutputName), "image_task": req.ImageTask,
 	})
 	job, err := s.store.CreateGenerationJob(c.Context(), db.CreateGenerationJobInput{
 		ProjectID: req.ProjectID, EpisodeID: req.EpisodeID, CanvasNodeID: req.CanvasNodeID,
@@ -170,6 +189,57 @@ func (s *Server) createGenerationJob(c fiber.Ctx) error {
 		return err
 	}
 	return writeCreated(c, job)
+}
+
+func validateImageTask(target resolvedGenerationTarget, task *generationImageTaskRequest, references []generationInputReferenceRequest) error {
+	if task == nil {
+		return nil
+	}
+	task.Type = strings.ToLower(strings.TrimSpace(task.Type))
+	if target.Kind != "model" || target.Capability != "image" {
+		return fmt.Errorf("%w: special image tasks require an image model", service.ErrInvalidInput)
+	}
+	if task.SourceWidth < 512 || task.SourceWidth > 4096 || task.SourceHeight < 512 || task.SourceHeight > 4096 {
+		return fmt.Errorf("%w: source image dimensions must be between 512 and 4096 pixels", service.ErrInvalidInput)
+	}
+	switch task.Type {
+	case "outpaint":
+		if !slices.Contains(target.Features, "outpaint") {
+			return fmt.Errorf("%w: selected model does not support outpainting", service.ErrInvalidInput)
+		}
+		if len(references) != 1 {
+			return fmt.Errorf("%w: outpainting requires exactly one source image", service.ErrInvalidInput)
+		}
+		for _, scale := range []float64{task.TopScale, task.BottomScale, task.LeftScale, task.RightScale} {
+			if scale < 1 || scale > 2 {
+				return fmt.Errorf("%w: outpainting scales must be between 1 and 2", service.ErrInvalidInput)
+			}
+		}
+		if task.TopScale == 1 && task.BottomScale == 1 && task.LeftScale == 1 && task.RightScale == 1 {
+			return fmt.Errorf("%w: outpainting canvas must extend beyond the source image", service.ErrInvalidInput)
+		}
+		if task.TargetWidth < task.SourceWidth || task.TargetHeight < task.SourceHeight ||
+			(task.TargetWidth == task.SourceWidth && task.TargetHeight == task.SourceHeight) || task.SourceX < 0 || task.SourceY < 0 {
+			return fmt.Errorf("%w: outpainting canvas geometry is invalid", service.ErrInvalidInput)
+		}
+		expectedWidth := int(math.Round(float64(task.SourceWidth) * (task.LeftScale + task.RightScale - 1)))
+		expectedHeight := int(math.Round(float64(task.SourceHeight) * (task.TopScale + task.BottomScale - 1)))
+		expectedX := int(math.Round(float64(task.SourceWidth) * (task.LeftScale - 1)))
+		expectedY := int(math.Round(float64(task.SourceHeight) * (task.TopScale - 1)))
+		if task.TargetWidth != expectedWidth || task.TargetHeight != expectedHeight || task.SourceX != expectedX || task.SourceY != expectedY {
+			return fmt.Errorf("%w: outpainting geometry does not match its scale values", service.ErrInvalidInput)
+		}
+	case "inpaint":
+		if !slices.Contains(target.Features, "inpaint") || !slices.Contains(target.Features, "mask_input") {
+			return fmt.Errorf("%w: selected model does not support masked inpainting", service.ErrInvalidInput)
+		}
+		if len(references) != 2 || references[1].Source != "upload" {
+			return fmt.Errorf("%w: masked inpainting requires one source image and one generated mask", service.ErrInvalidInput)
+		}
+	default:
+		return fmt.Errorf("%w: image_task.type must be outpaint or inpaint", service.ErrInvalidInput)
+	}
+	return nil
 }
 
 func (s *Server) resolveGenerationTarget(c fiber.Ctx, req generationRequest) (resolvedGenerationTarget, error) {
@@ -278,7 +348,8 @@ func (s *Server) validateGenerationReferences(c fiber.Ctx, projectID uuid.UUID, 
 			return nil, fmt.Errorf("%w: %s references are not supported by this model capability", service.ErrInvalidInput, mediaType)
 		}
 		remoteExportID := requestedReference.RemoteExportID
-		if providerRequiresRemoteReferences(adapterCode) || slices.Contains(features, "remote_reference_required") {
+		requiresRemote := providerRequiresRemoteReferences(adapterCode) && !slices.Contains(features, "local_reference")
+		if requiresRemote || slices.Contains(features, "remote_reference_required") {
 			if requestedReference.Source != "asset" {
 				return nil, fmt.Errorf("%w: temporary references cannot be sent to a cloud model; import and publish the asset first", service.ErrInvalidInput)
 			}

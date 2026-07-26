@@ -43,6 +43,7 @@ func TestSyncCreatesVersionedBuiltinsIdempotently(t *testing.T) {
 	}
 	var arkModels int
 	var bailianModels int
+	var preciseImageEdit bool
 	var tencentModels int
 	var moonshotModels int
 	arkThinkingDefaults := make(map[string]string)
@@ -63,6 +64,9 @@ func TestSyncCreatesVersionedBuiltinsIdempotently(t *testing.T) {
 		}
 		if model.ProviderCode == "aliyun_bailian" {
 			bailianModels++
+			if model.ModelID == "wanx2.1-imageedit" {
+				preciseImageEdit = containsAll(model.Features, "outpaint", "inpaint", "mask_input", "local_reference")
+			}
 		}
 		if model.ProviderCode == "tencent_tokenhub" {
 			tencentModels++
@@ -82,8 +86,11 @@ func TestSyncCreatesVersionedBuiltinsIdempotently(t *testing.T) {
 	if !deepSeekModels["deepseek-v4-flash"] || !deepSeekModels["deepseek-v4-pro"] {
 		t.Fatalf("expected current DeepSeek V4 catalog, got %#v", deepSeekModels)
 	}
-	if bailianModels != 12 {
-		t.Fatalf("expected twelve Bailian models, got %d", bailianModels)
+	if bailianModels != 13 {
+		t.Fatalf("expected thirteen Bailian models, got %d", bailianModels)
+	}
+	if !preciseImageEdit {
+		t.Fatal("expected Wan 2.1 precise image edit capabilities")
 	}
 	if tencentModels != 11 {
 		t.Fatalf("expected eleven TokenHub models, got %d", tencentModels)
@@ -91,4 +98,17 @@ func TestSyncCreatesVersionedBuiltinsIdempotently(t *testing.T) {
 	if moonshotModels != 4 {
 		t.Fatalf("expected four Moonshot models, got %d", moonshotModels)
 	}
+}
+
+func containsAll(values []string, expected ...string) bool {
+	available := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		available[value] = struct{}{}
+	}
+	for _, value := range expected {
+		if _, exists := available[value]; !exists {
+			return false
+		}
+	}
+	return true
 }

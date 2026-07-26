@@ -21,6 +21,8 @@ export function GenerationReferencePicker({
   requiresPublishedAssets = false,
   onChange,
   onError,
+	maxItems,
+	title = '参考预览',
 }: {
   projectID: string
   exports: AssetRemoteExport[]
@@ -30,6 +32,8 @@ export function GenerationReferencePicker({
   requiresPublishedAssets?: boolean
   onChange: (value: GenerationReferenceDraft[]) => void
   onError: (error: unknown) => void
+	maxItems?: number
+	title?: string
 }) {
   const { message } = App.useApp()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -59,7 +63,8 @@ export function GenerationReferencePicker({
     setUploading(true)
     const created: GenerationReferenceUpload[] = []
     try {
-      for (const file of Array.from(files)) {
+		const selectedFiles = Array.from(files).slice(0, maxItems === 1 ? 1 : Math.max(0, (maxItems ?? Number.POSITIVE_INFINITY) - value.length))
+		for (const file of selectedFiles) {
         const item = await api.uploadGenerationReference(projectID, file)
         if (!allowed.has(item.media_type)) {
           await api.deleteGenerationReference(item.id)
@@ -67,7 +72,10 @@ export function GenerationReferencePicker({
         }
         created.push(item)
       }
-      onChange([...value, ...created.map((item) => ({ source: 'upload' as const, id: item.id, name: item.name, mediaType: item.media_type }))])
+		const uploaded = created.map((item) => ({ source: 'upload' as const, id: item.id, name: item.name, mediaType: item.media_type }))
+		const next = maxItems === 1 ? uploaded : [...value, ...uploaded]
+		if (maxItems === 1) value.filter((item) => item.source === 'upload' && !next.some((candidate) => candidate.id === item.id)).forEach((item) => void api.deleteGenerationReference(item.id).catch(() => undefined))
+		onChange(next)
       message.success(`已添加 ${created.length} 个临时参考`)
     } catch (error) {
       await Promise.all(created.map((item) => api.deleteGenerationReference(item.id).catch(() => undefined)))
@@ -81,7 +89,7 @@ export function GenerationReferencePicker({
   return <div className="generation-reference-picker">
     <div className="reference-picker-heading">
       <div>
-        <strong>参考预览</strong>
+		<strong>{title}</strong>
         <span>{value.length
           ? `${value.length} 项 · 生成时按当前顺序提交`
           : requiresPublishedAssets ? '当前模型只接受已在资产页发布到 S3 的资产' : '可从资产库选择，或上传仅用于本次生成的临时参考'}</span>
@@ -93,7 +101,7 @@ export function GenerationReferencePicker({
         {!requiresPublishedAssets && <Tooltip title="上传本次参考；提交后作为任务快照保留，不进入资产库">
           <Button aria-label="上传临时参考" icon={uploading ? <Spin size="small"/> : <UploadOutlined/>} onClick={() => inputRef.current?.click()} shape="circle"/>
         </Tooltip>}
-        <input accept={acceptFor(allowedMedia)} hidden multiple onChange={(event) => void upload(event.target.files)} ref={inputRef} type="file"/>
+		<input accept={acceptFor(allowedMedia)} hidden multiple={maxItems !== 1} onChange={(event) => void upload(event.target.files)} ref={inputRef} type="file"/>
       </div>
     </div>
     {value.length
@@ -128,13 +136,17 @@ export function GenerationReferencePicker({
         const byID = new Map(selectedAssets.map((asset) => [asset.id, asset]))
         const retained = value.filter((item) => item.source === 'upload' || selected.includes(item.id))
         const retainedAssetIDs = new Set(retained.filter((item) => item.source === 'asset').map((item) => item.id))
-        onChange([...retained, ...selected.filter((id) => !retainedAssetIDs.has(id)).flatMap((id) => {
+		const candidates = [...retained, ...selected.filter((id) => !retainedAssetIDs.has(id)).flatMap((id) => {
           const asset = byID.get(id)
           const preferred = requiresPublishedAssets ? preferredAssetExport(exports, asset?.id ?? '') : undefined
           return asset ? [{ source: 'asset' as const, id: asset.id, name: asset.name, mediaType: asset.media_type, remote_export_id: preferred?.id }] : []
-        })])
+		})]
+		const next = maxItems === 1 ? candidates.slice(-1) : maxItems ? candidates.slice(0, maxItems) : candidates
+		value.filter((item) => item.source === 'upload' && !next.some((candidate) => candidate.id === item.id)).forEach((item) => void api.deleteGenerationReference(item.id).catch(() => undefined))
+		onChange(next)
         setLibraryOpen(false)
       }}
+		maxItems={maxItems}
       open={libraryOpen}
       projectID={projectID}
       selected={value.filter((item) => item.source === 'asset').map((item) => item.id)}
@@ -142,7 +154,7 @@ export function GenerationReferencePicker({
   </div>
 }
 
-function AssetReferenceModal({ allowedMedia, exports, groups, selected, open, onCancel, onConfirm, projectID }: {
+function AssetReferenceModal({ allowedMedia, exports, groups, selected, open, onCancel, onConfirm, projectID, maxItems }: {
   allowedMedia: MediaType[]
   exports: AssetRemoteExport[]
   groups: AssetGroup[]
@@ -151,6 +163,7 @@ function AssetReferenceModal({ allowedMedia, exports, groups, selected, open, on
   onCancel: () => void
   onConfirm: (selected: string[], assets: Asset[]) => void
   projectID: string
+	maxItems?: number
 }) {
   const [groupSearch, setGroupSearch] = useState('')
   const [assetSearch, setAssetSearch] = useState('')
@@ -184,16 +197,21 @@ function AssetReferenceModal({ allowedMedia, exports, groups, selected, open, on
   }, [groups, open, selectedKey])
   useEffect(() => setPage(1), [assetSearch, selectedGroup])
   const toggle = (asset: Asset, next: boolean) => {
-    setChecked((current) => next ? [...new Set([...current, asset.id])] : current.filter((item) => item !== asset.id))
+		setChecked((current) => {
+			if (!next) return current.filter((item) => item !== asset.id)
+			if (maxItems === 1) return [asset.id]
+			const added = [...new Set([...current, asset.id])]
+			return maxItems ? added.slice(0, maxItems) : added
+		})
     setCheckedAssets((current) => {
-      const updated = { ...current }
+			const updated = maxItems === 1 && next ? {} : { ...current }
       if (next) updated[asset.id] = asset
       else delete updated[asset.id]
       return updated
     })
   }
 
-  return <Modal cancelText="取消" okText={`添加 ${checked.length} 项参考`} onCancel={onCancel} onOk={() => onConfirm(checked, Object.values(checkedAssets))} open={open} title="从资产库添加参考" width={1040}>
+	return <Modal cancelText="取消" okText={maxItems === 1 ? '使用这张图片' : `添加 ${checked.length} 项参考`} onCancel={onCancel} onOk={() => onConfirm(checked, Object.values(checkedAssets))} open={open} title="从资产库添加参考" width={1040}>
     <div className="reference-library-modal">
       <aside>
         <Input allowClear onChange={(event) => setGroupSearch(event.target.value)} placeholder="搜索分组" prefix={<SearchOutlined/>} value={groupSearch}/>

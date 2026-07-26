@@ -1,8 +1,12 @@
 package bailian_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -71,6 +75,78 @@ func TestImageSubmitsPollsAndDownloads(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertArtifactBytes(t, result.Artifacts[0], "png")
+}
+
+func TestPreciseImageEditSubmitsNativeOutpaintAndMaskPayloads(t *testing.T) {
+	t.Parallel()
+	source := testPNG(t, false)
+	mask := testPNG(t, true)
+	for _, test := range []struct {
+		name      string
+		operation string
+		inputs    []inference.Input
+		control   map[string]any
+		function  string
+	}{
+		{
+			name: "outpaint", operation: "outpaint", function: "expand",
+			inputs:  []inference.Input{{Name: "source.png", MediaType: "image", MIMEType: "image/png", Content: inference.BytesContent(source, "image/png")}},
+			control: map[string]any{"type": "outpaint", "source_width": 512, "source_height": 512, "top_scale": 1.25, "bottom_scale": 1.25, "left_scale": 1.5, "right_scale": 1.5},
+		},
+		{
+			name: "inpaint", operation: "inpaint", function: "description_edit_with_mask",
+			inputs: []inference.Input{
+				{Name: "source.png", MediaType: "image", MIMEType: "image/png", Content: inference.BytesContent(source, "image/png")},
+				{Name: "mask.png", MediaType: "image", MIMEType: "image/png", Content: inference.BytesContent(mask, "image/png")},
+			},
+			control: map[string]any{"type": "inpaint", "source_width": 512, "source_height": 512},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var server *httptest.Server
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v1/services/aigc/image2image/image-synthesis":
+					var body map[string]any
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Fatal(err)
+					}
+					input := body["input"].(map[string]any)
+					if input["function"] != test.function || !strings.HasPrefix(input["base_image_url"].(string), "data:image/png;base64,") {
+						t.Fatalf("unexpected image edit input %#v", input)
+					}
+					if test.operation == "inpaint" && !strings.HasPrefix(input["mask_image_url"].(string), "data:image/png;base64,") {
+						t.Fatalf("missing native mask input %#v", input)
+					}
+					if test.operation == "outpaint" {
+						parameters := body["parameters"].(map[string]any)
+						if parameters["left_scale"] != 1.5 || parameters["right_scale"] != 1.5 {
+							t.Fatalf("missing outpaint geometry %#v", parameters)
+						}
+					}
+					writeJSON(t, w, map[string]any{"output": map[string]any{"task_id": test.operation + "-task", "task_status": "PENDING"}})
+				case "/api/v1/tasks/" + test.operation + "-task":
+					writeJSON(t, w, map[string]any{"output": map[string]any{"task_status": "SUCCEEDED", "results": []any{map[string]any{"url": server.URL + "/edited.png"}}}})
+				case "/edited.png":
+					w.Header().Set("Content-Type", "image/png")
+					_, _ = w.Write([]byte("edited"))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			control, _ := json.Marshal(test.control)
+			result, err := bailian.New(bailian.Config{HTTPClient: server.Client(), PollInterval: time.Millisecond}).Execute(context.Background(), inference.Request{
+				Runtime:   inference.Runtime{ProviderCode: "aliyun_bailian", Endpoint: server.URL, APIKey: "secret"},
+				Target:    inference.Target{Kind: inference.TargetModel, ID: "wanx2.1-imageedit", Capability: inference.CapabilityImage},
+				Operation: test.operation, Control: control, Prompt: "edit", Parameters: map[string]any{"n": 1}, Inputs: test.inputs,
+			}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertArtifactBytes(t, result.Artifacts[0], "edited")
+		})
+	}
 }
 
 func TestAudioDownloadsResult(t *testing.T) {
@@ -175,4 +251,27 @@ func assertArtifactText(t *testing.T, artifact inference.Artifact, expected stri
 	if !strings.Contains(string(data), expected) {
 		t.Fatalf("expected %q in %q", expected, data)
 	}
+}
+
+func testPNG(t *testing.T, mask bool) []byte {
+	t.Helper()
+	background := color.RGBA{R: 230, G: 180, B: 120, A: 255}
+	if mask {
+		background = color.RGBA{A: 255}
+	}
+	value := image.NewRGBA(image.Rect(0, 0, 512, 512))
+	for y := 0; y < 512; y++ {
+		for x := 0; x < 512; x++ {
+			pixel := background
+			if mask && x >= 160 && x < 352 && y >= 160 && y < 352 {
+				pixel = color.RGBA{R: 255, G: 255, B: 255, A: 255}
+			}
+			value.SetRGBA(x, y, pixel)
+		}
+	}
+	var output bytes.Buffer
+	if err := png.Encode(&output, value); err != nil {
+		t.Fatal(err)
+	}
+	return output.Bytes()
 }
