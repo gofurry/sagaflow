@@ -155,3 +155,47 @@ func TestSaveCanvasPersistsAnnotationLabelPosition(t *testing.T) {
 		t.Fatal("expected invalid label position to be rejected")
 	}
 }
+
+func TestSaveCanvasAllowsAnnotationToTargetNote(t *testing.T) {
+	ctx := context.Background()
+	database, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "sagaflow.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	projectID := uuid.New()
+	episodeID := uuid.New()
+	videoNodeID := uuid.New()
+	noteNodeID := uuid.New()
+	if _, err := database.ExecContext(ctx, `INSERT INTO projects (id,title) VALUES ($1,'门后的世界')`, projectID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, `INSERT INTO episodes (id,project_id,episode_number,title) VALUES ($1,$2,1,'选择')`, episodeID, projectID); err != nil {
+		t.Fatal(err)
+	}
+
+	store := db.New(database)
+	shotNumber := int32(1)
+	canvas := db.Canvas{
+		Nodes: []db.CanvasNode{
+			{ID: videoNodeID, EpisodeID: episodeID, NodeType: "video", PositionX: 10, PositionY: 10, Title: "选择门", ShotNumber: &shotNumber},
+			{ID: noteNodeID, EpisodeID: episodeID, NodeType: "note", PositionX: 400, PositionY: 10, Title: "镜头备注"},
+		},
+		Edges: []db.CanvasEdge{{
+			ID: uuid.New(), EpisodeID: episodeID, SourceNodeID: videoNodeID, TargetNodeID: noteNodeID,
+			EdgeType: "annotation",
+		}},
+	}
+	if err := store.SaveCanvas(ctx, episodeID, canvas); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := store.GetCanvas(ctx, episodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.Edges) != 1 || stored.Edges[0].SourceNodeID != videoNodeID || stored.Edges[0].TargetNodeID != noteNodeID {
+		t.Fatalf("expected video-to-note annotation edge, got %#v", stored.Edges)
+	}
+}

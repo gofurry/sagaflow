@@ -33,6 +33,7 @@ import { FloatingToolbar } from '../../components/FloatingToolbar'
 import { MarkdownEditor } from '../../components/Markdown'
 import { MaterialViewerModal } from '../../components/MaterialViewerModal'
 import { groupAssetExports, usableAssetExports } from '../assets/storage'
+import { normalizeCanvasConnection, normalizeHandleID, repairCanvasEdge } from './canvasConnections'
 
 type FlowNode = Node<CanvasNodeData>
 type FlowEdge = Edge<CanvasEdgeData>
@@ -169,7 +170,10 @@ function CanvasInner({ project, episode, onError }: { project: Project; episode:
       data: refreshAssetNodeData(node.data, assetMap, groups),
     })) as FlowNode[]
     const syncedNodes = syncAdoptedAssets(loadedNodes, adoptedAssets, groups)
-    const loadedEdges = canvasQuery.data.edges.map((edge) => flowEdge(edge.id, edge.source, edge.target, edge.type, edge.data, edge.source_handle, edge.target_handle))
+    const loadedEdges = canvasQuery.data.edges.map((edge) => {
+      const repaired = repairCanvasEdge(edge)
+      return flowEdge(repaired.id, repaired.source, repaired.target, repaired.type, repaired.data, repaired.source_handle, repaired.target_handle)
+    })
     setNodes(syncedNodes)
     setEdges(loadedEdges)
     setAnnotations(canvasQuery.data.annotations ?? [])
@@ -350,7 +354,7 @@ function CanvasInner({ project, episode, onError }: { project: Project; episode:
     const source = nodes.find((node) => node.id === connection.source)
     const target = nodes.find((node) => node.id === connection.target)
     if (!source || !target || source.id === target.id) return
-    const normalized = normalizeConnection(source, target, connection.sourceHandle, connection.targetHandle)
+    const normalized = normalizeCanvasConnection(source, target, connection.sourceHandle, connection.targetHandle)
     const duplicate = edges.some((edge) => edge.data?.relation === normalized.relation && ((edge.source === normalized.source && edge.target === normalized.target) || (edge.source === normalized.target && edge.target === normalized.source)))
     if (duplicate) {
       message.info('这两个节点已经建立了关系')
@@ -806,32 +810,6 @@ function CanvasEdgeModal({ edge, onChange, onClose, onDelete }: {
   </Modal>
 }
 
-function normalizeConnection(sourceNode: FlowNode, targetNode: FlowNode, sourceHandle?: string | null, targetHandle?: string | null) {
-  let source = sourceNode
-  let target = targetNode
-  let normalizedSourceHandle = sourceHandle
-  let normalizedTargetHandle = targetHandle
-  let relation: CanvasEdgeKind = 'relation'
-  if (sourceNode.data.kind === 'note' || targetNode.data.kind === 'note') {
-    relation = 'annotation'
-    if (targetNode.data.kind === 'note' && sourceNode.data.kind !== 'note') {
-      source = targetNode
-      target = sourceNode
-      normalizedSourceHandle = targetHandle
-      normalizedTargetHandle = sourceHandle
-    }
-  } else if ((sourceNode.data.kind === 'asset' && targetNode.data.kind === 'video') || (sourceNode.data.kind === 'video' && targetNode.data.kind === 'asset')) {
-    relation = 'reference'
-    if (sourceNode.data.kind === 'video') {
-      source = targetNode
-      target = sourceNode
-      normalizedSourceHandle = targetHandle
-      normalizedTargetHandle = sourceHandle
-    }
-  }
-  return { source: source.id, target: target.id, sourceHandle: normalizedSourceHandle, targetHandle: normalizedTargetHandle, relation }
-}
-
 function flowEdge(id: string, source: string, target: string, relation: CanvasEdgeKind, data?: CanvasEdgeData, sourceHandle?: string | null, targetHandle?: string | null): FlowEdge {
   return {
     id,
@@ -844,12 +822,6 @@ function flowEdge(id: string, source: string, target: string, relation: CanvasEd
     deletable: true,
     selectable: true,
   }
-}
-
-function normalizeHandleID(handle?: string | null) {
-  if (handle === 'left') return 'left-target'
-  if (handle === 'right') return 'right-source'
-  return handle ?? undefined
 }
 
 function refreshAssetNodeData(data: CanvasNodeData, assets: Map<string, Asset>, groups: AssetGroup[]): CanvasNodeData {
