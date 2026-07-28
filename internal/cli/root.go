@@ -278,10 +278,7 @@ func NewRootCommand(version string) *cobra.Command {
 		fmt.Printf("installed %s\n", unitPath)
 		return nil
 	}}
-	currentUser := "sagaflow"
-	if value, err := user.Current(); err == nil && value.Username != "" && value.Username != "root" {
-		currentUser = value.Username
-	}
+	currentUser := defaultServiceUser(user.Current())
 	install.Flags().StringVar(&serviceUser, "user", currentUser, "Linux user that runs SagaFlow")
 	install.Flags().StringVar(&unitPath, "unit", "/etc/systemd/system/sagaflow.service", "systemd unit path")
 	uninstall := &cobra.Command{Use: "uninstall", Short: "Stop and remove the systemd service", RunE: func(cmd *cobra.Command, _ []string) error {
@@ -344,4 +341,11 @@ func runSystemctl(ctx context.Context, args ...string) error {
 
 func systemdQuote(value string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(value) + `"`
+}
+
+func defaultServiceUser(current *user.User, err error) string {
+	if err == nil && current != nil && strings.TrimSpace(current.Username) != "" {
+		return current.Username
+	}
+	return "sagaflow"
 }
