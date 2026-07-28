@@ -1,5 +1,5 @@
 import { CloudOutlined, DeleteOutlined, EyeOutlined, FileTextOutlined, ReloadOutlined, SaveOutlined, SearchOutlined, SettingOutlined, UserOutlined } from '@ant-design/icons'
-import { Alert, App, Button, Empty, Form, Input, Modal, Pagination, Progress, Select, Spin, Timeline, Typography } from 'antd'
+import { Alert, App, Button, Empty, Form, Input, InputNumber, Modal, Pagination, Progress, Select, Spin, Timeline, Typography } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { api } from '../../api/client'
@@ -42,7 +42,7 @@ export function SettingsPage({ project, onError }: { project?: Project; onError:
     retry: false,
   })
   const update = useMutation({
-    mutationFn: (values: { title: string; description: string }) => api.updateProject(project!.id, values),
+    mutationFn: (values: { title: string; description: string; aspect_ratio?: string; resolution?: string; frame_rate?: number | null }) => api.updateProject(project!.id, values),
     onSuccess: async () => {
       await Promise.all([queryClient.invalidateQueries({ queryKey: ['projects'] }), queryClient.invalidateQueries({ queryKey: ['models'] }), queryClient.invalidateQueries({ queryKey: ['workflows'] })])
       message.success('项目设置已保存')
@@ -60,7 +60,7 @@ export function SettingsPage({ project, onError }: { project?: Project; onError:
   const jobs = useMemo(() => jobsQuery.data?.items ?? [], [jobsQuery.data?.items])
   const totalJobs = jobsQuery.data?.total ?? 0
   const selectedJob = jobs.find((item) => item.id === selectedJobID)
-  useEffect(() => { if (project) form.setFieldsValue({ title: project.title, description: project.description }) }, [form, project])
+  useEffect(() => { if (project) form.setFieldsValue({ title: project.title, description: project.description, aspect_ratio: project.aspect_ratio, resolution: project.resolution, frame_rate: project.frame_rate }) }, [form, project])
   useEffect(() => {
 	if (!project && (section === 'project' || section === 'jobs')) setSection('account')
 	}, [project, section])
@@ -97,6 +97,12 @@ export function SettingsPage({ project, onError }: { project?: Project; onError:
         <Form className="settings-project-form" form={form} layout="vertical" onFinish={(values) => update.mutate(values)} requiredMark={false}>
           <Form.Item label="项目名称" name="title" rules={[{ required: true, whitespace: true, message: '请输入项目名称' }]}><Input maxLength={120}/></Form.Item>
           <Form.Item label="项目说明" name="description"><Input.TextArea autoSize={{ minRows: 5, maxRows: 10 }} maxLength={2000} showCount/></Form.Item>
+          <div className="settings-project-specs">
+            <Form.Item label="画幅" name="aspect_ratio"><Input maxLength={32} placeholder="例如 9:16"/></Form.Item>
+            <Form.Item label="分辨率" name="resolution"><Input maxLength={64} placeholder="例如 1080 × 1920"/></Form.Item>
+            <Form.Item label="帧率" name="frame_rate"><InputNumber max={240} min={1} placeholder="例如 24" precision={3}/></Form.Item>
+          </div>
+          <Typography.Text className="settings-project-spec-note" type="secondary">制作规格只作为项目记录展示，不会自动修改模型参数或最终导出设置。</Typography.Text>
         </Form>
         <div className="settings-project-facts">
           <div><span>项目 ID</span><code>{project.id}</code></div>

@@ -17,16 +17,17 @@ func (s *Store) GetProject(ctx context.Context, id uuid.UUID) (Project, error) {
 	return one[Project](s.pool.Query(ctx, `SELECT * FROM projects WHERE id=$1`, id))
 }
 
-func (s *Store) CreateProject(ctx context.Context, title, description string) (Project, error) {
+func (s *Store) CreateProject(ctx context.Context, title, description, aspectRatio, resolution string, frameRate *float64) (Project, error) {
 	return one[Project](s.pool.Query(ctx, `
-		INSERT INTO projects (id,title,description) VALUES ($1,$2,$3) RETURNING *`,
-		uuid.New(), strings.TrimSpace(title), strings.TrimSpace(description)))
+		INSERT INTO projects (id,title,description,aspect_ratio,resolution,frame_rate) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+		uuid.New(), strings.TrimSpace(title), strings.TrimSpace(description), strings.TrimSpace(aspectRatio), strings.TrimSpace(resolution), frameRate))
 }
 
-func (s *Store) UpdateProject(ctx context.Context, id uuid.UUID, title, description string) (Project, error) {
+func (s *Store) UpdateProject(ctx context.Context, id uuid.UUID, title, description, aspectRatio, resolution string, frameRate *float64) (Project, error) {
 	return one[Project](s.pool.Query(ctx, `
-		UPDATE projects SET title=$2,description=$3,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-		WHERE id=$1 RETURNING *`, id, strings.TrimSpace(title), strings.TrimSpace(description)))
+		UPDATE projects SET title=$2,description=$3,aspect_ratio=$4,resolution=$5,frame_rate=$6,
+		updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=$1 RETURNING *`,
+		id, strings.TrimSpace(title), strings.TrimSpace(description), strings.TrimSpace(aspectRatio), strings.TrimSpace(resolution), frameRate))
 }
 
 func (s *Store) DeleteProject(ctx context.Context, id uuid.UUID) error {

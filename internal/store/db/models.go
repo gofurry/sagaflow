@@ -11,6 +11,9 @@ type Project struct {
 	ID          uuid.UUID `db:"id" json:"id"`
 	Title       string    `db:"title" json:"title"`
 	Description string    `db:"description" json:"description"`
+	AspectRatio string    `db:"aspect_ratio" json:"aspect_ratio"`
+	Resolution  string    `db:"resolution" json:"resolution"`
+	FrameRate   *float64  `db:"frame_rate" json:"frame_rate"`
 	CreatedAt   time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
 }

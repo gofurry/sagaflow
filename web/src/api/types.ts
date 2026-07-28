@@ -18,7 +18,7 @@ export interface AssetRemoteExport {
   created_at: string
   updated_at: string
 }
-export interface Project { id: ID; title: string; description: string; created_at: string; updated_at: string }
+export interface Project { id: ID; title: string; description: string; aspect_ratio: string; resolution: string; frame_rate: number | null; created_at: string; updated_at: string }
 export interface Episode { id: ID; project_id: ID; episode_number: number; title: string; notes: string; target_duration_seconds: number | null; target_shot_count: number | null; created_at: string; updated_at: string }
 export interface EpisodeScript { id: ID; episode_id: ID; version: number; body: string; note: string; status: AssetStatus; created_at: string }
 export type AssetKind = 'character' | 'scene' | 'prop' | 'material'

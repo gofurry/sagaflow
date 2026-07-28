@@ -26,6 +26,9 @@ CREATE TABLE projects (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL CHECK (length(trim(title)) > 0),
   description TEXT NOT NULL DEFAULT '',
+  aspect_ratio TEXT NOT NULL DEFAULT '',
+  resolution TEXT NOT NULL DEFAULT '',
+  frame_rate REAL CHECK (frame_rate IS NULL OR (frame_rate >= 1 AND frame_rate <= 240)),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
