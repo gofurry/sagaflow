@@ -255,6 +255,10 @@ func NewRootCommand(version string) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		workingDirectory, err := filepath.Abs(cfg.App.DataDir)
+		if err != nil {
+			return err
+		}
 		args := systemdQuote(executable) + " serve"
 		if cfgPath != "" {
 			absoluteConfig, err := filepath.Abs(cfgPath)
@@ -264,7 +268,7 @@ func NewRootCommand(version string) *cobra.Command {
 			args += " --config " + systemdQuote(absoluteConfig)
 		}
 		unit := "[Unit]\nDescription=SagaFlow personal workbench\nAfter=network-online.target\nWants=network-online.target\n\n" +
-			"[Service]\nType=simple\nUser=" + serviceUser + "\nWorkingDirectory=" + systemdQuote(cfg.App.DataDir) + "\nExecStart=" + args + "\nRestart=on-failure\nRestartSec=3\nNoNewPrivileges=true\nPrivateTmp=true\n\n" +
+			"[Service]\nType=simple\nUser=" + serviceUser + "\nWorkingDirectory=" + systemdPath(workingDirectory) + "\nExecStart=" + args + "\nRestart=on-failure\nRestartSec=3\nNoNewPrivileges=true\nPrivateTmp=true\n\n" +
 			"[Install]\nWantedBy=multi-user.target\n"
 		if err := os.WriteFile(unitPath, []byte(unit), 0o644); err != nil {
 			return fmt.Errorf("write systemd unit (run as root): %w", err)
@@ -341,6 +345,28 @@ func runSystemctl(ctx context.Context, args ...string) error {
 
 func systemdQuote(value string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(value) + `"`
+}
+
+func systemdPath(value string) string {
+	const hex = "0123456789abcdef"
+	var escaped strings.Builder
+	for i := 0; i < len(value); i++ {
+		character := value[i]
+		if character == '%' {
+			escaped.WriteString("%%")
+			continue
+		}
+		if character == '/' || character == '.' || character == '_' || character == '-' ||
+			character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' {
+			escaped.WriteByte(character)
+			continue
+		}
+		escaped.WriteString(`\x`)
+		escaped.WriteByte(hex[character>>4])
+		escaped.WriteByte(hex[character&0x0f])
+	}
+	return escaped.String()
 }
 
 func defaultServiceUser(current *user.User, err error) string {

@@ -19,3 +19,15 @@ func TestDefaultServiceUserFallsBackWhenLookupFails(t *testing.T) {
 		t.Fatalf("defaultServiceUser() = %q, want sagaflow", got)
 	}
 }
+
+func TestSystemdPathHasNoOuterQuotes(t *testing.T) {
+	if got := systemdPath("/root/sagaflow/data"); got != "/root/sagaflow/data" {
+		t.Fatalf("systemdPath() = %q, want an unquoted absolute path", got)
+	}
+}
+
+func TestSystemdPathEscapesSpecialCharacters(t *testing.T) {
+	if got := systemdPath("/srv/Saga Flow/100%"); got != `/srv/Saga\x20Flow/100%%` {
+		t.Fatalf("systemdPath() = %q, want escaped systemd path", got)
+	}
+}
