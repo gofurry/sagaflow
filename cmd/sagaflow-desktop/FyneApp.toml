@@ -1,0 +1,11 @@
+[Details]
+  Name = "SagaFlow"
+  ID = "io.gofurry.sagaflow"
+  Version = "0.1.0"
+  Build = 1
+  Icon = "../../packaging/icons/linux/hicolor/512x512/apps/sagaflow.png"
+
+[LinuxAndBSD]
+  GenericName = "SagaFlow Desktop"
+  Categories = ["AudioVideo", "Graphics"]
+  Comment = "Local-first AI comic production workbench"

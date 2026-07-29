@@ -20,6 +20,8 @@ type RequestSnapshot struct {
 	TargetKind   TargetKind      `json:"target_kind"`
 	TargetID     string          `json:"target_id"`
 	Capability   Capability      `json:"capability"`
+	Operation    string          `json:"operation,omitempty"`
+	Control      json.RawMessage `json:"control,omitempty"`
 	Prompt       string          `json:"prompt"`
 	Parameters   map[string]any  `json:"parameters"`
 	Inputs       []InputSnapshot `json:"inputs"`
@@ -67,7 +69,7 @@ func SnapshotRequest(request Request) RequestSnapshot {
 	return RequestSnapshot{
 		RequestID: request.ID, ProviderCode: request.Runtime.ProviderCode, AdapterCode: request.Runtime.AdapterCode,
 		Endpoint: sanitizeURL(request.Runtime.Endpoint), TargetKind: request.Target.Kind, TargetID: request.Target.ID,
-		Capability: request.Target.Capability, Prompt: request.Prompt,
+		Capability: request.Target.Capability, Operation: request.Operation, Control: append(json.RawMessage(nil), request.Control...), Prompt: request.Prompt,
 		Parameters: sanitizeMap(request.Parameters), Inputs: inputs,
 	}
 }

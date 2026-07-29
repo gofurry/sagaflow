@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const manifestVersion = 5
+const manifestVersion = 6
 
 func Builtins() []Definition {
 	embedded, err := embeddedDefinitions()
@@ -33,10 +33,10 @@ func compiledBuiltins() []Definition {
 			[]string{"text"}, []string{"reasoning", "chat", "fast"}, openAITextSchema(204800), values("max_tokens", 4096, "temperature", 1),
 			"https://platform.minimaxi.com/docs/api-reference/text-openai-api"),
 		model("20000000-0000-0000-0000-000000000004", "minimax", "speech-2.8-hd", "MiniMax Speech 2.8 HD", "audio",
-			[]string{"text"}, []string{"speech_generation", "voice_clone"}, miniMaxSpeechSchema(), miniMaxSpeechDefaults(),
+			[]string{"text"}, []string{"speech_generation", "voice_clone", "voice_design"}, miniMaxSpeechSchema(), miniMaxSpeechDefaults(),
 			"https://platform.minimaxi.com/docs/api-reference/api-overview"),
 		model("20000000-0000-0000-0000-000000000009", "minimax", "speech-2.8-turbo", "MiniMax Speech 2.8 Turbo", "audio",
-			[]string{"text"}, []string{"speech_generation", "voice_clone", "fast"}, miniMaxSpeechSchema(), miniMaxSpeechDefaults(),
+			[]string{"text"}, []string{"speech_generation", "voice_clone", "voice_design", "fast"}, miniMaxSpeechSchema(), miniMaxSpeechDefaults(),
 			"https://platform.minimaxi.com/docs/api-reference/api-overview"),
 		model("20000000-0000-0000-0000-000000000010", "minimax", "image-01", "MiniMax Image 01", "image",
 			[]string{"text", "image"}, []string{"image_generation", "character_reference"}, miniMaxImageSchema(false), values("aspect_ratio", "16:9", "response_format", "url", "n", 1),
@@ -45,7 +45,7 @@ func compiledBuiltins() []Definition {
 			[]string{"text", "image"}, []string{"image_generation", "character_reference", "illustration_styles"}, miniMaxImageSchema(true), values("aspect_ratio", "16:9", "response_format", "url", "n", 1),
 			"https://platform.minimaxi.com/docs/guides/image-generation"),
 		model("20000000-0000-0000-0000-000000000012", "minimax", "MiniMax-Hailuo-2.3", "MiniMax Hailuo 2.3", "video",
-			[]string{"text", "image"}, []string{"video_generation", "first_last_frame", "subject_reference"}, miniMaxVideoSchema(), values("duration", 6, "resolution", "1080P", "reference_mode", "first_frame"),
+			[]string{"text", "image"}, []string{"video_generation", "text_to_video", "image_to_video", "first_last_frame", "subject_reference"}, miniMaxVideoSchema(), values("duration", 6, "resolution", "1080P", "reference_mode", "first_frame"),
 			"https://platform.minimaxi.com/docs/guides/video-generation"),
 		model("20000000-0000-0000-0000-000000000013", "minimax", "MiniMax-Hailuo-2.3-Fast", "MiniMax Hailuo 2.3 Fast", "video",
 			[]string{"text", "image"}, []string{"video_generation", "image_to_video", "fast"}, miniMaxVideoSchema(), values("duration", 6, "resolution", "768P", "reference_mode", "first_frame"),
@@ -103,8 +103,11 @@ func compiledBuiltins() []Definition {
 		model("20000000-0000-0000-0000-000000000020", "aliyun_bailian", "wan2.7-image", "Wan 2.7 Image", "image",
 			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "fast"}, bailianImageSchema(), values("size", "2K", "n", 1, "watermark", false, "thinking_mode", true),
 			"https://help.aliyun.com/zh/model-studio/wan-image-generation-api-reference"),
+		model("20000000-0000-0000-0000-000000000036", "aliyun_bailian", "wanx2.1-imageedit", "Wan 2.1 精确图像编辑", "image",
+			[]string{"text", "image"}, []string{"image_edit", "outpaint", "inpaint", "mask_input", "local_reference"}, bailianImageEditSchema(), values("n", 1, "watermark", false),
+			"https://help.aliyun.com/zh/model-studio/wanx-image-edit-api-reference"),
 		model("20000000-0000-0000-0000-000000000021", "aliyun_bailian", "qwen-audio-3.0-tts-plus", "Qwen Audio 3.0 TTS Plus", "audio",
-			[]string{"text"}, []string{"speech_generation", "instruction_control", "multilingual"}, bailianSpeechSchema(), bailianSpeechDefaults("longanlingxin"),
+			[]string{"text"}, []string{"speech_generation", "voice_clone", "instruction_control", "multilingual"}, bailianSpeechSchema(), bailianSpeechDefaults("longanlingxin"),
 			"https://help.aliyun.com/zh/model-studio/qwen-tts-api"),
 		model("20000000-0000-0000-0000-000000000022", "aliyun_bailian", "cosyvoice-v3.5-plus", "CosyVoice 3.5 Plus", "audio",
 			[]string{"text"}, []string{"speech_generation", "voice_clone", "voice_design", "instruction_control", "multilingual"}, bailianSpeechSchema(), bailianSpeechDefaults(""),

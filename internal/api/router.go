@@ -1,16 +1,34 @@
 package api
 
 import (
+	"crypto/subtle"
+	"net"
+	"time"
+
 	fiberzap "github.com/gofiber/contrib/v3/zap"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/gofiber/fiber/v3/middleware/requestid"
+	"github.com/gofurry/sagaflow/internal/runtimecontract"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 func (s *Server) RegisterRoutes(app *fiber.App) {
-	app.Use(recover.New(), requestid.New(), fiberzap.New(fiberzap.Config{Logger: s.log, FieldsFunc: func(c fiber.Ctx) []zap.Field { return []zap.Field{zap.String("request_id", c.RequestID())} }}))
+	app.Use(recover.New(), requestid.New(), fiberzap.New(fiberzap.Config{
+		Logger: s.log,
+		FieldsFunc: func(c fiber.Ctx) []zap.Field {
+			return []zap.Field{zap.String("request_id", c.RequestID())}
+		},
+		// Successful polling and health requests are useful while debugging but
+		// should not grow production logs indefinitely.
+		Levels: []zapcore.Level{zapcore.ErrorLevel, zapcore.WarnLevel, zapcore.DebugLevel},
+	}))
+	app.Use(limitNonMultipartBody(4 << 20))
 	app.Get("/health", s.health)
+	if s.desktopControlToken != "" && s.shutdown != nil {
+		app.Post("/_desktop/shutdown", s.desktopShutdown)
+	}
 	api := app.Group("/api")
 	auth := api.Group("/auth")
 	auth.Get("/status", s.authStatus)
@@ -43,8 +61,14 @@ func (s *Server) RegisterRoutes(app *fiber.App) {
 	p.Post("/projects/:id/asset-groups", s.createAssetGroup)
 	p.Patch("/asset-groups/:id", s.updateAssetGroup)
 	p.Delete("/asset-groups/:id", s.deleteAssetGroup)
+	p.Get("/projects/:id/assets/page", s.listAssetsPage)
+	p.Get("/projects/:id/assets/summary", s.assetSummary)
+	p.Get("/projects/:id/assets/by-ids", s.listAssetsByIDs)
 	p.Get("/projects/:id/assets", s.listAssets)
 	p.Get("/media-tools/status", s.mediaToolsStatus)
+	p.Post("/media-tools/install", s.installMediaTools)
+	p.Post("/media-tools/install/cancel", s.cancelMediaToolsInstall)
+	p.Post("/media-tools/refresh", s.refreshMediaTools)
 	p.Get("/projects/:id/media-jobs", s.listMediaJobs)
 	p.Post("/projects/:id/media-jobs", s.createMediaJob)
 	p.Delete("/projects/:id/media-jobs/completed", s.clearCompletedMediaJobs)
@@ -53,7 +77,7 @@ func (s *Server) RegisterRoutes(app *fiber.App) {
 	p.Get("/assets/:id/media-info", s.getAssetMediaInfo)
 	p.Get("/projects/:id/asset-exports", s.listProjectAssetExports)
 	p.Get("/asset-groups/:id/assets", s.listGroupAssets)
-	p.Post("/asset-groups/:id/assets/upload", s.uploadAsset)
+	p.Post("/asset-groups/:id/assets/upload", s.withUploadSlot(s.uploadAsset))
 	p.Get("/assets/:id/file", s.getAssetFile)
 	p.Patch("/assets/:id", s.updateAsset)
 	p.Post("/assets/:id/adopt", s.adoptAsset)
@@ -78,6 +102,7 @@ func (s *Server) RegisterRoutes(app *fiber.App) {
 	p.Get("/model-catalog/update", s.modelCatalogUpdateStatus)
 	p.Post("/model-catalog/update", s.importModelCatalog)
 	p.Patch("/model-catalog/:id", s.updateModel)
+	p.Delete("/model-catalog/:id", s.deleteModel)
 	p.Get("/model-presets", s.listModelPresets)
 	p.Post("/model-presets", s.createModelPreset)
 	p.Patch("/model-presets/:id", s.updateModelPreset)
@@ -89,12 +114,15 @@ func (s *Server) RegisterRoutes(app *fiber.App) {
 	p.Delete("/workflow-templates/:id", s.deleteWorkflowTemplate)
 	p.Get("/workflow-compatibilities", s.listWorkflowCompatibilities)
 	p.Post("/workflow-templates/:id/check", s.checkWorkflowCompatibility)
+	p.Get("/voice-capabilities", s.listVoiceCapabilities)
 	p.Get("/voice-profiles", s.listVoiceProfiles)
-	p.Post("/voice-profiles", s.createVoiceProfile)
+	p.Post("/voice-profiles", s.withUploadSlot(s.createVoiceProfile))
 	p.Get("/voice-profiles/:id/source", s.getVoiceProfileSource)
-	p.Get("/voice-profiles/:id/preview", s.getVoiceProfilePreview)
+	p.Post("/voice-profiles/:id/bindings", s.createVoiceBinding)
 	p.Patch("/voice-profiles/:id", s.updateVoiceProfile)
 	p.Delete("/voice-profiles/:id", s.deleteVoiceProfile)
+	p.Get("/voice-bindings/:id/preview", s.getVoiceBindingPreview)
+	p.Delete("/voice-bindings/:id", s.deleteVoiceBinding)
 	p.Get("/prompt-presets", s.listPromptPresets)
 	p.Post("/prompt-presets", s.createPromptPreset)
 	p.Patch("/prompt-presets/:id", s.updatePromptPreset)
@@ -109,17 +137,34 @@ func (s *Server) RegisterRoutes(app *fiber.App) {
 	p.Get("/generation-jobs", s.listGenerationJobs)
 	p.Get("/generation-jobs/:id/invocation", s.getGenerationInvocation)
 	p.Get("/generation-jobs/:id", s.getGenerationJob)
-	p.Post("/projects/:id/generation-reference-uploads", s.uploadGenerationReference)
+	p.Post("/projects/:id/generation-reference-uploads", s.withUploadSlot(s.uploadGenerationReference))
+	p.Post("/projects/:id/generation-reference-urls", s.withUploadSlot(s.importGenerationReferenceURL))
 	p.Get("/generation-reference-uploads/:id/file", s.getGenerationReferenceFile)
 	p.Delete("/generation-reference-uploads/:id", s.deleteGenerationReference)
 	p.Get("/projects/:id/staged-assets", s.listStagedAssets)
 	p.Get("/projects/:id/staged-assets/summary", s.stagedAssetSummary)
-	p.Post("/projects/:id/staged-assets/upload", s.uploadStagedAsset)
+	p.Post("/projects/:id/staged-assets/upload", s.withUploadSlot(s.uploadStagedAsset))
 	p.Get("/staged-assets/:id/file", s.getStagedAssetFile)
 	p.Patch("/staged-assets/:id", s.updateStagedAsset)
 	p.Post("/staged-assets/:id/import", s.importStagedAsset)
 	p.Delete("/staged-assets/:id", s.deleteStagedAsset)
 }
 func (s *Server) health(c fiber.Ctx) error {
-	return writeOK(c, fiber.Map{"status": "ok", "version": s.cfg.App.Version})
+	return writeOK(c, fiber.Map{
+		"status": "ok", "version": s.cfg.App.Version, "api_version": runtimecontract.APIVersion,
+		"data_schema_version": runtimecontract.DataSchemaVersion,
+	})
+}
+
+func (s *Server) desktopShutdown(c fiber.Ctx) error {
+	ip := net.ParseIP(c.IP())
+	if ip == nil || !ip.IsLoopback() {
+		return fiber.ErrForbidden
+	}
+	provided := c.Get(runtimecontract.DesktopTokenHeader)
+	if subtle.ConstantTimeCompare([]byte(provided), []byte(s.desktopControlToken)) != 1 {
+		return fiber.ErrUnauthorized
+	}
+	time.AfterFunc(100*time.Millisecond, s.shutdown)
+	return c.SendStatus(fiber.StatusAccepted)
 }

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -24,7 +25,9 @@ import (
 	"github.com/gofurry/sagaflow/internal/modelcatalog"
 	"github.com/gofurry/sagaflow/internal/platform/sqlite"
 	"github.com/gofurry/sagaflow/internal/platform/storage"
+	"github.com/gofurry/sagaflow/internal/promptcatalog"
 	"github.com/gofurry/sagaflow/internal/queue"
+	"github.com/gofurry/sagaflow/internal/runtimecontract"
 	"github.com/gofurry/sagaflow/internal/service"
 	"github.com/gofurry/sagaflow/internal/store/db"
 	"github.com/gofurry/sagaflow/internal/webui"
@@ -32,23 +35,32 @@ import (
 )
 
 func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
+	return RunWithOptions(ctx, cfg, log, RunOptions{})
+}
+
+func RunWithOptions(ctx context.Context, cfg config.Config, log *zap.Logger, options RunOptions) error {
+	runCtx, stop := context.WithCancel(ctx)
+	defer stop()
 	if err := cfg.EnsureRuntimeDirs(); err != nil {
 		return err
 	}
-	database, err := sqlite.Open(ctx, cfg.DatabasePath())
+	database, err := sqlite.Open(runCtx, cfg.DatabasePath())
 	if err != nil {
 		return err
 	}
 	defer database.Close()
 	store := db.New(database)
-	if _, err := modelcatalog.SyncFromPath(ctx, store, cfg.ModelCatalogPath()); err != nil {
+	if _, err := modelcatalog.SyncFromPath(runCtx, store, cfg.ModelCatalogPath()); err != nil {
 		return fmt.Errorf("synchronize built-in model catalog: %w", err)
+	}
+	if err := promptcatalog.Sync(runCtx, store); err != nil {
+		return fmt.Errorf("synchronize built-in prompt catalog: %w", err)
 	}
 	auth, err := service.NewAuthService(store, cfg.Auth)
 	if err != nil {
 		return err
 	}
-	initialized, err := auth.Initialized(ctx)
+	initialized, err := auth.Initialized(runCtx)
 	if err != nil {
 		return err
 	}
@@ -95,13 +107,13 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		return err
 	}
 	jobs := queue.NewClient(store, cfg.Jobs, generation.Execute, log.Named("jobs"))
-	if err := jobs.Run(ctx); err != nil {
+	if err := jobs.Run(runCtx); err != nil {
 		return err
 	}
 	defer jobs.Close()
-	mediaTools := service.NewMediaToolsService(store, objectStore, mediaffmpeg.Discover(), cfg.TempDir(), log.Named("media-tools"))
+	mediaTools := service.NewMediaToolsService(store, objectStore, mediaffmpeg.Discover(cfg.FFmpegDir()), cfg.TempDir(), log.Named("media-tools"))
 	mediaJobs := queue.NewMediaClient(store, cfg.Jobs, mediaTools.Execute, log.Named("media-jobs"))
-	if err := mediaJobs.Run(ctx); err != nil {
+	if err := mediaJobs.Run(runCtx); err != nil {
 		return err
 	}
 	defer mediaJobs.Close()
@@ -117,16 +129,26 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	server := api.New(api.Dependencies{
 		Config: cfg, Logger: log, Store: store, Queue: jobs, MediaQueue: mediaJobs, Storage: objectStore, Auth: auth,
 		Credentials: credentials, Voices: voices, ModelConnections: modelConnections, Workflows: workflows, StorageService: storageService,
-		MediaTools: mediaTools,
+		MediaTools: mediaTools, DesktopControlToken: options.DesktopControlToken, Shutdown: stop,
 	})
 	webui.Mount(server)
+	listener, err := net.Listen("tcp", cfg.Address())
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", cfg.Address(), err)
+	}
+	runtimeInfo := runtimecontract.NewInfo(cfg)
+	if err := writeRuntimeFile(options.RuntimeFile, runtimeInfo); err != nil {
+		_ = listener.Close()
+		return err
+	}
+	defer removeRuntimeFile(options.RuntimeFile, runtimeInfo.PID)
 	errCh := make(chan error, 1)
 	go func() {
 		log.Info("starting SagaFlow", zap.String("addr", cfg.Address()), zap.String("data_dir", cfg.App.DataDir))
-		errCh <- server.Listen(cfg.Address())
+		errCh <- server.Listener(listener)
 	}()
 	select {
-	case <-ctx.Done():
+	case <-runCtx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return server.ShutdownWithContext(shutdownCtx)

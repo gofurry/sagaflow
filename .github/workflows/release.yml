@@ -1,0 +1,180 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  core:
+    name: Package core ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Build core package
+        shell: pwsh
+        run: >-
+          ./.github/workflows/scripts/build.ps1
+          -TargetOS "${{ matrix.goos }}"
+          -TargetArch "${{ matrix.goarch }}"
+          -Version "${{ github.ref_name }}"
+          -OutputDirectory "dist"
+      - name: Archive core package
+        shell: pwsh
+        run: >-
+          ./.github/workflows/scripts/archive-package.ps1
+          -PackageDirectory "dist/sagaflow-core-${{ matrix.goos }}-${{ matrix.goarch }}"
+          -TargetOS "${{ matrix.goos }}"
+          -OutputDirectory "release-assets"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-core-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: release-assets/*
+          if-no-files-found: error
+
+  desktop:
+    name: Package desktop ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            goos: windows
+            goarch: amd64
+          - runner: windows-11-arm
+            goos: windows
+            goarch: arm64
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - runner: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+          - runner: macos-15-intel
+            goos: darwin
+            goarch: amd64
+          - runner: macos-latest
+            goos: darwin
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            cmd/sagaflow-desktop/go.sum
+      - name: Install Linux desktop build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev
+      - name: Install Windows ARM64 CGO toolchain
+        if: matrix.goos == 'windows' && matrix.goarch == 'arm64'
+        shell: pwsh
+        run: ./.github/workflows/scripts/setup-windows-arm64-cgo.ps1
+      - name: Build desktop package
+        shell: pwsh
+        run: >-
+          ./.github/workflows/scripts/build-desktop.ps1
+          -TargetOS "${{ matrix.goos }}"
+          -TargetArch "${{ matrix.goarch }}"
+          -Version "${{ github.ref_name }}"
+          -OutputDirectory "dist"
+      - name: Archive desktop package
+        shell: pwsh
+        run: >-
+          ./.github/workflows/scripts/archive-package.ps1
+          -PackageDirectory "dist/sagaflow-desktop-${{ matrix.goos }}-${{ matrix.goarch }}"
+          -TargetOS "${{ matrix.goos }}"
+          -OutputDirectory "release-assets"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-desktop-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: release-assets/*
+          if-no-files-found: error
+
+  docker:
+    name: Publish multi-architecture core container
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Prepare image name
+        id: image
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Sign in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: VERSION=${{ github.ref_name }}
+          platforms: linux/amd64,linux/arm64
+          provenance: false
+          push: true
+          tags: ${{ steps.image.outputs.name }}:${{ github.ref_name }}
+
+  publish:
+    name: Publish GitHub Release
+    needs:
+      - core
+      - desktop
+      - docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Add model catalog update asset
+        run: cp internal/modelcatalog/model-catalog.json release-assets/model-catalog.json
+      - name: Generate checksums
+        working-directory: release-assets
+        run: sha256sum * > SHA256SUMS
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          release-assets/*
+          --repo "$GITHUB_REPOSITORY"
+          --verify-tag
+          --title "$GITHUB_REF_NAME"
+          --notes ""

@@ -39,9 +39,19 @@ func (s *Store) GetMediaJob(ctx context.Context, id uuid.UUID) (MediaJob, error)
 	return one[MediaJob](s.pool.Query(ctx, `SELECT * FROM media_jobs WHERE id=$1`, id))
 }
 
-func (s *Store) ListMediaJobs(ctx context.Context, projectID uuid.UUID) ([]MediaJob, error) {
-	return collectRows[MediaJob](s.pool.Query(ctx, `
-		SELECT * FROM media_jobs WHERE project_id=$1 ORDER BY created_at DESC LIMIT 100`, projectID))
+func (s *Store) ListMediaJobs(ctx context.Context, projectID uuid.UUID, page, pageSize int) (MediaJobPage, error) {
+	page, pageSize = normalizePage(page, pageSize, 50, 100)
+	var total int64
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM media_jobs WHERE project_id=$1`, projectID).Scan(&total); err != nil {
+		return MediaJobPage{}, err
+	}
+	items, err := collectRows[MediaJob](s.pool.Query(ctx, `
+		SELECT * FROM media_jobs WHERE project_id=$1 ORDER BY created_at DESC,id DESC LIMIT $2 OFFSET $3`,
+		projectID, pageSize, (page-1)*pageSize))
+	if err != nil {
+		return MediaJobPage{}, err
+	}
+	return MediaJobPage{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
 }
 
 func (s *Store) ClaimNextMediaJob(ctx context.Context, lease time.Duration) (MediaJob, error) {

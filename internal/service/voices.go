@@ -11,9 +11,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gofurry/sagaflow/internal/platform/storage"
 	"github.com/gofurry/sagaflow/internal/store/db"
@@ -29,298 +27,13 @@ type VoiceService struct {
 	storage     *storage.Manager
 	httpClient  *http.Client
 	log         *zap.Logger
+	adapters    map[string]voiceAdapter
 }
 
 type VoiceFile struct {
 	Name     string
 	MIMEType string
 	Data     []byte
-}
-
-type CreateVoiceProfileInput struct {
-	ModelID                 uuid.UUID
-	Name                    string
-	Description             string
-	VoiceID                 string
-	Source                  VoiceFile
-	Prompt                  *VoiceFile
-	PromptText              string
-	PreviewText             string
-	NeedNoiseReduction      bool
-	NeedVolumeNormalization bool
-}
-
-func NewVoiceService(store *db.Store, credentials *CredentialService, objectStore *storage.Manager, log *zap.Logger) *VoiceService {
-	if log == nil {
-		log = zap.NewNop()
-	}
-	return &VoiceService{
-		store: store, credentials: credentials, storage: objectStore,
-		httpClient: &http.Client{Timeout: 5 * time.Minute}, log: log,
-	}
-}
-
-func (s *VoiceService) Create(ctx context.Context, input CreateVoiceProfileInput) (db.VoiceProfile, error) {
-	if input.ModelID == uuid.Nil {
-		return db.VoiceProfile{}, fmt.Errorf("%w: model_id is required", ErrInvalidInput)
-	}
-	if strings.TrimSpace(input.Name) == "" || !voiceIDPattern.MatchString(strings.TrimSpace(input.VoiceID)) {
-		return db.VoiceProfile{}, fmt.Errorf("%w: name and a valid 8-256 character voice_id are required", ErrInvalidInput)
-	}
-	if len(input.Source.Data) == 0 || len(input.Source.Data) > 20<<20 {
-		return db.VoiceProfile{}, fmt.Errorf("%w: clone audio is required and must not exceed 20 MB", ErrInvalidInput)
-	}
-	if !supportedCloneAudio(input.Source.MIMEType, input.Source.Name) {
-		return db.VoiceProfile{}, fmt.Errorf("%w: clone audio must be mp3, m4a or wav", ErrInvalidInput)
-	}
-	if input.Prompt != nil {
-		if len(input.Prompt.Data) == 0 || len(input.Prompt.Data) > 20<<20 || !supportedCloneAudio(input.Prompt.MIMEType, input.Prompt.Name) {
-			return db.VoiceProfile{}, fmt.Errorf("%w: prompt audio must be mp3, m4a or wav and not exceed 20 MB", ErrInvalidInput)
-		}
-		if strings.TrimSpace(input.PromptText) == "" {
-			return db.VoiceProfile{}, fmt.Errorf("%w: prompt_text is required with prompt audio", ErrInvalidInput)
-		}
-	}
-	if strings.TrimSpace(input.PreviewText) == "" {
-		input.PreviewText = "这是音色创建后的正式试听，用于确认声音效果。"
-	}
-	model, err := s.store.GetModel(ctx, input.ModelID)
-	if err != nil {
-		return db.VoiceProfile{}, mapStoreError(err)
-	}
-	if model.Capability != "audio" || (model.ProviderCode != ProviderMiniMax && model.ProviderCode != ProviderSiliconFlow && model.ProviderCode != ProviderZhipu) {
-		return db.VoiceProfile{}, fmt.Errorf("%w: voice cloning requires a supported audio model", ErrInvalidInput)
-	}
-	provider, err := s.store.GetModelProvider(ctx, model.ProviderID)
-	if err != nil {
-		return db.VoiceProfile{}, mapStoreError(err)
-	}
-	secret, err := s.credentials.SecretForProvider(ctx, provider)
-	if err != nil {
-		return db.VoiceProfile{}, err
-	}
-	baseURL := strings.TrimRight(secret.BaseURL, "/")
-	var (
-		remoteVoiceID    string
-		providerFileID   string
-		providerPromptID string
-		previewData      []byte
-		previewName      = "preview.mp3"
-		previewMIMEType  = "audio/mpeg"
-		previewMetadata  json.RawMessage
-		providerMetadata json.RawMessage
-		cleanupRemote    func()
-	)
-	defer func() {
-		if cleanupRemote != nil {
-			cleanupRemote()
-		}
-	}()
-	var promptFileID int64
-	switch model.ProviderCode {
-	case ProviderMiniMax:
-		sourceFileID, uploadErr := s.uploadProviderFile(ctx, baseURL, secret.APIKey, "voice_clone", input.Source)
-		if uploadErr != nil {
-			return db.VoiceProfile{}, uploadErr
-		}
-		providerFileID = strconv.FormatInt(sourceFileID, 10)
-		defer s.deleteProviderFile(context.Background(), baseURL, secret.APIKey, "voice_clone", sourceFileID)
-		if input.Prompt != nil {
-			promptFileID, err = s.uploadProviderFile(ctx, baseURL, secret.APIKey, "prompt_audio", *input.Prompt)
-			if err != nil {
-				return db.VoiceProfile{}, err
-			}
-			providerPromptID = optionalIntString(promptFileID)
-			defer s.deleteProviderFile(context.Background(), baseURL, secret.APIKey, "prompt_audio", promptFileID)
-		}
-		clonePayload := map[string]any{
-			"file_id": sourceFileID, "voice_id": strings.TrimSpace(input.VoiceID), "model": model.ModelID,
-			"need_noise_reduction":      input.NeedNoiseReduction,
-			"need_volume_normalization": input.NeedVolumeNormalization,
-			"aigc_watermark":            false,
-		}
-		if promptFileID != 0 {
-			clonePayload["clone_prompt"] = map[string]any{"prompt_audio": promptFileID, "prompt_text": strings.TrimSpace(input.PromptText)}
-		}
-		var cloneResponse struct {
-			InputSensitive     bool                `json:"input_sensitive"`
-			InputSensitiveType int                 `json:"input_sensitive_type"`
-			BaseResp           miniMaxBaseResponse `json:"base_resp"`
-		}
-		rawClone, cloneErr := s.doJSON(ctx, http.MethodPost, baseURL+"/v1/voice_clone", secret.APIKey, clonePayload, &cloneResponse)
-		if cloneErr != nil {
-			return db.VoiceProfile{}, cloneErr
-		}
-		if cloneResponse.BaseResp.StatusCode != 0 {
-			return db.VoiceProfile{}, fmt.Errorf("%w: %s", ErrProviderRequest, cloneResponse.BaseResp.StatusMsg)
-		}
-		remoteVoiceID = strings.TrimSpace(input.VoiceID)
-		providerMetadata = jsonSummary(rawClone)
-		previewData, previewMetadata, err = s.activateVoice(ctx, baseURL, secret.APIKey, model.ModelID, remoteVoiceID, input.PreviewText)
-		if err != nil {
-			return db.VoiceProfile{}, fmt.Errorf("activate cloned voice: %w", err)
-		}
-	case ProviderSiliconFlow:
-		if input.Prompt != nil {
-			return db.VoiceProfile{}, fmt.Errorf("%w: SiliconFlow uses the clone source directly and does not accept a separate prompt audio", ErrInvalidInput)
-		}
-		if strings.TrimSpace(input.PromptText) == "" {
-			return db.VoiceProfile{}, fmt.Errorf("%w: prompt_text must match the SiliconFlow reference audio", ErrInvalidInput)
-		}
-		remoteVoiceID, providerMetadata, err = s.uploadSiliconFlowVoice(ctx, baseURL, secret.APIKey, model.ModelID, strings.TrimSpace(input.VoiceID), strings.TrimSpace(input.PromptText), input.Source)
-		if err != nil {
-			return db.VoiceProfile{}, err
-		}
-		providerFileID = remoteVoiceID
-		cleanupRemote = func() {
-			if deleteErr := s.deleteSiliconFlowVoice(context.Background(), baseURL, secret.APIKey, remoteVoiceID); deleteErr != nil {
-				s.log.Warn("delete orphaned SiliconFlow voice", zap.String("voice_id", remoteVoiceID), zap.Error(deleteErr))
-			}
-		}
-		previewData, previewMetadata, err = s.previewSiliconFlowVoice(ctx, baseURL, secret.APIKey, model.ModelID, remoteVoiceID, input.PreviewText)
-		if err != nil {
-			return db.VoiceProfile{}, fmt.Errorf("activate cloned voice: %w", err)
-		}
-	case ProviderZhipu:
-		if input.Prompt != nil {
-			return db.VoiceProfile{}, fmt.Errorf("%w: Zhipu uses the clone source directly and does not accept a separate prompt audio", ErrInvalidInput)
-		}
-		if len(input.Source.Data) > 10<<20 || !supportedZhipuCloneAudio(input.Source.MIMEType, input.Source.Name) {
-			return db.VoiceProfile{}, fmt.Errorf("%w: Zhipu clone audio must be mp3 or wav and not exceed 10 MB", ErrInvalidInput)
-		}
-		sourceFileID, uploadErr := s.uploadZhipuVoiceFile(ctx, baseURL, secret.APIKey, input.Source)
-		if uploadErr != nil {
-			return db.VoiceProfile{}, uploadErr
-		}
-		providerFileID = sourceFileID
-		defer s.deleteZhipuFile(context.Background(), baseURL, secret.APIKey, sourceFileID)
-		remoteVoiceID, providerPromptID, providerMetadata, err = s.cloneZhipuVoice(
-			ctx, baseURL, secret.APIKey, strings.TrimSpace(input.VoiceID),
-			strings.TrimSpace(input.PromptText), input.PreviewText, sourceFileID,
-		)
-		if err != nil {
-			return db.VoiceProfile{}, err
-		}
-		cleanupRemote = func() {
-			if deleteErr := s.deleteZhipuVoice(context.Background(), baseURL, secret.APIKey, remoteVoiceID); deleteErr != nil {
-				s.log.Warn("delete orphaned Zhipu voice", zap.String("voice_id", remoteVoiceID), zap.Error(deleteErr))
-			}
-		}
-		previewData, previewMetadata, err = s.previewZhipuVoice(ctx, baseURL, secret.APIKey, remoteVoiceID, input.PreviewText)
-		if err != nil {
-			return db.VoiceProfile{}, fmt.Errorf("activate cloned voice: %w", err)
-		}
-		previewName = "preview.wav"
-		previewMIMEType = "audio/wav"
-	}
-	profileID := uuid.New()
-	sourceObject, err := s.storage.UploadManaged(ctx, storage.ManagedUploadInput{Purpose: "voices/source", OriginalName: input.Source.Name, UploadInput: storage.UploadInput{Data: input.Source.Data, ContentType: input.Source.MIMEType}})
-	if err != nil {
-		return db.VoiceProfile{}, err
-	}
-	var promptObject *storage.ManagedObject
-	if input.Prompt != nil {
-		created, uploadErr := s.storage.UploadManaged(ctx, storage.ManagedUploadInput{Purpose: "voices/prompt", OriginalName: input.Prompt.Name, UploadInput: storage.UploadInput{Data: input.Prompt.Data, ContentType: input.Prompt.MIMEType}})
-		err = uploadErr
-		promptObject = &created
-		if err != nil {
-			_ = s.storage.DeleteManaged(ctx, sourceObject.Record.ID)
-			return db.VoiceProfile{}, err
-		}
-	}
-	previewObject, err := s.storage.UploadManaged(ctx, storage.ManagedUploadInput{Purpose: "voices/preview", OriginalName: previewName, UploadInput: storage.UploadInput{Data: previewData, ContentType: previewMIMEType}})
-	if err != nil {
-		_ = s.storage.DeleteManaged(ctx, sourceObject.Record.ID)
-		if promptObject != nil {
-			_ = s.storage.DeleteManaged(ctx, promptObject.Record.ID)
-		}
-		return db.VoiceProfile{}, err
-	}
-	now := time.Now()
-	profile := db.VoiceProfile{
-		ID: profileID, ProviderID: model.ProviderID, ModelID: model.ID,
-		Name: input.Name, Description: input.Description, VoiceID: remoteVoiceID, Status: "ready",
-		SourceName: input.Source.Name, SourceMimeType: input.Source.MIMEType, SourceFileSizeBytes: int64(len(input.Source.Data)),
-		SourceObjectID:  sourceObject.Record.ID,
-		PromptText:      strings.TrimSpace(input.PromptText),
-		PreviewMimeType: previewMIMEType, PreviewFileSizeBytes: int64(len(previewData)),
-		PreviewObjectID: previewObject.Record.ID,
-		ProviderFileID:  providerFileID, ProviderPromptFileID: providerPromptID,
-		ActivatedAt: &now, Metadata: db.JSON(map[string]any{
-			"clone_response": providerMetadata,
-			"preview":        previewMetadata,
-			"preview_text":   input.PreviewText,
-			"custom_name":    strings.TrimSpace(input.VoiceID),
-		}),
-	}
-	if promptObject != nil {
-		profile.PromptObjectID = &promptObject.Record.ID
-	}
-	created, err := s.store.CreateVoiceProfile(ctx, profile)
-	if err != nil {
-		_ = s.storage.DeleteManaged(ctx, sourceObject.Record.ID)
-		if promptObject != nil {
-			_ = s.storage.DeleteManaged(ctx, promptObject.Record.ID)
-		}
-		_ = s.storage.DeleteManaged(ctx, previewObject.Record.ID)
-		return db.VoiceProfile{}, err
-	}
-	cleanupRemote = nil
-	return created, nil
-}
-
-func (s *VoiceService) Delete(ctx context.Context, id uuid.UUID) error {
-	profile, err := s.store.GetVoiceProfile(ctx, id)
-	if err != nil {
-		return mapStoreError(err)
-	}
-	provider, err := s.store.GetModelProvider(ctx, profile.ProviderID)
-	if err != nil {
-		return mapStoreError(err)
-	}
-	secret, err := s.credentials.SecretForProvider(ctx, provider)
-	if err != nil {
-		return err
-	}
-	baseURL := strings.TrimRight(secret.BaseURL, "/")
-	switch provider.AdapterCode {
-	case ProviderMiniMax:
-		var response struct {
-			BaseResp miniMaxBaseResponse `json:"base_resp"`
-		}
-		if _, err := s.doJSON(ctx, http.MethodPost, baseURL+"/v1/delete_voice", secret.APIKey, map[string]any{
-			"voice_type": "voice_cloning", "voice_id": profile.VoiceID,
-		}, &response); err != nil {
-			return err
-		}
-		if response.BaseResp.StatusCode != 0 {
-			return fmt.Errorf("%w: %s", ErrProviderRequest, response.BaseResp.StatusMsg)
-		}
-	case ProviderSiliconFlow:
-		if err := s.deleteSiliconFlowVoice(ctx, baseURL, secret.APIKey, profile.VoiceID); err != nil {
-			return err
-		}
-	case ProviderZhipu:
-		if err := s.deleteZhipuVoice(ctx, baseURL, secret.APIKey, profile.VoiceID); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("%w: voice deletion is unavailable for adapter %s", ErrInvalidInput, provider.AdapterCode)
-	}
-	if err := s.store.ConfirmDeleteVoiceProfile(ctx, id); err != nil {
-		return err
-	}
-	for _, objectID := range []uuid.UUID{profile.SourceObjectID, profile.PreviewObjectID} {
-		if err := s.storage.DeleteManaged(context.Background(), objectID); err != nil {
-			s.log.Warn("delete managed voice profile object", zap.String("voice_profile_id", profile.ID.String()), zap.Error(err))
-		}
-	}
-	if profile.PromptObjectID != nil {
-		if err := s.storage.DeleteManaged(context.Background(), *profile.PromptObjectID); err != nil {
-			s.log.Warn("delete managed voice prompt object", zap.String("voice_profile_id", profile.ID.String()), zap.Error(err))
-		}
-	}
-	return nil
 }
 
 func (s *VoiceService) uploadProviderFile(ctx context.Context, baseURL, key, purpose string, file VoiceFile) (int64, error) {
@@ -475,18 +188,15 @@ func (s *VoiceService) previewSiliconFlowVoice(ctx context.Context, baseURL, key
 		return nil, nil, fmt.Errorf("%w: status=%d body=%s", ErrProviderRequest, resp.StatusCode, truncate(string(data), 600))
 	}
 	metadata, _ := json.Marshal(map[string]any{
-		"trace_id": resp.Header.Get("x-siliconcloud-trace-id"),
-		"bytes":    len(data),
+		"trace_id": resp.Header.Get("x-siliconcloud-trace-id"), "bytes": len(data),
 	})
 	return data, metadata, nil
 }
 
 func (s *VoiceService) deleteSiliconFlowVoice(ctx context.Context, baseURL, key, uri string) error {
 	var response any
-	if _, err := s.doJSON(ctx, http.MethodPost, baseURL+"/audio/voice/deletions", key, map[string]any{"uri": uri}, &response); err != nil {
-		return err
-	}
-	return nil
+	_, err := s.doJSON(ctx, http.MethodPost, baseURL+"/audio/voice/deletions", key, map[string]any{"uri": uri}, &response)
+	return err
 }
 
 func (s *VoiceService) uploadZhipuVoiceFile(ctx context.Context, baseURL, key string, file VoiceFile) (string, error) {
@@ -534,10 +244,9 @@ func (s *VoiceService) uploadZhipuVoiceFile(ctx context.Context, baseURL, key st
 }
 
 func (s *VoiceService) cloneZhipuVoice(ctx context.Context, baseURL, key, voiceName, sourceText, previewText, fileID string) (string, string, json.RawMessage, error) {
-	requestID := uuid.NewString()
 	payload := map[string]any{
 		"model": "glm-tts-clone", "voice_name": voiceName, "input": previewText,
-		"file_id": fileID, "request_id": requestID,
+		"file_id": fileID, "request_id": uuid.NewString(),
 	}
 	if sourceText != "" {
 		payload["text"] = sourceText
@@ -678,11 +387,4 @@ func supportedZhipuCloneAudio(mimeType, name string) bool {
 	}
 	mimeType = strings.ToLower(strings.Split(mimeType, ";")[0])
 	return mimeType == "audio/mpeg" || mimeType == "audio/wav" || mimeType == "audio/x-wav"
-}
-
-func optionalIntString(value int64) string {
-	if value == 0 {
-		return ""
-	}
-	return strconv.FormatInt(value, 10)
 }

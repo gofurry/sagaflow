@@ -37,6 +37,13 @@ func Mount(app *fiber.App) {
 		if contentType := mime.TypeByExtension(path.Ext(name)); contentType != "" {
 			c.Set(fiber.HeaderContentType, contentType)
 		}
+		if name == "index.html" {
+			c.Set(fiber.HeaderCacheControl, "no-cache")
+		} else if strings.HasPrefix(name, "assets/") {
+			c.Set(fiber.HeaderCacheControl, "public, max-age=31536000, immutable")
+		} else {
+			c.Set(fiber.HeaderCacheControl, "public, max-age=3600")
+		}
 		return c.Send(data)
 	})
 }

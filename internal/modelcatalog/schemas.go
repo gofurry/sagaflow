@@ -171,6 +171,14 @@ func bailianImageSchema() json.RawMessage {
 	})
 }
 
+func bailianImageEditSchema() json.RawMessage {
+	return schema(map[string]any{
+		"n":         integer("生成数量", 1, 4),
+		"seed":      integer("随机种子", 0, 2147483647),
+		"watermark": boolean("添加水印"),
+	})
+}
+
 func bailianSpeechSchema() json.RawMessage {
 	return schema(map[string]any{
 		"voice":       map[string]any{"type": "string", "title": "音色 ID"},

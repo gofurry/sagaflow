@@ -1,13 +1,12 @@
 # 部署
 
 SagaFlow 个人版只运行一个应用进程，并使用一个可写数据目录。
-本地媒体工具还需要当前平台对应的 FFmpeg/FFprobe；模型服务可以在
-同机或网络中独立运行。
+本地媒体工具会发现系统已有的 FFmpeg/FFprobe，缺失时也可以在工具页
+一键安装到数据目录；模型服务可以在同机或网络中独立运行。
 
 ## Linux + systemd
 
-先安装 FFmpeg。SagaFlow 的 Linux 构建会从系统 `PATH` 发现
-`ffmpeg` 和 `ffprobe`：
+如需使用系统 FFmpeg，可以提前安装；否则启动后在工具页一键安装：
 
 ```bash
 sudo apt-get update
@@ -40,7 +39,7 @@ sudo /usr/local/bin/sagaflow service install \
 ```bash
 systemctl status sagaflow
 journalctl -u sagaflow -f
-curl http://127.0.0.1:8080/health
+curl http://127.0.0.1:18848/health
 ```
 
 卸载服务不会删除数据：
@@ -64,7 +63,17 @@ docker compose logs -f
 
 ## Windows 与 macOS
 
-下载或构建对应平台二进制，将其放入任意目录。首次运行：
+个人桌面建议下载 `sagaflow-desktop-<系统>-<架构>` 包并启动
+根目录的 `SagaFlow.exe`（Windows）、`sagaflow`（Linux）或
+`SagaFlow.app`（macOS）。启动器会管理 `runtime`、`libexec` 或应用包
+内部的 `sagaflow-core` 内核，但不会在
+打开时自动启动它；用户启动内核并通过 `127.0.0.1:18848` 健康检查后，
+是否自动打开工作台由启动偏好控制。关闭窗口后启动器会留在系统托盘。
+启动器还可以管理 FFmpeg、模型目录和官方密钥入口。桌面内核日志按
+10 MB 轮转，最多保留 5 份并压缩。
+
+只使用内核时，下载 `sagaflow-core-<系统>-<架构>` 包并将其中的
+`sagaflow[.exe]` 放入任意目录。首次运行：
 
 ```powershell
 .\sagaflow.exe account init --password "change-this-password"
@@ -73,21 +82,16 @@ docker compose logs -f
 
 macOS/Linux 终端去掉 `.exe`。命令行窗口关闭后服务停止；如需长期运行，Linux 使用 systemd，NAS 可以使用 Docker。
 
-正式发布包应把当前平台和架构对应的 FFmpeg/FFprobe 放在 SagaFlow
-二进制同目录。源码构建时，Windows amd64 可以运行：
-
-```powershell
-.\tools\ffmpeg\install-windows.ps1
-```
-
-macOS 可以通过 Homebrew 安装：
+正式发布包不捆绑 FFmpeg。Windows、macOS 和 Linux 的 amd64/arm64
+可以在工具页下载固定且经过 SHA-256 校验的版本；也可以自行安装，
+例如 macOS 使用 Homebrew：
 
 ```bash
 brew install ffmpeg
 ```
 
-发布目录的跨平台约定和打包脚本见
-[`tools/ffmpeg/README.md`](../tools/ffmpeg/README.md)。
+运行时发现顺序、固定下载版本和许可证信息见
+[`docs/ffmpeg.md`](ffmpeg.md)。
 
 ## 运行配置
 

@@ -1,0 +1,221 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Test, lint, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            cmd/sagaflow-desktop/go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install Web dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint Web
+        working-directory: web
+        run: pnpm lint
+
+      - name: Test Web
+        working-directory: web
+        run: pnpm test
+
+      - name: Audit Web production dependencies
+        working-directory: web
+        run: pnpm audit --prod --audit-level high --registry=https://registry.npmjs.org/
+
+      - name: Build embedded Web UI
+        working-directory: web
+        run: pnpm build
+
+      - name: Verify embedded Web UI is current
+        run: git diff --exit-code -- internal/webui/dist
+
+      - name: Test Go packages
+        run: go test ./...
+
+      - name: Test desktop launcher
+        working-directory: cmd/sagaflow-desktop
+        run: go test -tags ci ./...
+
+      - name: Check Go formatting
+        run: test -z "$(gofmt -l $(git ls-files '*.go'))"
+
+      - name: Vet Go packages
+        run: go vet ./...
+
+      - name: Vet desktop launcher
+        working-directory: cmd/sagaflow-desktop
+        run: go vet -tags ci ./...
+
+      - name: Scan reachable Go vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+
+      - name: Scan reachable desktop vulnerabilities
+        working-directory: cmd/sagaflow-desktop
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 -tags=ci ./...
+
+      - name: Build smoke-test binary
+        run: |
+          mkdir -p bin
+          go build -trimpath -ldflags="-s -w -X main.version=v0.1.0-ci.${{ github.run_number }}" -o bin/sagaflow-ci ./cmd/sagaflow
+
+  packages:
+    name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Build platform package
+        shell: pwsh
+        run: >-
+          ./.github/workflows/scripts/build.ps1
+          -TargetOS "${{ matrix.goos }}"
+          -TargetArch "${{ matrix.goarch }}"
+          -Version "v0.1.0-ci.${{ github.run_number }}+${{ github.sha }}"
+          -OutputDirectory "dist"
+
+      - name: Upload platform package
+        uses: actions/upload-artifact@v7
+        with:
+          name: sagaflow-core-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/sagaflow-core-${{ matrix.goos }}-${{ matrix.goarch }}
+          if-no-files-found: error
+          retention-days: 14
+
+  docker:
+    name: Build Docker image
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Build image
+        env:
+          DOCKER_BUILDKIT: "1"
+        run: docker build --build-arg VERSION=v0.1.0-ci.${{ github.run_number }} -t sagaflow:ci .
+
+  desktop-packages:
+    name: Build desktop ${{ matrix.goos }}-${{ matrix.goarch }}
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            goos: windows
+            goarch: amd64
+          - runner: windows-11-arm
+            goos: windows
+            goarch: arm64
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - runner: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+          - runner: macos-15-intel
+            goos: darwin
+            goarch: amd64
+          - runner: macos-latest
+            goos: darwin
+            goarch: arm64
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            cmd/sagaflow-desktop/go.sum
+
+      - name: Install Linux desktop build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev
+
+      - name: Install Windows ARM64 CGO toolchain
+        if: matrix.goos == 'windows' && matrix.goarch == 'arm64'
+        shell: pwsh
+        run: ./.github/workflows/scripts/setup-windows-arm64-cgo.ps1
+
+      - name: Build desktop package
+        shell: pwsh
+        run: >-
+          ./.github/workflows/scripts/build-desktop.ps1
+          -TargetOS "${{ matrix.goos }}"
+          -TargetArch "${{ matrix.goarch }}"
+          -Version "v0.1.0-ci.${{ github.run_number }}+${{ github.sha }}"
+          -OutputDirectory "dist"
+
+      - name: Upload desktop package
+        uses: actions/upload-artifact@v7
+        with:
+          name: sagaflow-desktop-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/sagaflow-desktop-${{ matrix.goos }}-${{ matrix.goarch }}
+          if-no-files-found: error
+          retention-days: 14

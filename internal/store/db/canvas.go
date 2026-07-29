@@ -278,8 +278,8 @@ func (s *Store) SaveCanvas(ctx context.Context, episodeID uuid.UUID, canvas Canv
 					return fmt.Errorf("reference edges must connect an asset to a video shot")
 				}
 			case "annotation":
-				if sourceType != "note" {
-					return fmt.Errorf("annotation edges must start from a note")
+				if sourceType != "note" && targetType != "note" {
+					return fmt.Errorf("annotation edges must connect a note")
 				}
 			case "relation":
 				// A relation is presentation-only and may connect any two different

@@ -2,13 +2,22 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofurry/sagaflow/internal/media/ffmpeg"
 	"github.com/gofurry/sagaflow/internal/service"
 	"github.com/google/uuid"
 )
+
+type installMediaToolsRequest struct {
+	Mode          string `json:"mode"`
+	ProxyPort     int    `json:"proxy_port"`
+	ProxyUsername string `json:"proxy_username"`
+	ProxyPassword string `json:"proxy_password"`
+}
 
 type createMediaJobRequest struct {
 	Tool               string          `json:"tool"`
@@ -22,7 +31,45 @@ func (s *Server) mediaToolsStatus(c fiber.Ctx) error {
 	if s.mediaTools == nil {
 		return fmt.Errorf("%w: media tools are unavailable", service.ErrInvalidInput)
 	}
+	c.Set(fiber.HeaderCacheControl, "no-store")
 	return writeOK(c, s.mediaTools.Status())
+}
+
+func (s *Server) installMediaTools(c fiber.Ctx) error {
+	if s.mediaTools == nil {
+		return fmt.Errorf("%w: media tools are unavailable", service.ErrInvalidInput)
+	}
+	var req installMediaToolsRequest
+	if len(c.Body()) > 0 {
+		if err := c.Bind().JSON(&req); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "invalid JSON body")
+		}
+	}
+	status, err := s.mediaTools.StartToolchainInstall(ffmpeg.InstallOptions{
+		Mode: req.Mode, ProxyPort: req.ProxyPort,
+		ProxyUsername: req.ProxyUsername, ProxyPassword: req.ProxyPassword,
+	})
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidInput) {
+			return err
+		}
+		return fiber.NewError(fiber.StatusBadGateway, err.Error())
+	}
+	return writeOK(c, status)
+}
+
+func (s *Server) refreshMediaTools(c fiber.Ctx) error {
+	if s.mediaTools == nil {
+		return fmt.Errorf("%w: media tools are unavailable", service.ErrInvalidInput)
+	}
+	return writeOK(c, s.mediaTools.RefreshToolchain())
+}
+
+func (s *Server) cancelMediaToolsInstall(c fiber.Ctx) error {
+	if s.mediaTools == nil {
+		return fmt.Errorf("%w: media tools are unavailable", service.ErrInvalidInput)
+	}
+	return writeOK(c, s.mediaTools.CancelToolchainInstall())
 }
 
 func (s *Server) getAssetMediaInfo(c fiber.Ctx) error {
@@ -73,7 +120,8 @@ func (s *Server) listMediaJobs(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	items, err := s.store.ListMediaJobs(c.Context(), projectID)
+	page, pageSize := parsePage(c, 50, 100)
+	items, err := s.store.ListMediaJobs(c.Context(), projectID, page, pageSize)
 	if err != nil {
 		return err
 	}

@@ -25,6 +25,13 @@ func TestLoadAppliesDefaultsAndRuntimeEnv(t *testing.T) {
 	}
 }
 
+func TestDefaultUsesReservedSagaFlowPort(t *testing.T) {
+	t.Setenv("SAGAFLOW_PORT", "")
+	if got := Default().Server.Port; got != 18848 {
+		t.Fatalf("expected default port 18848, got %d", got)
+	}
+}
+
 func TestWriteDefaultDoesNotOverwriteWithoutForce(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := WriteDefault(path, false); err != nil {

@@ -19,8 +19,11 @@ func idParam(c fiber.Ctx, name string) (uuid.UUID, error) {
 }
 
 type projectRequest struct {
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	AspectRatio string   `json:"aspect_ratio"`
+	Resolution  string   `json:"resolution"`
+	FrameRate   *float64 `json:"frame_rate"`
 }
 
 func (s *Server) listProjects(c fiber.Ctx) error {
@@ -49,7 +52,10 @@ func (s *Server) createProject(c fiber.Ctx) error {
 	if strings.TrimSpace(req.Title) == "" {
 		return fmt.Errorf("%w: title is required", service.ErrInvalidInput)
 	}
-	item, err := s.store.CreateProject(c.Context(), req.Title, req.Description)
+	if err := validateProjectRequest(req); err != nil {
+		return err
+	}
+	item, err := s.store.CreateProject(c.Context(), req.Title, req.Description, req.AspectRatio, req.Resolution, req.FrameRate)
 	if err != nil {
 		return err
 	}
@@ -67,11 +73,27 @@ func (s *Server) updateProject(c fiber.Ctx) error {
 	if strings.TrimSpace(req.Title) == "" {
 		return fmt.Errorf("%w: title is required", service.ErrInvalidInput)
 	}
-	item, err := s.store.UpdateProject(c.Context(), id, req.Title, req.Description)
+	if err := validateProjectRequest(req); err != nil {
+		return err
+	}
+	item, err := s.store.UpdateProject(c.Context(), id, req.Title, req.Description, req.AspectRatio, req.Resolution, req.FrameRate)
 	if err != nil {
 		return err
 	}
 	return writeOK(c, item)
+}
+
+func validateProjectRequest(req projectRequest) error {
+	if len([]rune(strings.TrimSpace(req.AspectRatio))) > 32 {
+		return fmt.Errorf("%w: aspect ratio is too long", service.ErrInvalidInput)
+	}
+	if len([]rune(strings.TrimSpace(req.Resolution))) > 64 {
+		return fmt.Errorf("%w: resolution is too long", service.ErrInvalidInput)
+	}
+	if req.FrameRate != nil && (*req.FrameRate < 1 || *req.FrameRate > 240) {
+		return fmt.Errorf("%w: frame rate must be between 1 and 240", service.ErrInvalidInput)
+	}
+	return nil
 }
 func (s *Server) deleteProject(c fiber.Ctx) error {
 	id, err := idParam(c, "id")

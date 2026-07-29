@@ -102,6 +102,27 @@ func (s *Store) UpdateModel(ctx context.Context, model Model) (Model, error) {
 	return s.GetModel(ctx, model.ID)
 }
 
+func (s *Store) ModelHasActiveGenerationJobs(ctx context.Context, id uuid.UUID) (bool, error) {
+	var active bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM generation_jobs
+			WHERE model_id=$1 AND status IN ('queued','running')
+		)`, id).Scan(&active)
+	return active, err
+}
+
+func (s *Store) DeleteModel(ctx context.Context, id uuid.UUID) error {
+	result, err := s.pool.Exec(ctx, `DELETE FROM model_catalog WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if changed, _ := result.RowsAffected(); changed == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func nonNilStrings(values []string) []string {
 	if values == nil {
 		return []string{}

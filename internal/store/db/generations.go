@@ -11,15 +11,17 @@ import (
 	"github.com/google/uuid"
 )
 
-const generationSelect = `
-	SELECT j.*,p.code AS provider_code,p.base_url AS provider_base_url,
-		CASE WHEN j.target_kind='workflow'
-			THEN COALESCE(json_extract(j.target_snapshot,'$.code'),w.code) || '@' || COALESCE(CAST(json_extract(j.target_snapshot,'$.version') AS TEXT),CAST(w.version AS TEXT))
-			ELSE m.model_id END AS model_identifier
+const generationFrom = `
 	FROM generation_jobs j
 	LEFT JOIN model_catalog m ON m.id=j.model_id
 	LEFT JOIN workflow_templates w ON w.id=j.workflow_template_id
 	JOIN model_providers p ON p.id=COALESCE(j.provider_id,m.provider_id)`
+
+const generationSelect = `
+	SELECT j.*,p.code AS provider_code,p.base_url AS provider_base_url,
+		CASE WHEN j.target_kind='workflow'
+			THEN COALESCE(json_extract(j.target_snapshot,'$.code'),w.code) || '@' || COALESCE(CAST(json_extract(j.target_snapshot,'$.version') AS TEXT),CAST(w.version AS TEXT))
+			ELSE m.model_id END AS model_identifier` + generationFrom
 
 type CreateGenerationJobInput struct {
 	ProjectID          uuid.UUID
@@ -82,8 +84,42 @@ func (s *Store) GetGenerationJob(ctx context.Context, id uuid.UUID) (GenerationJ
 	return one[GenerationJob](s.pool.Query(ctx, generationSelect+` WHERE j.id=$1`, id))
 }
 
-func (s *Store) ListGenerationJobs(ctx context.Context, projectID uuid.UUID, episodeID *uuid.UUID) ([]GenerationJob, error) {
-	return collectRows[GenerationJob](s.pool.Query(ctx, generationSelect+` WHERE j.project_id=$1 AND ($2 IS NULL OR j.episode_id=$2) ORDER BY j.created_at DESC LIMIT 100`, projectID, episodeID))
+type GenerationJobFilter struct {
+	ProjectID  uuid.UUID
+	EpisodeID  *uuid.UUID
+	Status     string
+	Capability string
+	Search     string
+	Page       int
+	PageSize   int
+}
+
+func (s *Store) ListGenerationJobs(ctx context.Context, filter GenerationJobFilter) (GenerationJobPage, error) {
+	filter.Page, filter.PageSize = normalizePage(filter.Page, filter.PageSize, 20, 100)
+	where := `
+		WHERE j.project_id=$1
+		  AND ($2 IS NULL OR j.episode_id=$2)
+		  AND ($3='' OR j.status=$3)
+		  AND ($4='' OR j.capability=$4)
+		  AND ($5='' OR lower(
+			COALESCE(p.code,'') || ' ' ||
+			COALESCE(m.model_id,'') || ' ' ||
+			COALESCE(json_extract(j.target_snapshot,'$.code'),'') || ' ' ||
+			COALESCE(j.prompt,'') || ' ' ||
+			COALESCE(j.error_message,'')
+		  ) LIKE '%' || lower($5) || '%')`
+	args := []any{filter.ProjectID, filter.EpisodeID, strings.TrimSpace(filter.Status), strings.TrimSpace(filter.Capability), strings.TrimSpace(filter.Search)}
+	var total int64
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*)`+generationFrom+where, args...).Scan(&total); err != nil {
+		return GenerationJobPage{}, err
+	}
+	items, err := collectRows[GenerationJob](s.pool.Query(ctx,
+		generationSelect+where+` ORDER BY j.created_at DESC,j.id DESC LIMIT $6 OFFSET $7`,
+		append(args, filter.PageSize, (filter.Page-1)*filter.PageSize)...))
+	if err != nil {
+		return GenerationJobPage{}, err
+	}
+	return GenerationJobPage{Items: items, Total: total, Page: filter.Page, PageSize: filter.PageSize}, nil
 }
 
 func (s *Store) ClaimNextGenerationJob(ctx context.Context, lease time.Duration) (GenerationJob, error) {

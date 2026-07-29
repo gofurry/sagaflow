@@ -45,6 +45,8 @@ type Request struct {
 	ID            string
 	Runtime       Runtime
 	Target        Target
+	Operation     string
+	Control       json.RawMessage
 	Prompt        string
 	Parameters    map[string]any
 	Inputs        []Input

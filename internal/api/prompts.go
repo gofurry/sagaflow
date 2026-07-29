@@ -51,6 +51,9 @@ func (s *Server) updatePromptPreset(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	if current.Source == "builtin" {
+		return fmt.Errorf("%w: built-in prompt presets cannot be edited; duplicate it first", service.ErrInvalidInput)
+	}
 	var req promptPresetRequest
 	if err := c.Bind().JSON(&req); err != nil {
 		return fiber.NewError(400, "invalid JSON body")
@@ -75,6 +78,13 @@ func (s *Server) deletePromptPreset(c fiber.Ctx) error {
 	id, err := idParam(c, "id")
 	if err != nil {
 		return err
+	}
+	current, err := s.store.GetPromptPreset(c.Context(), id)
+	if err != nil {
+		return err
+	}
+	if current.Source == "builtin" {
+		return fmt.Errorf("%w: built-in prompt presets cannot be deleted", service.ErrInvalidInput)
 	}
 	if err := s.store.DeletePromptPreset(c.Context(), id); err != nil {
 		return err

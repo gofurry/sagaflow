@@ -6,7 +6,7 @@ app:
 
 server:
   host: 127.0.0.1
-  port: 8080
+  port: 18848
 
 auth:
   session_ttl: 720h

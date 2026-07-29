@@ -5,13 +5,20 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: sagaflow:dev
+      args:
+        VERSION: v0.1.0
+    image: sagaflow:v0.1.0
     container_name: sagaflow
     ports:
-      - "8080:8080"
+      - "18848:18848"
     volumes:
       - sagaflow_data:/data
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   sagaflow_data:

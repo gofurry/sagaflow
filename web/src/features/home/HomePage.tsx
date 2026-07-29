@@ -60,11 +60,18 @@ export function HomePage({ activeProjectID, loading, projects, onCreate, onOpenP
         : filteredProjects.length === 0
         ? <Empty className="project-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有符合搜索条件的项目"/>
         : <div className="project-grid">
-        {pageProjects.map((project, index) => <button className={`project-card${project.id === activeProjectID ? ' active' : ''}`} key={project.id} onClick={() => onOpenProject(project.id)} type="button">
-          <div className="project-card-top">{project.id === activeProjectID && <span className="active-project-label">最近使用</span>}<span className="project-index">{String((page - 1) * PAGE_SIZE + index + 1).padStart(2, '0')}</span></div>
-          <div className="project-card-body"><strong>{project.title}</strong><p>{project.description || '还没有项目说明，进入项目完善你的故事设定。'}</p></div>
+        {pageProjects.map((project, index) => {
+          const isActive = project.id === activeProjectID
+          const projectIndex = String((page - 1) * PAGE_SIZE + index + 1).padStart(2, '0')
+          return <button className={`project-card${isActive ? ' active' : ''}`} key={project.id} onClick={() => onOpenProject(project.id)} type="button">
+          <div className="project-card-top">
+            <strong className="project-card-title">{project.title}</strong>
+            <span aria-label={isActive ? `最近使用的项目，编号 ${projectIndex}` : `项目编号 ${projectIndex}`} className={`project-index${isActive ? ' recent' : ''}`}>{projectIndex}</span>
+          </div>
+          <div className="project-card-body"><p>{project.description || '还没有项目说明，进入项目完善你的故事设定。'}</p></div>
           <div className="project-card-foot"><span>更新于 {formatDate(project.updated_at)}</span><span className="project-enter">进入项目 <ArrowRightOutlined/></span></div>
-        </button>)}
+        </button>
+        })}
       </div>}
       {!loading && filteredProjects.length > PAGE_SIZE && <Pagination className="project-pagination" current={page} hideOnSinglePage onChange={setPage} pageSize={PAGE_SIZE} showSizeChanger={false} total={filteredProjects.length}/>}
     </section>

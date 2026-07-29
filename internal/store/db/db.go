@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -58,14 +59,31 @@ type Store struct{ pool *Pool }
 func New(database *sql.DB) *Store { return &Store{pool: &Pool{db: database}} }
 func (s *Store) Pool() *Pool      { return s.pool }
 
+func normalizePage(page, pageSize, defaultPageSize, maxPageSize int) (int, int) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = defaultPageSize
+	}
+	if pageSize > maxPageSize {
+		pageSize = maxPageSize
+	}
+	return page, pageSize
+}
+
 func collectRows[T any](rows *sql.Rows, err error) ([]T, error) {
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	plan, err := rowScanPlanFor[T](rows)
+	if err != nil {
+		return nil, err
+	}
 	values := make([]T, 0)
 	for rows.Next() {
-		value, err := scanStruct[T](rows)
+		value, err := scanStructWithPlan[T](rows, plan)
 		if err != nil {
 			return nil, err
 		}
@@ -87,35 +105,69 @@ func one[T any](rows *sql.Rows, err error) (T, error) {
 		}
 		return zero, ErrNotFound
 	}
-	return scanStruct[T](rows)
+	plan, err := rowScanPlanFor[T](rows)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	return scanStructWithPlan[T](rows, plan)
 }
 
-func scanStruct[T any](rows *sql.Rows) (T, error) {
-	var result T
+type rowScanPlan struct {
+	columns      []string
+	fieldIndexes []int
+}
+
+type rowScanPlanKey struct {
+	target  reflect.Type
+	columns string
+}
+
+var rowScanPlans sync.Map
+
+func rowScanPlanFor[T any](rows *sql.Rows) (rowScanPlan, error) {
 	columns, err := rows.Columns()
 	if err != nil {
-		return result, err
+		return rowScanPlan{}, err
 	}
-	raw := make([]any, len(columns))
-	targets := make([]any, len(columns))
-	for i := range raw {
-		targets[i] = &raw[i]
+	target := reflect.TypeOf((*T)(nil)).Elem()
+	if target.Kind() != reflect.Struct {
+		return rowScanPlan{}, fmt.Errorf("database row target %s is not a struct", target)
+	}
+	key := rowScanPlanKey{target: target, columns: strings.Join(columns, "\x00")}
+	if cached, ok := rowScanPlans.Load(key); ok {
+		return cached.(rowScanPlan), nil
+	}
+	fields := structFields(target)
+	indexes := make([]int, len(columns))
+	for index, column := range columns {
+		indexes[index] = -1
+		if fieldIndex, ok := fields[strings.ToLower(column)]; ok {
+			indexes[index] = fieldIndex
+		}
+	}
+	plan := rowScanPlan{columns: columns, fieldIndexes: indexes}
+	rowScanPlans.Store(key, plan)
+	return plan, nil
+}
+
+func scanStructWithPlan[T any](rows *sql.Rows, plan rowScanPlan) (T, error) {
+	var result T
+	raw := make([]any, len(plan.columns))
+	targets := make([]any, len(plan.columns))
+	for index := range raw {
+		targets[index] = &raw[index]
 	}
 	if err := rows.Scan(targets...); err != nil {
 		return result, err
 	}
 	value := reflect.ValueOf(&result).Elem()
-	if value.Kind() != reflect.Struct {
-		return result, fmt.Errorf("database row target %T is not a struct", result)
-	}
-	fields := structFields(value.Type())
-	for i, column := range columns {
-		index, ok := fields[strings.ToLower(column)]
-		if !ok {
+	for index, fieldIndex := range plan.fieldIndexes {
+		if fieldIndex < 0 {
 			continue
 		}
-		if err := assignSQLValue(value.Field(index), raw[i]); err != nil {
-			return result, fmt.Errorf("scan column %s: %w", column, err)
+		if err := assignSQLValue(value.Field(fieldIndex), raw[index]); err != nil {
+			return result, fmt.Errorf("scan column %s: %w", plan.columns[index], err)
 		}
 	}
 	return result, nil

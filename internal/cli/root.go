@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,8 +14,10 @@ import (
 	"github.com/gofurry/sagaflow/internal/app"
 	"github.com/gofurry/sagaflow/internal/backup"
 	"github.com/gofurry/sagaflow/internal/config"
+	mediaffmpeg "github.com/gofurry/sagaflow/internal/media/ffmpeg"
 	applogger "github.com/gofurry/sagaflow/internal/platform/logger"
 	"github.com/gofurry/sagaflow/internal/platform/sqlite"
+	"github.com/gofurry/sagaflow/internal/runtimecontract"
 	"github.com/gofurry/sagaflow/internal/service"
 	"github.com/gofurry/sagaflow/internal/store/db"
 	"github.com/spf13/cobra"
@@ -22,21 +25,40 @@ import (
 )
 
 func NewRootCommand(version string) *cobra.Command {
-	var cfgPath string
+	var cfgPath, runtimeFile string
 	run := func(cmd *cobra.Command, _ []string) error {
 		cfg, log, err := loadRuntime(cfgPath, version)
 		if err != nil {
 			return err
 		}
 		defer log.Sync()
-		return app.Run(cmd.Context(), cfg, log)
+		return app.RunWithOptions(cmd.Context(), cfg, log, app.RunOptions{
+			RuntimeFile: runtimeFile, DesktopControlToken: os.Getenv("SAGAFLOW_DESKTOP_TOKEN"),
+		})
 	}
 	root := &cobra.Command{
 		Use: "sagaflow", Short: "SagaFlow personal AI production workbench", SilenceUsage: true, Version: version,
 		RunE: run,
 	}
 	root.PersistentFlags().StringVar(&cfgPath, "config", "", "runtime config file path")
+	root.PersistentFlags().StringVar(&runtimeFile, "runtime-file", "", "write ephemeral process information after the server is ready")
 	root.AddCommand(&cobra.Command{Use: "serve", Short: "Start the workbench", RunE: run})
+
+	var versionJSON bool
+	versionCmd := &cobra.Command{Use: "version", Short: "Print version and protocol compatibility", RunE: func(_ *cobra.Command, _ []string) error {
+		info := struct {
+			Version           string `json:"version"`
+			APIVersion        int    `json:"api_version"`
+			DataSchemaVersion int    `json:"data_schema_version"`
+		}{Version: version, APIVersion: runtimecontract.APIVersion, DataSchemaVersion: runtimecontract.DataSchemaVersion}
+		if versionJSON {
+			return json.NewEncoder(os.Stdout).Encode(info)
+		}
+		fmt.Printf("SagaFlow %s (API %d, data schema %d)\n", info.Version, info.APIVersion, info.DataSchemaVersion)
+		return nil
+	}}
+	versionCmd.Flags().BoolVar(&versionJSON, "json", false, "print machine-readable JSON")
+	root.AddCommand(versionCmd)
 
 	configCmd := &cobra.Command{Use: "config", Short: "Manage the small runtime configuration"}
 	var output string
@@ -105,7 +127,8 @@ func NewRootCommand(version string) *cobra.Command {
 	accountCmd.AddCommand(reset)
 	root.AddCommand(accountCmd)
 
-	root.AddCommand(&cobra.Command{Use: "doctor", Short: "Check the data directory and SQLite database", RunE: func(cmd *cobra.Command, _ []string) error {
+	var doctorJSON bool
+	doctorCmd := &cobra.Command{Use: "doctor", Short: "Check the data directory and SQLite database", RunE: func(cmd *cobra.Command, _ []string) error {
 		cfg, closeDB, store, err := openStore(cmd.Context(), cfgPath, version)
 		if err != nil {
 			return err
@@ -115,9 +138,52 @@ func NewRootCommand(version string) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("data: %s\ndatabase: ok\naccount initialized: %t\n", cfg.App.DataDir, initialized)
+		credentialService, err := service.NewCredentialService(store, cfg.MasterKeyPath())
+		if err != nil {
+			return err
+		}
+		credentials, err := store.ListProviderCredentials(cmd.Context(), nil)
+		if err != nil {
+			return err
+		}
+		for _, credential := range credentials {
+			if _, err := credentialService.SecretByID(cmd.Context(), credential.ID); err != nil {
+				return fmt.Errorf("decrypt provider credential %s: %w", credential.ID, err)
+			}
+		}
+		connections, err := store.ListS3Connections(cmd.Context())
+		if err != nil {
+			return err
+		}
+		for _, connection := range connections {
+			if _, err := credentialService.DecryptSecret(connection.EncryptedCredentials); err != nil {
+				return fmt.Errorf("decrypt S3 connection %s: %w", connection.ID, err)
+			}
+		}
+		ffmpegStatus := mediaffmpeg.Discover(cfg.FFmpegDir()).Status()
+		result := struct {
+			DataDir             string `json:"data_dir"`
+			Database            string `json:"database"`
+			AccountInitialized  bool   `json:"account_initialized"`
+			ProviderCredentials int    `json:"provider_credentials"`
+			S3Credentials       int    `json:"s3_credentials"`
+			FFmpegAvailable     bool   `json:"ffmpeg_available"`
+			FFmpegVersion       string `json:"ffmpeg_version,omitempty"`
+			FFmpegPath          string `json:"ffmpeg_path,omitempty"`
+		}{
+			DataDir: cfg.App.DataDir, Database: "ok", AccountInitialized: initialized,
+			ProviderCredentials: len(credentials), S3Credentials: len(connections),
+			FFmpegAvailable: ffmpegStatus.Available, FFmpegVersion: ffmpegStatus.Version, FFmpegPath: ffmpegStatus.FFmpegPath,
+		}
+		if doctorJSON {
+			return json.NewEncoder(os.Stdout).Encode(result)
+		}
+		fmt.Printf("data: %s\ndatabase: %s\naccount initialized: %t\nprovider credentials: %d valid\nS3 credentials: %d valid\nFFmpeg available: %t\n",
+			result.DataDir, result.Database, result.AccountInitialized, result.ProviderCredentials, result.S3Credentials, result.FFmpegAvailable)
 		return nil
-	}})
+	}}
+	doctorCmd.Flags().BoolVar(&doctorJSON, "json", false, "print machine-readable JSON")
+	root.AddCommand(doctorCmd)
 
 	backupCmd := &cobra.Command{Use: "backup", Short: "Back up or restore the complete personal workspace"}
 	var backupOutput string
@@ -189,6 +255,10 @@ func NewRootCommand(version string) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		workingDirectory, err := filepath.Abs(cfg.App.DataDir)
+		if err != nil {
+			return err
+		}
 		args := systemdQuote(executable) + " serve"
 		if cfgPath != "" {
 			absoluteConfig, err := filepath.Abs(cfgPath)
@@ -198,7 +268,7 @@ func NewRootCommand(version string) *cobra.Command {
 			args += " --config " + systemdQuote(absoluteConfig)
 		}
 		unit := "[Unit]\nDescription=SagaFlow personal workbench\nAfter=network-online.target\nWants=network-online.target\n\n" +
-			"[Service]\nType=simple\nUser=" + serviceUser + "\nWorkingDirectory=" + systemdQuote(cfg.App.DataDir) + "\nExecStart=" + args + "\nRestart=on-failure\nRestartSec=3\nNoNewPrivileges=true\nPrivateTmp=true\n\n" +
+			"[Service]\nType=simple\nUser=" + serviceUser + "\nWorkingDirectory=" + systemdPath(workingDirectory) + "\nExecStart=" + args + "\nRestart=on-failure\nRestartSec=3\nNoNewPrivileges=true\nPrivateTmp=true\n\n" +
 			"[Install]\nWantedBy=multi-user.target\n"
 		if err := os.WriteFile(unitPath, []byte(unit), 0o644); err != nil {
 			return fmt.Errorf("write systemd unit (run as root): %w", err)
@@ -212,10 +282,7 @@ func NewRootCommand(version string) *cobra.Command {
 		fmt.Printf("installed %s\n", unitPath)
 		return nil
 	}}
-	currentUser := "sagaflow"
-	if value, err := user.Current(); err == nil && value.Username != "" && value.Username != "root" {
-		currentUser = value.Username
-	}
+	currentUser := defaultServiceUser(user.Current())
 	install.Flags().StringVar(&serviceUser, "user", currentUser, "Linux user that runs SagaFlow")
 	install.Flags().StringVar(&unitPath, "unit", "/etc/systemd/system/sagaflow.service", "systemd unit path")
 	uninstall := &cobra.Command{Use: "uninstall", Short: "Stop and remove the systemd service", RunE: func(cmd *cobra.Command, _ []string) error {
@@ -278,4 +345,33 @@ func runSystemctl(ctx context.Context, args ...string) error {
 
 func systemdQuote(value string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(value) + `"`
+}
+
+func systemdPath(value string) string {
+	const hex = "0123456789abcdef"
+	var escaped strings.Builder
+	for i := 0; i < len(value); i++ {
+		character := value[i]
+		if character == '%' {
+			escaped.WriteString("%%")
+			continue
+		}
+		if character == '/' || character == '.' || character == '_' || character == '-' ||
+			character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' {
+			escaped.WriteByte(character)
+			continue
+		}
+		escaped.WriteString(`\x`)
+		escaped.WriteByte(hex[character>>4])
+		escaped.WriteByte(hex[character&0x0f])
+	}
+	return escaped.String()
+}
+
+func defaultServiceUser(current *user.User, err error) string {
+	if err == nil && current != nil && strings.TrimSpace(current.Username) != "" {
+		return current.Username
+	}
+	return "sagaflow"
 }

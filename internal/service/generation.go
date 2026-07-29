@@ -40,6 +40,7 @@ type generationReference struct {
 	MediaType      string
 	MIMEType       string
 	RemoteExportID *uuid.UUID
+	SourceURL      string
 }
 
 func NewGenerationService(store *db.Store, credentials *CredentialService, objectStore *storage.Manager, remote *StorageService, executor inference.Executor, log *zap.Logger) (*GenerationService, error) {
@@ -81,7 +82,8 @@ func (s *GenerationService) Execute(ctx context.Context, jobID uuid.UUID) (err e
 	if err != nil {
 		return err
 	}
-	inputs, err := s.loadInputReferences(ctx, job, provider.AdapterCode)
+	operation, control := generationOperation(job.InputSnapshot)
+	inputs, err := s.loadInputReferences(ctx, job, provider.AdapterCode, target.ID)
 	if err != nil {
 		return err
 	}
@@ -97,8 +99,8 @@ func (s *GenerationService) Execute(ctx context.Context, jobID uuid.UUID) (err e
 	request := inference.Request{
 		ID:      job.ID.String(),
 		Runtime: inference.Runtime{ProviderCode: provider.Code, AdapterCode: provider.AdapterCode, Endpoint: secret.BaseURL, APIKey: secret.APIKey, Configuration: provider.Metadata},
-		Target:  target,
-		Prompt:  job.Prompt, Parameters: parameters, Inputs: inputs, ProviderRunID: job.ProviderJobID,
+		Target:  target, Operation: operation, Control: control,
+		Prompt: job.Prompt, Parameters: parameters, Inputs: inputs, ProviderRunID: job.ProviderJobID,
 	}
 	trace, err = beginGenerationTrace(ctx, s.store, job, request, secret)
 	if err != nil {
@@ -238,7 +240,23 @@ func snapshotNumber(raw json.RawMessage, key string) int64 {
 	return int64(value)
 }
 
-func (s *GenerationService) loadInputReferences(ctx context.Context, job db.GenerationJob, adapterCode string) ([]inference.Input, error) {
+func generationOperation(snapshot json.RawMessage) (string, json.RawMessage) {
+	var value struct {
+		ImageTask json.RawMessage `json:"image_task"`
+	}
+	if json.Unmarshal(snapshot, &value) != nil || len(value.ImageTask) == 0 || string(value.ImageTask) == "null" {
+		return "", nil
+	}
+	var task struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(value.ImageTask, &task) != nil {
+		return "", nil
+	}
+	return strings.ToLower(strings.TrimSpace(task.Type)), value.ImageTask
+}
+
+func (s *GenerationService) loadInputReferences(ctx context.Context, job db.GenerationJob, adapterCode, targetID string) ([]inference.Input, error) {
 	var references []db.GenerationInputReference
 	if err := json.Unmarshal(job.InputReferences, &references); err != nil {
 		return nil, fmt.Errorf("decode generation references: %w", err)
@@ -274,11 +292,12 @@ func (s *GenerationService) loadInputReferences(ctx context.Context, job db.Gene
 			}
 			reference = generationReference{
 				ID: upload.ID, ObjectID: upload.ObjectID, Name: upload.Name, MediaType: upload.MediaType, MIMEType: upload.MimeType,
+				SourceURL: generationReferenceSourceURL(upload.Metadata),
 			}
 		default:
 			return nil, fmt.Errorf("%w: unsupported reference source %q", ErrInvalidInput, item.Source)
 		}
-		if providerRequiresRemoteInput(adapterCode) && reference.RemoteExportID == nil {
+		if providerRequiresRemoteInput(adapterCode, targetID) && reference.RemoteExportID == nil && reference.SourceURL == "" {
 			return nil, fmt.Errorf("%w: cloud model reference %s must first be published to an S3 connection", ErrInvalidInput, reference.ID)
 		}
 		url, err := s.referenceURL(ctx, reference)
@@ -298,7 +317,10 @@ func (s *GenerationService) loadInputReferences(ctx context.Context, job db.Gene
 	return inputs, nil
 }
 
-func providerRequiresRemoteInput(adapterCode string) bool {
+func providerRequiresRemoteInput(adapterCode, targetID string) bool {
+	if adapterCode == ProviderAliyunBailian && targetID == "wanx2.1-imageedit" {
+		return false
+	}
 	return adapterCode != ProviderOllama &&
 		adapterCode != ProviderComfyUI &&
 		adapterCode != ProviderSiliconFlow &&
@@ -308,6 +330,9 @@ func providerRequiresRemoteInput(adapterCode string) bool {
 }
 
 func (s *GenerationService) referenceURL(ctx context.Context, reference generationReference) (string, error) {
+	if reference.SourceURL != "" {
+		return reference.SourceURL, nil
+	}
 	if reference.RemoteExportID == nil {
 		return "", nil
 	}
@@ -319,6 +344,17 @@ func (s *GenerationService) referenceURL(ctx context.Context, reference generati
 		return "", fmt.Errorf("presign generation reference %s: %w", reference.ID, err)
 	}
 	return signed.URL, nil
+}
+
+func generationReferenceSourceURL(raw json.RawMessage) string {
+	var metadata struct {
+		SourceKind string `json:"source_kind"`
+		SourceURL  string `json:"source_url"`
+	}
+	if json.Unmarshal(raw, &metadata) != nil || metadata.SourceKind != "url" {
+		return ""
+	}
+	return strings.TrimSpace(metadata.SourceURL)
 }
 
 func (s *GenerationService) referenceObject(ctx context.Context, reference generationReference) (storage.Object, error) {

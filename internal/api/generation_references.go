@@ -3,9 +3,6 @@ package api
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
-	"strings"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofurry/sagaflow/internal/platform/storage"
@@ -22,35 +19,25 @@ func (s *Server) uploadGenerationReference(c fiber.Ctx) error {
 	if _, err := s.store.GetProject(c.Context(), projectID); err != nil {
 		return err
 	}
-	header, err := c.FormFile("file")
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "file is required")
-	}
-	file, err := header.Open()
+	upload, err := openMultipartUpload(c, "file")
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, 512<<20))
-	if err != nil {
-		return err
-	}
-	if int64(len(data)) != header.Size {
-		return fiber.NewError(fiber.StatusBadRequest, "file is too large")
-	}
-	mimeType := strings.TrimSpace(header.Header.Get("Content-Type"))
-	if mimeType == "" || mimeType == "application/octet-stream" {
-		mimeType = http.DetectContentType(data)
-	}
+	defer upload.File.Close()
+	header := upload.Header
+	mimeType := upload.MIMEType
 	mediaType := mediaTypeFromMIME(mimeType)
 	uploadID := uuid.New()
-	managed, err := s.storage.UploadManaged(c.Context(), storage.ManagedUploadInput{ProjectID: &projectID, Purpose: "generation-references", OriginalName: header.Filename, UploadInput: storage.UploadInput{Data: data, ContentType: mimeType}})
+	managed, err := s.storage.UploadManaged(c.Context(), storage.ManagedUploadInput{
+		ProjectID: &projectID, Purpose: "generation-references", OriginalName: header.Filename,
+		UploadInput: storage.UploadInput{Reader: upload.Reader, Size: header.Size, ContentType: mimeType},
+	})
 	if err != nil {
 		return err
 	}
 	item, err := s.store.CreateGenerationReferenceUpload(c.Context(), db.CreateGenerationReferenceUploadInput{
 		ID: uploadID, ProjectID: projectID, ObjectID: managed.Record.ID, Name: header.Filename, MediaType: mediaType, MimeType: mimeType,
-		FileSizeBytes: int64(len(data)),
+		FileSizeBytes: header.Size,
 		Metadata:      db.JSON(map[string]any{"original_filename": header.Filename}),
 	})
 	if err != nil {

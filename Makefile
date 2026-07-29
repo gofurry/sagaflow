@@ -1,9 +1,18 @@
-.PHONY: run config-init account-init doctor test web-dev web-build lint build docker-build docker-up docker-down
+.PHONY: run config-init account-init doctor test web-dev web-build lint build desktop-build docker-build docker-up docker-down
 
 SAGAFLOW_CONFIG ?=
 ACCOUNT_USER ?= admin
 ACCOUNT_NAME ?= Creator
 ACCOUNT_PASSWORD ?=
+VERSION ?= v0.1.0
+
+ifeq ($(OS),Windows_NT)
+BINARY := bin/sagaflow.exe
+DESKTOP_BINARY := bin/sagaflow-desktop.exe
+else
+BINARY := bin/sagaflow
+DESKTOP_BINARY := bin/sagaflow-desktop
+endif
 
 run:
 	go run ./cmd/sagaflow serve $(if $(SAGAFLOW_CONFIG),--config $(SAGAFLOW_CONFIG),)
@@ -30,7 +39,10 @@ lint:
 	cd web && corepack pnpm lint
 
 build: web-build
-	go build -o bin/sagaflow ./cmd/sagaflow
+	go build -trimpath -ldflags="-X main.version=$(VERSION)" -o $(BINARY) ./cmd/sagaflow
+
+desktop-build: build
+	cd cmd/sagaflow-desktop && go build -trimpath -ldflags="-X main.version=$(VERSION)" -o ../../$(DESKTOP_BINARY) .
 
 docker-build:
 	docker compose build

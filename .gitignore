@@ -7,14 +7,10 @@ configs/config.yaml
 # Runtime data
 data/
 logs/
-bin/
+bin/*
+!bin/.gitkeep
 dist/
 tmp/
-tools/ffmpeg/windows-*/
-tools/ffmpeg/linux-*/
-tools/ffmpeg/darwin-*/
-tools/ffmpeg/*.zip
-tools/ffmpeg/*.tar.*
 
 # Go
 *.exe
@@ -28,6 +24,11 @@ web/.vite/
 web/.env
 web/.env.*
 !web/.env.example
+
+# The production UI is embedded into the Go binary and must stay trackable
+# even though other build output directories are ignored.
+!internal/webui/dist/
+!internal/webui/dist/**
 
 # Editors and OS files
 .idea/

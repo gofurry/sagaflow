@@ -51,11 +51,11 @@ func Default() Config {
 		App: AppConfig{
 			Name:     "sagaflow",
 			Env:      "production",
-			Version:  "dev",
+			Version:  "v0.1.0",
 			DataDir:  defaultDataDir(),
 			LogLevel: "info",
 		},
-		Server: ServerConfig{Host: "127.0.0.1", Port: 8080},
+		Server: ServerConfig{Host: "127.0.0.1", Port: 18848},
 		Auth: AuthConfig{
 			SessionTTL: "720h",
 			CookieName: "sagaflow_session",
@@ -121,6 +121,8 @@ func (c Config) TempDir() string              { return filepath.Join(c.App.DataD
 func (c Config) BackupDir() string            { return filepath.Join(c.App.DataDir, "backups") }
 func (c Config) SecretDir() string            { return filepath.Join(c.App.DataDir, "secrets") }
 func (c Config) CatalogDir() string           { return filepath.Join(c.App.DataDir, "catalog") }
+func (c Config) ToolDir() string              { return filepath.Join(c.App.DataDir, "tools") }
+func (c Config) FFmpegDir() string            { return filepath.Join(c.ToolDir(), "ffmpeg") }
 func (c Config) ModelCatalogPath() string     { return filepath.Join(c.CatalogDir(), "model-catalog.json") }
 func (c Config) MasterKeyPath() string        { return filepath.Join(c.SecretDir(), "master.key") }
 
@@ -149,7 +151,7 @@ func (c Config) IsLoopback() bool {
 }
 
 func (c Config) EnsureRuntimeDirs() error {
-	for _, path := range []string{c.App.DataDir, c.ObjectDir(), c.TempDir(), c.BackupDir(), c.SecretDir(), c.CatalogDir()} {
+	for _, path := range []string{c.App.DataDir, c.ObjectDir(), c.TempDir(), c.BackupDir(), c.SecretDir(), c.CatalogDir(), c.ToolDir()} {
 		mode := os.FileMode(0o755)
 		if path == c.SecretDir() {
 			mode = 0o700
@@ -194,7 +196,7 @@ func (c *Config) normalize() {
 		c.App.Env = "production"
 	}
 	if c.App.Version == "" {
-		c.App.Version = "dev"
+		c.App.Version = "v0.1.0"
 	}
 	if c.App.DataDir == "" {
 		c.App.DataDir = defaultDataDir()
@@ -206,7 +208,7 @@ func (c *Config) normalize() {
 		c.Server.Host = "127.0.0.1"
 	}
 	if c.Server.Port == 0 {
-		c.Server.Port = 8080
+		c.Server.Port = 18848
 	}
 	if c.Auth.SessionTTL == "" {
 		c.Auth.SessionTTL = "720h"

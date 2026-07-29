@@ -13,6 +13,9 @@ func (d *Driver) generateImage(ctx context.Context, request inference.Request, e
 	if err := adapterutil.Required(request.Runtime.Endpoint, "runtime endpoint", provider); err != nil {
 		return inference.Result{}, err
 	}
+	if request.Target.ID == "wanx2.1-imageedit" {
+		return d.editImage(ctx, request, events)
+	}
 	p := request.Parameters
 	if p == nil {
 		p = map[string]any{}
@@ -72,15 +75,21 @@ func (d *Driver) generateImage(ctx context.Context, request inference.Request, e
 
 func imageURLs(value any) []string {
 	urls := make([]string, 0)
+	seen := make(map[string]struct{})
 	var walk func(any)
 	walk = func(current any) {
 		switch typed := current.(type) {
 		case map[string]any:
-			if raw, ok := typed["image"].(string); ok && (strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://")) {
-				urls = append(urls, raw)
+			for _, key := range []string{"image", "url", "image_url"} {
+				if raw, ok := typed[key].(string); ok && (strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://")) {
+					if _, exists := seen[raw]; !exists {
+						seen[raw] = struct{}{}
+						urls = append(urls, raw)
+					}
+				}
 			}
 			for key, child := range typed {
-				if key != "image" {
+				if key != "image" && key != "url" && key != "image_url" {
 					walk(child)
 				}
 			}
