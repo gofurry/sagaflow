@@ -72,13 +72,9 @@ $corePath = switch ($TargetOS) {
 $previousGOOS = $env:GOOS
 $previousGOARCH = $env:GOARCH
 $previousCGO = $env:CGO_ENABLED
-$previousCC = $env:CC
 try {
     $env:GOOS = $TargetOS
     $env:GOARCH = $TargetArch
-    if ($TargetOS -eq "windows" -and $TargetArch -eq "arm64" -and [string]::IsNullOrWhiteSpace($env:CC)) {
-        $env:CC = "clang"
-    }
 
     Push-Location $repo
     try {
@@ -127,7 +123,6 @@ finally {
     $env:GOOS = $previousGOOS
     $env:GOARCH = $previousGOARCH
     $env:CGO_ENABLED = $previousCGO
-    $env:CC = $previousCC
 }
 
 Copy-Item -LiteralPath (Join-Path $repo "LICENSE") -Destination (Join-Path $packageDirectory "SAGAFLOW-LICENSE.txt") -Force
