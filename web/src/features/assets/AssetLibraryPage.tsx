@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from 'react'
-import { AppstoreOutlined, AudioOutlined, BarsOutlined, CaretDownOutlined, CaretRightOutlined, CloudOutlined, CloudUploadOutlined, CompressOutlined, DeleteOutlined, EditOutlined, ExpandOutlined, EyeOutlined, FileImageOutlined, FileTextOutlined, HddOutlined, InboxOutlined, PlusOutlined, ReloadOutlined, UploadOutlined, VideoCameraOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, AudioOutlined, BarsOutlined, CaretDownOutlined, CaretRightOutlined, CloudOutlined, CloudUploadOutlined, CompressOutlined, DeleteOutlined, EditOutlined, ExpandOutlined, EyeOutlined, FileImageOutlined, FileTextOutlined, FolderOpenOutlined, HddOutlined, InboxOutlined, PlusOutlined, ReloadOutlined, UploadOutlined, VideoCameraOutlined } from '@ant-design/icons'
 import { App, Button, Form, Input, Modal, Pagination, Popconfirm, Select, Skeleton, Tag, Tooltip, Upload } from 'antd'
 import type { UploadFile } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -114,6 +114,11 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
       queryClient.invalidateQueries({ queryKey: ['asset-exports', 'project', project.id] }),
     ])
   }
+  const revealProject = useMutation({
+    mutationFn: () => api.revealProject(project.id),
+    onSuccess: () => message.success('已打开项目文件夹'),
+    onError,
+  })
   const closeGroupModal = () => {
     setGroupOpen(false)
     setEditingGroup(null)
@@ -324,18 +329,21 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
 
   const toolbarItems = videoView
     ? [
+        { key: 'folder', label: '打开项目文件夹', icon: <FolderOpenOutlined/>, loading: revealProject.isPending, onClick: () => revealProject.mutate() },
         { key: 'refresh', label: '刷新视频', icon: <ReloadOutlined/>, loading: refreshing, onClick: () => void refresh() },
         { key: 'grid', label: '网格视图', icon: <AppstoreOutlined/>, active: resultView === 'grid', onClick: () => setResultView('grid' as const) },
         { key: 'list', label: '列表视图', icon: <BarsOutlined/>, active: resultView === 'list', onClick: () => setResultView('list' as const) },
       ]
     : stagingView
     ? [
+        { key: 'folder', label: '打开项目文件夹', icon: <FolderOpenOutlined/>, loading: revealProject.isPending, onClick: () => revealProject.mutate() },
         { key: 'refresh', label: '刷新暂存区', icon: <ReloadOutlined/>, loading: refreshing, onClick: () => void refresh() },
         ...(stagingView === 'unprocessed' ? [{ key: 'upload-staging', label: '上传素材到暂存区', icon: <UploadOutlined/>, onClick: () => { setStagingPendingFiles([]); stagingUploadForm.resetFields(); setStagingUploadOpen(true) } }] : []),
         { key: 'grid', label: '网格视图', icon: <AppstoreOutlined/>, active: resultView === 'grid', onClick: () => setResultView('grid' as const) },
         { key: 'list', label: '列表视图', icon: <BarsOutlined/>, active: resultView === 'list', onClick: () => setResultView('list' as const) },
       ]
     : [
+        { key: 'folder', label: '打开项目文件夹', icon: <FolderOpenOutlined/>, loading: revealProject.isPending, onClick: () => revealProject.mutate() },
         { key: 'refresh', label: '刷新', icon: <ReloadOutlined/>, loading: refreshing, onClick: () => void refresh() },
         { key: 'create-root', label: `新建${kindMeta[selectedKind].label}分组`, icon: <PlusOutlined/>, onClick: () => openCreateGroup() },
         { key: 'create-child', label: selectedGroup ? `在“${selectedGroup.name}”下新建子分组` : '先选择一个父分组', icon: <CaretRightOutlined/>, disabled: !selectedGroup, onClick: () => selectedGroup && openCreateGroup(selectedGroup) },
@@ -518,7 +526,7 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
       </Form>
     </Modal>
 
-    <MaterialViewerModal exports={viewerAsset ? exportsByAsset.get(viewerAsset.id) ?? [] : []} item={viewerAsset} onClose={() => setViewerAsset(null)} open={!!viewerAsset} url={viewerAsset ? api.assetURL(viewerAsset.id) : ''}/>
+    <MaterialViewerModal assetID={viewerAsset?.id} exports={viewerAsset ? exportsByAsset.get(viewerAsset.id) ?? [] : []} item={viewerAsset} onClose={() => setViewerAsset(null)} open={!!viewerAsset} url={viewerAsset ? api.assetURL(viewerAsset.id) : ''}/>
 
     <Modal cancelText="取消" confirmLoading={rename.isPending} okButtonProps={{ disabled: !renameName.trim() }} okText="保存" onCancel={() => setRenameAsset(null)} onOk={() => rename.mutate()} open={!!renameAsset} title="重命名资产">
       <Input autoFocus maxLength={160} onChange={(event) => setRenameName(event.target.value)} onPressEnter={() => renameName.trim() && rename.mutate()} value={renameName}/>

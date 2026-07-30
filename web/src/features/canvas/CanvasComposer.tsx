@@ -469,7 +469,7 @@ function CanvasInner({ project, episode, onError }: { project: Project; episode:
     />
     <CanvasEdgeModal edge={editedEdge} onChange={updateEdge} onClose={() => setEdgeEditorID('')} onDelete={removeEdge}/>
     <CanvasAnnotationModal annotation={editedAnnotation} onChange={updateAnnotation} onClose={() => setAnnotationEditorID('')} onDelete={removeAnnotation}/>
-    <MaterialViewerModal exports={viewer ? exportsByAsset.get(viewer.id) ?? [] : []} item={viewer} onClose={() => setViewer(null)} open={!!viewer} url={viewer ? api.assetURL(viewer.id) : ''}/>
+    <MaterialViewerModal assetID={viewer?.id} exports={viewer ? exportsByAsset.get(viewer.id) ?? [] : []} item={viewer} onClose={() => setViewer(null)} open={!!viewer} url={viewer ? api.assetURL(viewer.id) : ''}/>
   </div>
 }
 

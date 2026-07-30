@@ -104,7 +104,7 @@ export function EpisodeVideoLibrary({ episode, exportsByAsset, onError, onPublis
       })}
     </div>
     {episodeVideos.length > PAGE_SIZE && <Pagination current={page} onChange={setPage} pageSize={PAGE_SIZE} showSizeChanger={false} total={episodeVideos.length}/>}
-    <MaterialViewerModal exports={viewer ? exportsByAsset.get(viewer.id) ?? [] : []} item={viewer} onClose={() => setViewer(null)} open={!!viewer} url={viewer ? api.assetURL(viewer.id) : ''}/>
+    <MaterialViewerModal assetID={viewer?.id} exports={viewer ? exportsByAsset.get(viewer.id) ?? [] : []} item={viewer} onClose={() => setViewer(null)} open={!!viewer} url={viewer ? api.assetURL(viewer.id) : ''}/>
     <Modal cancelText="取消" confirmLoading={rename.isPending} okButtonProps={{ disabled: !name.trim() }} okText="保存" onCancel={() => setRenaming(null)} onOk={() => rename.mutate()} open={!!renaming} title="重命名视频">
       <Input autoFocus maxLength={160} onChange={(event) => setName(event.target.value)} onPressEnter={() => name.trim() && rename.mutate()} value={name}/>
     </Modal>
