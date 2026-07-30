@@ -54,8 +54,7 @@ export function StorageManagement({ onError }: { onError: (error: unknown) => vo
     <div className="settings-section-heading"><div><Typography.Title level={3}>S3 手动发布</Typography.Title><Typography.Text type="secondary">本地文件始终是唯一主副本；这里只配置需要主动上传的公网副本。</Typography.Text></div><Button icon={<PlusOutlined/>} onClick={() => edit()} type="primary">添加连接</Button></div>
     <div className="storage-backend-list">{connections.data?.map((item) => <article key={item.id}>
       <div className="storage-driver-mark"><CloudOutlined/></div>
-      <div><strong>{item.name}</strong><span>{providerLabel(item.provider)} · {item.bucket}</span><p>{item.endpoint || 'AWS 标准 Endpoint'}{item.region ? ` · ${item.region}` : ''}</p></div>
-      <span className={item.enabled ? 'ready' : 'disabled'}>{item.enabled ? '可用' : '停用'}</span>{item.is_default && <em>默认发布目标</em>}
+      <div className="storage-backend-info"><strong>{item.name}</strong><span>{providerLabel(item.provider)} · {item.bucket}</span><p>{item.endpoint || 'AWS 标准 Endpoint'}{item.region ? ` · ${item.region}` : ''}</p><div className="storage-backend-state"><span className={item.enabled ? 'ready' : 'disabled'}>{item.enabled ? '可用' : '停用'}</span>{item.is_default && <em>默认发布目标</em>}</div></div>
       <div className="storage-row-actions"><Button onClick={() => void api.testS3Connection(item.id).then(() => message.success('读、写、删除均正常')).catch(onError)}>测试</Button><Button icon={<EditOutlined/>} onClick={() => edit(item)}>编辑</Button><Button danger icon={<DeleteOutlined/>} onClick={() => modal.confirm({ title: '删除 S3 连接？', content: '已有远端发布记录引用时不能删除。', onOk: async () => { await api.deleteS3Connection(item.id); await client.invalidateQueries({ queryKey: ['s3-connections'] }) } })}>删除</Button></div>
     </article>)}</div>
     {!connections.isLoading && !connections.data?.length && <Empty description="尚未配置 S3；不影响本地素材和本地模型使用" image={Empty.PRESENTED_IMAGE_SIMPLE}/>}

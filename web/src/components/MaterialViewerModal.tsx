@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CloudOutlined, DownloadOutlined, FileOutlined, HddOutlined } from '@ant-design/icons'
 import { Button, Modal, Segmented, Skeleton, Tag } from 'antd'
 import { api } from '../api/client'
@@ -23,6 +23,15 @@ export function MaterialViewerModal({ item, open, url, exports = [], onClose }: 
   const [text, setText] = useState('')
   const [loading, setLoading] = useState(false)
   const [textMode, setTextMode] = useState<'rendered' | 'source'>('rendered')
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
+  const stopPlayback = () => {
+    for (const media of [videoRef.current, audioRef.current]) {
+      if (!media) continue
+      media.pause()
+      if (Number.isFinite(media.duration)) media.currentTime = 0
+    }
+  }
   useEffect(() => {
     if (!open || !item || item.media_type !== 'text') return
     if (item.content_text) {
@@ -43,6 +52,7 @@ export function MaterialViewerModal({ item, open, url, exports = [], onClose }: 
   }, [item, open, url])
   useEffect(() => {
     if (!open) {
+      stopPlayback()
       setText('')
       setTextMode('rendered')
     }
@@ -50,8 +60,9 @@ export function MaterialViewerModal({ item, open, url, exports = [], onClose }: 
   const previewURL = item && ['audio', 'video'].includes(item.media_type) ? withQuery(url, 'proxy=1') : url
   const downloadURL = url ? `${url}${url.includes('?') ? '&' : '?'}download=1` : ''
   return <Modal
+    destroyOnHidden
     footer={<Button download href={downloadURL} icon={<DownloadOutlined/>}>下载原文件</Button>}
-    onCancel={onClose}
+    onCancel={() => { stopPlayback(); onClose() }}
     open={open}
     title={item?.name}
     width={1040}
@@ -59,8 +70,8 @@ export function MaterialViewerModal({ item, open, url, exports = [], onClose }: 
     {item && <>
       <div className={`material-viewer material-${item.media_type}`}>
         {item.media_type === 'image' && <img alt={item.name} src={url}/>}
-        {item.media_type === 'video' && <video controls preload="metadata" src={previewURL}/>}
-        {item.media_type === 'audio' && <div className="material-audio-viewer"><div className="material-audio-disc"/><audio controls preload="metadata" src={previewURL}/><span>{formatBytes(item.file_size_bytes)} · {item.mime_type}</span></div>}
+        {item.media_type === 'video' && <video controls preload="metadata" ref={videoRef} src={previewURL}/>}
+        {item.media_type === 'audio' && <div className="material-audio-viewer"><div className="material-audio-disc"/><audio controls preload="metadata" ref={audioRef} src={previewURL}/><span>{formatBytes(item.file_size_bytes)} · {item.mime_type}</span></div>}
         {item.media_type === 'text' && <div className="material-text-viewer">
           <div className="material-viewer-switch"><Segmented value={textMode} onChange={(value) => setTextMode(value as 'rendered' | 'source')} options={[{ label: '渲染', value: 'rendered' }, { label: '原文', value: 'source' }]}/><span>{text.length} 字</span></div>
           {loading

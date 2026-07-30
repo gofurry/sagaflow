@@ -136,6 +136,24 @@ func (s *Server) publishAsset(c fiber.Ctx) error {
 	return writeCreated(c, item)
 }
 
+func (s *Server) publishAssetGroup(c fiber.Ctx) error {
+	groupID, err := idParam(c, "id")
+	if err != nil {
+		return err
+	}
+	var req struct {
+		ConnectionID uuid.UUID `json:"connection_id"`
+	}
+	if err := c.Bind().JSON(&req); err != nil || req.ConnectionID == uuid.Nil {
+		return fiber.NewError(400, "valid connection_id is required")
+	}
+	result, err := s.storageService.PublishAssetGroup(c.Context(), groupID, req.ConnectionID)
+	if err != nil {
+		return err
+	}
+	return writeOK(c, result)
+}
+
 func (s *Server) deleteAssetExport(c fiber.Ctx) error {
 	id, err := idParam(c, "id")
 	if err != nil {

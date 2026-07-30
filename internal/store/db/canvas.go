@@ -41,11 +41,14 @@ func (s *Store) GetCanvasNode(ctx context.Context, id uuid.UUID) (CanvasNode, er
 
 func (s *Store) ListCanvasReferenceAssetIDs(ctx context.Context, videoNodeID uuid.UUID) ([]uuid.UUID, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT source.asset_id
+		SELECT DISTINCT COALESCE(source.asset_id, source.selected_video_asset_id) AS reference_asset_id
 		FROM canvas_edges edge
 		JOIN canvas_nodes source ON source.id=edge.source_node_id
 		JOIN canvas_nodes target ON target.id=edge.target_node_id
-		WHERE target.id=$1 AND target.node_type='video' AND source.node_type='asset' AND edge.edge_type='reference'
+		WHERE target.id=$1 AND target.node_type='video'
+		  AND source.node_type IN ('asset','video')
+		  AND COALESCE(source.asset_id, source.selected_video_asset_id) IS NOT NULL
+		  AND (edge.edge_type='reference' OR (edge.edge_type='relation' AND source.node_type='video'))
 		ORDER BY edge.created_at`, videoNodeID)
 	if err != nil {
 		return nil, err
@@ -274,8 +277,8 @@ func (s *Store) SaveCanvas(ctx context.Context, episodeID uuid.UUID, canvas Canv
 			}
 			switch edge.EdgeType {
 			case "reference":
-				if sourceType != "asset" || targetType != "video" {
-					return fmt.Errorf("reference edges must connect an asset to a video shot")
+				if (sourceType != "asset" && sourceType != "video") || targetType != "video" {
+					return fmt.Errorf("reference edges must connect an asset or completed video shot to a video shot")
 				}
 			case "annotation":
 				if sourceType != "note" && targetType != "note" {

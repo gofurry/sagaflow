@@ -70,6 +70,7 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
   const [renameAsset, setRenameAsset] = useState<Asset | null>(null)
   const [renameName, setRenameName] = useState('')
 	const [publishingAsset, setPublishingAsset] = useState<Asset | null>(null)
+	const [publishingGroup, setPublishingGroup] = useState<AssetGroup | null>(null)
 	const [publishConnectionID, setPublishConnectionID] = useState<string>()
   const [assetPage, setAssetPage] = useState(1)
 
@@ -249,6 +250,17 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
 		onSuccess: async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: ['asset-exports', publishingAsset?.id] }), queryClient.invalidateQueries({ queryKey: ['asset-exports', 'project', project.id] })]); message.success('已发布公网副本，可作为云模型参考'); setPublishConnectionID(undefined) },
 		onError,
 	})
+	const publishGroup = useMutation({
+		mutationFn: () => api.publishAssetGroup(publishingGroup!.id, publishConnectionID!),
+		onSuccess: async (result) => {
+			await queryClient.invalidateQueries({ queryKey: ['asset-exports'] })
+			setPublishingGroup(null)
+			setPublishConnectionID(undefined)
+			if (result.failed.length) message.warning(`已发布 ${result.published} 个，跳过 ${result.skipped} 个，${result.failed.length} 个失败`)
+			else message.success(`分组发布完成：新增 ${result.published} 个，跳过 ${result.skipped} 个`)
+		},
+		onError,
+	})
 	const deleteExport = useMutation({
 		mutationFn: api.deleteAssetExport,
 		onSuccess: async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: ['asset-exports', publishingAsset?.id] }), queryClient.invalidateQueries({ queryKey: ['asset-exports', 'project', project.id] })]); message.success('远端副本已删除，本地素材不受影响') },
@@ -265,6 +277,11 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
     const existing = new Set((exportsByAsset.get(asset.id) ?? []).map((item) => item.connection_id))
     const available = (s3Query.data ?? []).filter((item) => item.enabled && !existing.has(item.id))
     setPublishingAsset(asset)
+    setPublishConnectionID((available.find((item) => item.is_default) ?? available[0])?.id)
+  }
+  const openGroupPublisher = (group: AssetGroup) => {
+    const available = (s3Query.data ?? []).filter((item) => item.enabled)
+    setPublishingGroup(group)
     setPublishConnectionID((available.find((item) => item.is_default) ?? available[0])?.id)
   }
 
@@ -287,7 +304,12 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
     setPendingFiles([])
     setUploadOpen(true)
   }
-  const selectGroup = (group: AssetGroup) => setSelectedID(group.id)
+  const selectGroup = (group: AssetGroup) => {
+    const opening = !assetPanels.has(group.id) && !expandedGroups.has(group.id)
+    setSelectedID(group.id)
+    setAssetPanels((current) => changedSet(current, group.id, opening))
+    setExpandedGroups((current) => changedSet(current, group.id, opening))
+  }
   const toggleChildren = (group: AssetGroup) => setExpandedGroups((current) => toggledSet(current, group.id))
   const toggleAssets = (group: AssetGroup) => {
     setSelectedID(group.id)
@@ -415,6 +437,7 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
               onCreateChild={openCreateGroup}
               onDelete={(id) => deleteGroup.mutate(id)}
               onEdit={openEditGroup}
+              onGroupPublish={openGroupPublisher}
               onSelect={selectGroup}
               onStatus={(id, status) => setStatus.mutate({ id, status })}
               onToggleAssets={toggleAssets}
@@ -510,6 +533,12 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
 	    {!exportsQuery.isLoading && !exportsQuery.data?.length && <span>还没有远端副本</span>}
 	  </div>
 	</Modal>
+
+	<Modal cancelText="取消" confirmLoading={publishGroup.isPending} okButtonProps={{ disabled: !publishConnectionID }} okText="上传分组素材" onCancel={() => { setPublishingGroup(null); setPublishConnectionID(undefined) }} onOk={() => publishGroup.mutate()} open={!!publishingGroup} title={`批量发布 · ${publishingGroup?.name ?? ''}`}>
+	  <p>将把这个分组及全部子分组内尚未发布的素材上传到所选 S3；已存在的副本和已弃用素材会自动跳过。</p>
+	  <Select onChange={setPublishConnectionID} options={s3Query.data?.filter((item) => item.enabled).map((item) => ({ value: item.id, label: `${item.name} · ${item.bucket}${item.is_default ? ' · 默认' : ''}` }))} placeholder="选择 S3 连接" style={{ width: '100%' }} value={publishConnectionID}/>
+	  {!s3Query.data?.some((item) => item.enabled) && <p>请先在“设置 → S3 发布”中添加并启用连接。</p>}
+	</Modal>
   </div>
 }
 
@@ -528,6 +557,7 @@ interface BranchProps {
   onCreateChild: (parent: AssetGroup) => void
   onUpload: (group: AssetGroup) => void
   onEdit: (group: AssetGroup) => void
+  onGroupPublish: (group: AssetGroup) => void
   onDelete: (id: string) => void
   onStatus: (id: string, status: 'adopted' | 'discarded') => void
   onAssetDelete: (id: string) => void
@@ -536,7 +566,7 @@ interface BranchProps {
 	onAssetPublish: (asset: Asset) => void
 }
 
-function AssetGroupBranch({ group, groups, assets, exportsByAsset, depth, selectedID, expandedGroups, assetPanels, onSelect, onToggleChildren, onToggleAssets, onCreateChild, onUpload, onEdit, onDelete, onStatus, onAssetDelete, onAssetView, onAssetRename, onAssetPublish }: BranchProps) {
+function AssetGroupBranch({ group, groups, assets, exportsByAsset, depth, selectedID, expandedGroups, assetPanels, onSelect, onToggleChildren, onToggleAssets, onCreateChild, onUpload, onEdit, onGroupPublish, onDelete, onStatus, onAssetDelete, onAssetView, onAssetRename, onAssetPublish }: BranchProps) {
   const children = sortedGroups(groups.filter((item) => item.parent_id === group.id))
   const ownAssets = assets.filter((asset) => asset.group_id === group.id)
   const childrenOpen = expandedGroups.has(group.id)
@@ -549,7 +579,7 @@ function AssetGroupBranch({ group, groups, assets, exportsByAsset, depth, select
       <button aria-label={children.length ? (childrenOpen ? '收起子分组' : '展开子分组') : '没有子分组'} className="asset-child-toggle" disabled={children.length === 0} onClick={() => onToggleChildren(group)} type="button">
         {childrenOpen ? <CaretDownOutlined/> : <CaretRightOutlined/>}
       </button>
-      <button className="asset-node-main" onClick={() => onSelect(group)} type="button">
+      <button aria-expanded={assetsOpen || childrenOpen} className="asset-node-main" onClick={() => onSelect(group)} type="button">
         <span className="asset-node-marker"/>
         <span className="asset-node-text"><strong>{group.name}</strong>{group.description && <small>{group.description}</small>}</span>
       </button>
@@ -559,6 +589,7 @@ function AssetGroupBranch({ group, groups, assets, exportsByAsset, depth, select
         <div className="asset-node-actions">
           <button className="asset-add-child" onClick={(event) => { event.stopPropagation(); onCreateChild(group) }} type="button"><PlusOutlined/><span>子分组</span></button>
           <AssetAction icon={<UploadOutlined/>} label="上传资产" onClick={() => onUpload(group)}/>
+          <AssetAction icon={<CloudUploadOutlined/>} label="发布分组到 S3" onClick={() => onGroupPublish(group)}/>
           <AssetAction icon={<EditOutlined/>} label="编辑分组" onClick={() => onEdit(group)}/>
           <Popconfirm cancelText="取消" description={`将永久删除 ${subtree.size} 个分组和 ${subtreeAssets} 个资产。`} okButtonProps={{ danger: true }} okText="删除整个分支" onConfirm={() => onDelete(group.id)} title="确认删除这个分组分支？">
             <button aria-label="删除分组分支" className="asset-row-action danger" onClick={(event) => event.stopPropagation()} type="button"><DeleteOutlined/></button>
@@ -581,7 +612,7 @@ function AssetGroupBranch({ group, groups, assets, exportsByAsset, depth, select
     <div className={`asset-node-region${childrenOpen ? ' open' : ''}`} inert={!childrenOpen}>
       <div className="asset-node-inner">
         {children.map((child) => <AssetGroupBranch
-		  {...{ assetPanels, assets, expandedGroups, exportsByAsset, groups, onAssetDelete, onAssetPublish, onAssetRename, onAssetView, onCreateChild, onDelete, onEdit, onSelect, onStatus, onToggleAssets, onToggleChildren, onUpload, selectedID }}
+		  {...{ assetPanels, assets, expandedGroups, exportsByAsset, groups, onAssetDelete, onAssetPublish, onAssetRename, onAssetView, onCreateChild, onDelete, onEdit, onGroupPublish, onSelect, onStatus, onToggleAssets, onToggleChildren, onUpload, selectedID }}
           depth={depth + 1}
           group={child}
           key={child.id}
@@ -638,6 +669,13 @@ function toggledSet(current: Set<string>, id: string) {
   const next = new Set(current)
   if (next.has(id)) next.delete(id)
   else next.add(id)
+  return next
+}
+
+function changedSet(current: Set<string>, id: string, included: boolean) {
+  const next = new Set(current)
+  if (included) next.add(id)
+  else next.delete(id)
   return next
 }
 

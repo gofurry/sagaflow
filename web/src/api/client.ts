@@ -1,4 +1,4 @@
-import type { Account, Asset, AssetGroup, AssetPage, AssetRemoteExport, AssetSummary, AuthStatus, CanvasDocument, CanvasNodeDTO, CatalogImportResult, CatalogUpdateStatus, ComfyUIDiscovery, ConnectionServerInfo, CurrentUser, Episode, EpisodeScript, GenerationImageTask, GenerationInputReference, GenerationInvocation, GenerationJob, GenerationJobPage, GenerationReferenceUpload, ID, MediaJob, MediaJobPage, MediaTool, MediaToolsStatus, Model, ModelPreset, ModelProvider, ModelSyncResult, MoonshotDiscovery, OllamaDiscovery, Project, PromptPreset, ProviderCredential, S3Connection, SiliconFlowDiscovery, StagedAsset, StagedAssetPage, StagedAssetSummary, TencentTokenHubDiscovery, VoiceBinding, VoiceProfile, VoiceProviderCapability, WorkflowAnalysis, WorkflowCompatibility, WorkflowTemplate } from './types'
+import type { Account, Asset, AssetGroup, AssetGroupPublishResult, AssetPage, AssetRemoteExport, AssetSummary, AuthStatus, CanvasDocument, CanvasNodeDTO, CatalogImportResult, CatalogUpdateStatus, ComfyUIDiscovery, ConnectionServerInfo, CurrentUser, Episode, EpisodeScript, GenerationImageTask, GenerationInputReference, GenerationInvocation, GenerationJob, GenerationJobPage, GenerationReferenceUpload, ID, MediaJob, MediaJobPage, MediaTool, MediaToolsStatus, Model, ModelPreset, ModelProvider, ModelSyncResult, MoonshotDiscovery, OllamaDiscovery, Project, PromptPreset, ProviderCredential, S3Connection, SiliconFlowDiscovery, StagedAsset, StagedAssetPage, StagedAssetSummary, TencentTokenHubDiscovery, VoiceBinding, VoiceProfile, VoiceProviderCapability, WorkflowAnalysis, WorkflowCompatibility, WorkflowTemplate } from './types'
 
 interface Envelope<T> { data?: T; error?: { code: string; message: string } }
 export class APIError extends Error {
@@ -70,6 +70,7 @@ export const api = {
 	assetExports: (id: ID) => request<AssetRemoteExport[]>(`/assets/${id}/exports`),
 	projectAssetExports: (id: ID) => request<AssetRemoteExport[]>(`/projects/${id}/asset-exports`),
 	publishAsset: (id: ID, connectionID: ID) => request<AssetRemoteExport>(`/assets/${id}/exports`, { method: 'POST', body: body({ connection_id: connectionID }) }),
+	publishAssetGroup: (id: ID, connectionID: ID) => request<AssetGroupPublishResult>(`/asset-groups/${id}/exports`, { method: 'POST', body: body({ connection_id: connectionID }) }),
 	deleteAssetExport: (id: ID) => request<{ deleted: boolean }>(`/asset-exports/${id}`, { method: 'DELETE' }),
 	assetExportURL: (id: ID) => request<{ url: string; expires_at: string }>(`/asset-exports/${id}/url`),
   canvas: (episodeID: ID) => request<CanvasDocument>(`/episodes/${episodeID}/canvas`),

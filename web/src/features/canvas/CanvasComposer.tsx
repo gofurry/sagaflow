@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { ApartmentOutlined, ArrowRightOutlined, BorderOutlined, BranchesOutlined, CloudOutlined, DashOutlined, DeleteOutlined, EditOutlined, FileTextOutlined, FullscreenOutlined, HddOutlined, MinusOutlined, RadiusSettingOutlined, ReloadOutlined, SelectOutlined, VideoCameraOutlined } from '@ant-design/icons'
-import { App, Button, Input, InputNumber, Modal, Popconfirm, Select, Spin } from 'antd'
+import { App, Button, Input, InputNumber, Modal, Popconfirm, Segmented, Select, Spin } from 'antd'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   addEdge,
@@ -107,7 +107,7 @@ function CanvasInner({ project, episode, onError }: { project: Project; episode:
   const assets = useMemo(() => assetsQuery.data ?? [], [assetsQuery.data])
   const assetMap = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets])
   const exportsByAsset = useMemo(() => groupAssetExports(exportsQuery.data ?? []), [exportsQuery.data])
-  const adoptedAssets = useMemo(() => assets.filter((asset) => asset.status === 'adopted' && asset.group_id && asset.media_type !== 'video'), [assets])
+  const adoptedAssets = useMemo(() => assets.filter((asset) => asset.status === 'adopted' && asset.group_id), [assets])
 
   const toDocument = useCallback((currentNodes = nodes, currentEdges = edges): CanvasDocument => ({
     nodes: currentNodes.map((node) => ({
@@ -171,7 +171,7 @@ function CanvasInner({ project, episode, onError }: { project: Project; episode:
     })) as FlowNode[]
     const syncedNodes = syncAdoptedAssets(loadedNodes, adoptedAssets, groups)
     const loadedEdges = canvasQuery.data.edges.map((edge) => {
-      const repaired = repairCanvasEdge(edge)
+      const repaired = repairCanvasEdge(edge, loadedNodes)
       return flowEdge(repaired.id, repaired.source, repaired.target, repaired.type, repaired.data, repaired.source_handle, repaired.target_handle)
     })
     setNodes(syncedNodes)
@@ -465,6 +465,7 @@ function CanvasInner({ project, episode, onError }: { project: Project; episode:
       onChange={updateNode}
       onClose={() => setNodeEditorID('')}
       onDelete={removeNode}
+      selectedVideo={editedNode?.data.selected_video_asset_id ? assetMap.get(editedNode.data.selected_video_asset_id) ?? null : null}
     />
     <CanvasEdgeModal edge={editedEdge} onChange={updateEdge} onClose={() => setEdgeEditorID('')} onDelete={removeEdge}/>
     <CanvasAnnotationModal annotation={editedAnnotation} onChange={updateAnnotation} onClose={() => setAnnotationEditorID('')} onDelete={removeAnnotation}/>
@@ -758,25 +759,19 @@ function CanvasRelationshipEdge({ id, sourceX, sourceY, targetX, targetY, source
   </>
 }
 
-function CanvasNodeModal({ node, onChange, onClose, onDelete }: {
+function CanvasNodeModal({ node, onChange, onClose, onDelete, selectedVideo }: {
   node: FlowNode | null
   onChange: (id: string, patch: Partial<CanvasNodeData>) => void
   onClose: () => void
   onDelete: (id: string) => void
+  selectedVideo: Asset | null
 }) {
   if (!node || node.data.kind === 'asset') return null
   const change = (patch: Partial<CanvasNodeData>) => onChange(node.id, patch)
   const kindLabel = node.data.kind === 'video' ? '视频分镜' : '备注'
   const footer = <div className="canvas-modal-footer"><Popconfirm cancelText="取消" okButtonProps={{ danger: true }} okText="删除" onConfirm={() => onDelete(node.id)} title={`从画布删除这个${kindLabel}？`}><Button danger icon={<DeleteOutlined/>}>删除</Button></Popconfirm><Button onClick={onClose} type="primary">完成</Button></div>
   return <Modal className="canvas-edit-modal" footer={footer} onCancel={onClose} open title={<div className="canvas-modal-title"><span>{kindLabel}</span><strong>{node.data.title}</strong></div>} width={node.data.kind === 'note' ? 860 : 720}>
-    {node.data.kind === 'video' && <div className="canvas-modal-form">
-      <label><span>分镜标题</span><Input onChange={(event) => change({ title: event.target.value })} value={node.data.title}/></label>
-      <div className="canvas-modal-grid">
-        <label><span>镜号</span><InputNumber min={1} onChange={(value) => value && change({ shot_number: value })} value={node.data.shot_number}/></label>
-        <label><span>目标时长（秒）</span><InputNumber min={1} onChange={(value) => change({ target_duration_seconds: value ?? undefined })} value={node.data.target_duration_seconds}/></label>
-      </div>
-      <label><span>画面描述</span><Input.TextArea autoSize={{ minRows: 8 }} onChange={(event) => change({ body: event.target.value })} placeholder="描述构图、动作、镜头运动和节奏；视频生成页会带入这段内容。" value={node.data.body}/></label>
-    </div>}
+    {node.data.kind === 'video' && <VideoNodeModalContent change={change} node={node} selectedVideo={selectedVideo}/>}
     {node.data.kind === 'note' && <div className="canvas-modal-form">
       <label><span>标题</span><Input onChange={(event) => change({ title: event.target.value })} value={node.data.title}/></label>
       <label><span>颜色</span><div className="canvas-note-colors">{['sand', 'orange', 'sage', 'rose'].map((color) => <button aria-label={color} className={`${color}${node.data.color === color ? ' active' : ''}`} key={color} onClick={() => change({ color })} type="button"/>)}</div></label>
@@ -784,6 +779,29 @@ function CanvasNodeModal({ node, onChange, onClose, onDelete }: {
       <small>备注连线只表达说明关系，不会自动加入生成 Prompt。</small>
     </div>}
   </Modal>
+}
+
+function VideoNodeModalContent({ node, selectedVideo, change }: { node: FlowNode; selectedVideo: Asset | null; change: (patch: Partial<CanvasNodeData>) => void }) {
+  const [mode, setMode] = useState<'preview' | 'edit'>(selectedVideo ? 'preview' : 'edit')
+  const videoRef = useRef<HTMLVideoElement>(null)
+  useEffect(() => () => { videoRef.current?.pause() }, [])
+  const selectMode = (next: 'preview' | 'edit') => {
+    if (next === 'edit') videoRef.current?.pause()
+    setMode(next)
+  }
+  return <div className="canvas-video-modal-content">
+    <Segmented block onChange={(value) => selectMode(value as 'preview' | 'edit')} options={[{ label: '预览成片', value: 'preview', disabled: !selectedVideo }, { label: '编辑分镜', value: 'edit' }]} value={mode}/>
+    {mode === 'preview' && selectedVideo
+      ? <div className="canvas-selected-video-preview"><video controls preload="metadata" ref={videoRef} src={api.assetProxyURL(selectedVideo.id)}/><div><strong>{selectedVideo.name}</strong><span>双击分镜卡片可随时回到这里预览</span></div></div>
+      : <div className="canvas-modal-form">
+        <label><span>分镜标题</span><Input onChange={(event) => change({ title: event.target.value })} value={node.data.title}/></label>
+        <div className="canvas-modal-grid">
+          <label><span>镜号</span><InputNumber min={1} onChange={(value) => value && change({ shot_number: value })} value={node.data.shot_number}/></label>
+          <label><span>目标时长（秒）</span><InputNumber min={1} onChange={(value) => change({ target_duration_seconds: value ?? undefined })} value={node.data.target_duration_seconds}/></label>
+        </div>
+        <label><span>画面描述</span><Input.TextArea autoSize={{ minRows: 8 }} onChange={(event) => change({ body: event.target.value })} placeholder="描述构图、动作、镜头运动和节奏；视频生成页会带入这段内容。" value={node.data.body}/></label>
+      </div>}
+  </div>
 }
 
 function CanvasEdgeModal({ edge, onChange, onClose, onDelete }: {
@@ -832,11 +850,10 @@ function refreshAssetNodeData(data: CanvasNodeData, assets: Map<string, Asset>, 
 }
 
 function syncAdoptedAssets(nodes: FlowNode[], adoptedAssets: Asset[], groups: AssetGroup[]) {
-  const eligibleNodes = nodes.filter((node) => node.data.kind !== 'asset' || node.data.media_type !== 'video')
-  const existing = new Set(eligibleNodes.filter((node) => node.data.kind === 'asset').map((node) => node.data.asset_id))
+  const existing = new Set(nodes.filter((node) => node.data.kind === 'asset').map((node) => node.data.asset_id))
   const positions = assetTreePositions(adoptedAssets, groups)
   const additions = adoptedAssets.filter((asset) => !existing.has(asset.id)).map((asset) => assetNode(asset, positions.get(asset.id) ?? { x: 90, y: 90 }, groups))
-  return additions.length || eligibleNodes.length !== nodes.length ? [...eligibleNodes, ...additions] : nodes
+  return additions.length ? [...nodes, ...additions] : nodes
 }
 
 function arrangeCanvasNodes(nodes: FlowNode[], adoptedAssets: Asset[], groups: AssetGroup[]) {
