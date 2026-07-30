@@ -29,7 +29,7 @@ func (s *Server) uploadGenerationReference(c fiber.Ctx) error {
 	mediaType := mediaTypeFromMIME(mimeType)
 	uploadID := uuid.New()
 	managed, err := s.storage.UploadManaged(c.Context(), storage.ManagedUploadInput{
-		ProjectID: &projectID, Purpose: "generation-references", OriginalName: header.Filename,
+		ProjectID: &projectID, OwnerID: &uploadID, Purpose: "references", OriginalName: header.Filename,
 		UploadInput: storage.UploadInput{Reader: upload.Reader, Size: header.Size, ContentType: mimeType},
 	})
 	if err != nil {

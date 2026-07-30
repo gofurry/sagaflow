@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from 'react'
-import { AppstoreOutlined, AudioOutlined, BarsOutlined, CaretDownOutlined, CaretRightOutlined, CloudOutlined, CloudUploadOutlined, CompressOutlined, DeleteOutlined, EditOutlined, ExpandOutlined, EyeOutlined, FileImageOutlined, FileTextOutlined, HddOutlined, InboxOutlined, PlusOutlined, ReloadOutlined, UploadOutlined, VideoCameraOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, AudioOutlined, BarsOutlined, CaretDownOutlined, CaretRightOutlined, CloudOutlined, CloudUploadOutlined, CompressOutlined, DeleteOutlined, EditOutlined, ExpandOutlined, EyeOutlined, FileImageOutlined, FileTextOutlined, FolderOpenOutlined, HddOutlined, InboxOutlined, PlusOutlined, ReloadOutlined, UploadOutlined, VideoCameraOutlined } from '@ant-design/icons'
 import { App, Button, Form, Input, Modal, Pagination, Popconfirm, Select, Skeleton, Tag, Tooltip, Upload } from 'antd'
 import type { UploadFile } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -70,6 +70,7 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
   const [renameAsset, setRenameAsset] = useState<Asset | null>(null)
   const [renameName, setRenameName] = useState('')
 	const [publishingAsset, setPublishingAsset] = useState<Asset | null>(null)
+	const [publishingGroup, setPublishingGroup] = useState<AssetGroup | null>(null)
 	const [publishConnectionID, setPublishConnectionID] = useState<string>()
   const [assetPage, setAssetPage] = useState(1)
 
@@ -113,6 +114,11 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
       queryClient.invalidateQueries({ queryKey: ['asset-exports', 'project', project.id] }),
     ])
   }
+  const revealProject = useMutation({
+    mutationFn: () => api.revealProject(project.id),
+    onSuccess: () => message.success('已打开项目文件夹'),
+    onError,
+  })
   const closeGroupModal = () => {
     setGroupOpen(false)
     setEditingGroup(null)
@@ -249,6 +255,17 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
 		onSuccess: async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: ['asset-exports', publishingAsset?.id] }), queryClient.invalidateQueries({ queryKey: ['asset-exports', 'project', project.id] })]); message.success('已发布公网副本，可作为云模型参考'); setPublishConnectionID(undefined) },
 		onError,
 	})
+	const publishGroup = useMutation({
+		mutationFn: () => api.publishAssetGroup(publishingGroup!.id, publishConnectionID!),
+		onSuccess: async (result) => {
+			await queryClient.invalidateQueries({ queryKey: ['asset-exports'] })
+			setPublishingGroup(null)
+			setPublishConnectionID(undefined)
+			if (result.failed.length) message.warning(`已发布 ${result.published} 个，跳过 ${result.skipped} 个，${result.failed.length} 个失败`)
+			else message.success(`分组发布完成：新增 ${result.published} 个，跳过 ${result.skipped} 个`)
+		},
+		onError,
+	})
 	const deleteExport = useMutation({
 		mutationFn: api.deleteAssetExport,
 		onSuccess: async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: ['asset-exports', publishingAsset?.id] }), queryClient.invalidateQueries({ queryKey: ['asset-exports', 'project', project.id] })]); message.success('远端副本已删除，本地素材不受影响') },
@@ -265,6 +282,11 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
     const existing = new Set((exportsByAsset.get(asset.id) ?? []).map((item) => item.connection_id))
     const available = (s3Query.data ?? []).filter((item) => item.enabled && !existing.has(item.id))
     setPublishingAsset(asset)
+    setPublishConnectionID((available.find((item) => item.is_default) ?? available[0])?.id)
+  }
+  const openGroupPublisher = (group: AssetGroup) => {
+    const available = (s3Query.data ?? []).filter((item) => item.enabled)
+    setPublishingGroup(group)
     setPublishConnectionID((available.find((item) => item.is_default) ?? available[0])?.id)
   }
 
@@ -287,7 +309,12 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
     setPendingFiles([])
     setUploadOpen(true)
   }
-  const selectGroup = (group: AssetGroup) => setSelectedID(group.id)
+  const selectGroup = (group: AssetGroup) => {
+    const opening = !assetPanels.has(group.id) && !expandedGroups.has(group.id)
+    setSelectedID(group.id)
+    setAssetPanels((current) => changedSet(current, group.id, opening))
+    setExpandedGroups((current) => changedSet(current, group.id, opening))
+  }
   const toggleChildren = (group: AssetGroup) => setExpandedGroups((current) => toggledSet(current, group.id))
   const toggleAssets = (group: AssetGroup) => {
     setSelectedID(group.id)
@@ -302,18 +329,21 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
 
   const toolbarItems = videoView
     ? [
+        { key: 'folder', label: '打开项目文件夹', icon: <FolderOpenOutlined/>, loading: revealProject.isPending, onClick: () => revealProject.mutate() },
         { key: 'refresh', label: '刷新视频', icon: <ReloadOutlined/>, loading: refreshing, onClick: () => void refresh() },
         { key: 'grid', label: '网格视图', icon: <AppstoreOutlined/>, active: resultView === 'grid', onClick: () => setResultView('grid' as const) },
         { key: 'list', label: '列表视图', icon: <BarsOutlined/>, active: resultView === 'list', onClick: () => setResultView('list' as const) },
       ]
     : stagingView
     ? [
+        { key: 'folder', label: '打开项目文件夹', icon: <FolderOpenOutlined/>, loading: revealProject.isPending, onClick: () => revealProject.mutate() },
         { key: 'refresh', label: '刷新暂存区', icon: <ReloadOutlined/>, loading: refreshing, onClick: () => void refresh() },
         ...(stagingView === 'unprocessed' ? [{ key: 'upload-staging', label: '上传素材到暂存区', icon: <UploadOutlined/>, onClick: () => { setStagingPendingFiles([]); stagingUploadForm.resetFields(); setStagingUploadOpen(true) } }] : []),
         { key: 'grid', label: '网格视图', icon: <AppstoreOutlined/>, active: resultView === 'grid', onClick: () => setResultView('grid' as const) },
         { key: 'list', label: '列表视图', icon: <BarsOutlined/>, active: resultView === 'list', onClick: () => setResultView('list' as const) },
       ]
     : [
+        { key: 'folder', label: '打开项目文件夹', icon: <FolderOpenOutlined/>, loading: revealProject.isPending, onClick: () => revealProject.mutate() },
         { key: 'refresh', label: '刷新', icon: <ReloadOutlined/>, loading: refreshing, onClick: () => void refresh() },
         { key: 'create-root', label: `新建${kindMeta[selectedKind].label}分组`, icon: <PlusOutlined/>, onClick: () => openCreateGroup() },
         { key: 'create-child', label: selectedGroup ? `在“${selectedGroup.name}”下新建子分组` : '先选择一个父分组', icon: <CaretRightOutlined/>, disabled: !selectedGroup, onClick: () => selectedGroup && openCreateGroup(selectedGroup) },
@@ -415,6 +445,7 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
               onCreateChild={openCreateGroup}
               onDelete={(id) => deleteGroup.mutate(id)}
               onEdit={openEditGroup}
+              onGroupPublish={openGroupPublisher}
               onSelect={selectGroup}
               onStatus={(id, status) => setStatus.mutate({ id, status })}
               onToggleAssets={toggleAssets}
@@ -495,7 +526,7 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
       </Form>
     </Modal>
 
-    <MaterialViewerModal exports={viewerAsset ? exportsByAsset.get(viewerAsset.id) ?? [] : []} item={viewerAsset} onClose={() => setViewerAsset(null)} open={!!viewerAsset} url={viewerAsset ? api.assetURL(viewerAsset.id) : ''}/>
+    <MaterialViewerModal assetID={viewerAsset?.id} exports={viewerAsset ? exportsByAsset.get(viewerAsset.id) ?? [] : []} item={viewerAsset} onClose={() => setViewerAsset(null)} open={!!viewerAsset} url={viewerAsset ? api.assetURL(viewerAsset.id) : ''}/>
 
     <Modal cancelText="取消" confirmLoading={rename.isPending} okButtonProps={{ disabled: !renameName.trim() }} okText="保存" onCancel={() => setRenameAsset(null)} onOk={() => rename.mutate()} open={!!renameAsset} title="重命名资产">
       <Input autoFocus maxLength={160} onChange={(event) => setRenameName(event.target.value)} onPressEnter={() => renameName.trim() && rename.mutate()} value={renameName}/>
@@ -509,6 +540,12 @@ export function AssetLibraryPage({ episode, project, onError }: Props) {
 	    {exportsQuery.data?.map((exported) => <div key={exported.id}><div><strong>{assetExportLabel(exported)}{exported.connection_is_default ? ' · 默认' : ''}</strong><span>{exported.object_key}</span></div><Button onClick={() => void copyExportURL(exported.id)} size="small" type="text">复制链接</Button><Popconfirm cancelText="取消" description="只删除远端副本，本地素材不会删除。" okButtonProps={{ danger: true }} okText="删除副本" onConfirm={() => deleteExport.mutate(exported.id)} title="删除这个远端副本？"><Button danger loading={deleteExport.isPending && deleteExport.variables === exported.id} size="small" type="text">删除</Button></Popconfirm></div>)}
 	    {!exportsQuery.isLoading && !exportsQuery.data?.length && <span>还没有远端副本</span>}
 	  </div>
+	</Modal>
+
+	<Modal cancelText="取消" confirmLoading={publishGroup.isPending} okButtonProps={{ disabled: !publishConnectionID }} okText="上传分组素材" onCancel={() => { setPublishingGroup(null); setPublishConnectionID(undefined) }} onOk={() => publishGroup.mutate()} open={!!publishingGroup} title={`批量发布 · ${publishingGroup?.name ?? ''}`}>
+	  <p>将把这个分组及全部子分组内尚未发布的素材上传到所选 S3；已存在的副本和已弃用素材会自动跳过。</p>
+	  <Select onChange={setPublishConnectionID} options={s3Query.data?.filter((item) => item.enabled).map((item) => ({ value: item.id, label: `${item.name} · ${item.bucket}${item.is_default ? ' · 默认' : ''}` }))} placeholder="选择 S3 连接" style={{ width: '100%' }} value={publishConnectionID}/>
+	  {!s3Query.data?.some((item) => item.enabled) && <p>请先在“设置 → S3 发布”中添加并启用连接。</p>}
 	</Modal>
   </div>
 }
@@ -528,6 +565,7 @@ interface BranchProps {
   onCreateChild: (parent: AssetGroup) => void
   onUpload: (group: AssetGroup) => void
   onEdit: (group: AssetGroup) => void
+  onGroupPublish: (group: AssetGroup) => void
   onDelete: (id: string) => void
   onStatus: (id: string, status: 'adopted' | 'discarded') => void
   onAssetDelete: (id: string) => void
@@ -536,7 +574,7 @@ interface BranchProps {
 	onAssetPublish: (asset: Asset) => void
 }
 
-function AssetGroupBranch({ group, groups, assets, exportsByAsset, depth, selectedID, expandedGroups, assetPanels, onSelect, onToggleChildren, onToggleAssets, onCreateChild, onUpload, onEdit, onDelete, onStatus, onAssetDelete, onAssetView, onAssetRename, onAssetPublish }: BranchProps) {
+function AssetGroupBranch({ group, groups, assets, exportsByAsset, depth, selectedID, expandedGroups, assetPanels, onSelect, onToggleChildren, onToggleAssets, onCreateChild, onUpload, onEdit, onGroupPublish, onDelete, onStatus, onAssetDelete, onAssetView, onAssetRename, onAssetPublish }: BranchProps) {
   const children = sortedGroups(groups.filter((item) => item.parent_id === group.id))
   const ownAssets = assets.filter((asset) => asset.group_id === group.id)
   const childrenOpen = expandedGroups.has(group.id)
@@ -549,7 +587,7 @@ function AssetGroupBranch({ group, groups, assets, exportsByAsset, depth, select
       <button aria-label={children.length ? (childrenOpen ? '收起子分组' : '展开子分组') : '没有子分组'} className="asset-child-toggle" disabled={children.length === 0} onClick={() => onToggleChildren(group)} type="button">
         {childrenOpen ? <CaretDownOutlined/> : <CaretRightOutlined/>}
       </button>
-      <button className="asset-node-main" onClick={() => onSelect(group)} type="button">
+      <button aria-expanded={assetsOpen || childrenOpen} className="asset-node-main" onClick={() => onSelect(group)} type="button">
         <span className="asset-node-marker"/>
         <span className="asset-node-text"><strong>{group.name}</strong>{group.description && <small>{group.description}</small>}</span>
       </button>
@@ -559,6 +597,7 @@ function AssetGroupBranch({ group, groups, assets, exportsByAsset, depth, select
         <div className="asset-node-actions">
           <button className="asset-add-child" onClick={(event) => { event.stopPropagation(); onCreateChild(group) }} type="button"><PlusOutlined/><span>子分组</span></button>
           <AssetAction icon={<UploadOutlined/>} label="上传资产" onClick={() => onUpload(group)}/>
+          <AssetAction icon={<CloudUploadOutlined/>} label="发布分组到 S3" onClick={() => onGroupPublish(group)}/>
           <AssetAction icon={<EditOutlined/>} label="编辑分组" onClick={() => onEdit(group)}/>
           <Popconfirm cancelText="取消" description={`将永久删除 ${subtree.size} 个分组和 ${subtreeAssets} 个资产。`} okButtonProps={{ danger: true }} okText="删除整个分支" onConfirm={() => onDelete(group.id)} title="确认删除这个分组分支？">
             <button aria-label="删除分组分支" className="asset-row-action danger" onClick={(event) => event.stopPropagation()} type="button"><DeleteOutlined/></button>
@@ -581,7 +620,7 @@ function AssetGroupBranch({ group, groups, assets, exportsByAsset, depth, select
     <div className={`asset-node-region${childrenOpen ? ' open' : ''}`} inert={!childrenOpen}>
       <div className="asset-node-inner">
         {children.map((child) => <AssetGroupBranch
-		  {...{ assetPanels, assets, expandedGroups, exportsByAsset, groups, onAssetDelete, onAssetPublish, onAssetRename, onAssetView, onCreateChild, onDelete, onEdit, onSelect, onStatus, onToggleAssets, onToggleChildren, onUpload, selectedID }}
+		  {...{ assetPanels, assets, expandedGroups, exportsByAsset, groups, onAssetDelete, onAssetPublish, onAssetRename, onAssetView, onCreateChild, onDelete, onEdit, onGroupPublish, onSelect, onStatus, onToggleAssets, onToggleChildren, onUpload, selectedID }}
           depth={depth + 1}
           group={child}
           key={child.id}
@@ -638,6 +677,13 @@ function toggledSet(current: Set<string>, id: string) {
   const next = new Set(current)
   if (next.has(id)) next.delete(id)
   else next.add(id)
+  return next
+}
+
+function changedSet(current: Set<string>, id: string, included: boolean) {
+  const next = new Set(current)
+  if (included) next.add(id)
+  else next.delete(id)
   return next
 }
 

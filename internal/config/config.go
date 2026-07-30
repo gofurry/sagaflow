@@ -151,7 +151,7 @@ func (c Config) IsLoopback() bool {
 }
 
 func (c Config) EnsureRuntimeDirs() error {
-	for _, path := range []string{c.App.DataDir, c.ObjectDir(), c.TempDir(), c.BackupDir(), c.SecretDir(), c.CatalogDir(), c.ToolDir()} {
+	for _, path := range []string{c.App.DataDir, c.TempDir(), c.BackupDir(), c.SecretDir(), c.CatalogDir(), c.ToolDir()} {
 		mode := os.FileMode(0o755)
 		if path == c.SecretDir() {
 			mode = 0o700

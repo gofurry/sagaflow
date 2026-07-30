@@ -130,32 +130,90 @@ func (s *StorageService) PublishAsset(ctx context.Context, assetID, connectionID
 	if !connection.Enabled {
 		return db.AssetRemoteExport{}, fmt.Errorf("%w: S3 connection is disabled", ErrInvalidInput)
 	}
-	existing, err := s.store.ListAssetRemoteExports(ctx, asset.ID)
-	if err != nil {
-		return db.AssetRemoteExport{}, err
-	}
-	for _, exported := range existing {
-		if exported.ConnectionID == connection.ID && exported.State == "ready" {
-			return exported, nil
-		}
-	}
-	file, object, err := s.local.Open(ctx, asset.ObjectID)
-	if err != nil {
-		return db.AssetRemoteExport{}, err
-	}
-	defer file.Close()
 	remote, err := s.remoteStore(connection)
 	if err != nil {
 		return db.AssetRemoteExport{}, err
 	}
+	exported, _, err := s.publishAsset(ctx, asset, connection, remote)
+	return exported, err
+}
+
+type AssetPublishFailure struct {
+	AssetID string `json:"asset_id"`
+	Name    string `json:"name"`
+	Error   string `json:"error"`
+}
+
+type AssetGroupPublishResult struct {
+	Total     int                   `json:"total"`
+	Published int                   `json:"published"`
+	Skipped   int                   `json:"skipped"`
+	Failed    []AssetPublishFailure `json:"failed"`
+}
+
+func (s *StorageService) PublishAssetGroup(ctx context.Context, groupID, connectionID uuid.UUID) (AssetGroupPublishResult, error) {
+	if _, err := s.store.GetAssetGroup(ctx, groupID); err != nil {
+		return AssetGroupPublishResult{}, mapStoreError(err)
+	}
+	assets, err := s.store.ListAssetGroupSubtreeAssets(ctx, groupID)
+	if err != nil {
+		return AssetGroupPublishResult{}, err
+	}
+	connection, err := s.store.GetS3Connection(ctx, connectionID)
+	if err != nil {
+		return AssetGroupPublishResult{}, mapStoreError(err)
+	}
+	if !connection.Enabled {
+		return AssetGroupPublishResult{}, fmt.Errorf("%w: S3 connection is disabled", ErrInvalidInput)
+	}
+	remote, err := s.remoteStore(connection)
+	if err != nil {
+		return AssetGroupPublishResult{}, err
+	}
+	result := AssetGroupPublishResult{Total: len(assets), Failed: make([]AssetPublishFailure, 0)}
+	for _, asset := range assets {
+		if asset.Status == "discarded" {
+			result.Skipped++
+			continue
+		}
+		_, created, publishErr := s.publishAsset(ctx, asset, connection, remote)
+		if publishErr != nil {
+			result.Failed = append(result.Failed, AssetPublishFailure{AssetID: asset.ID.String(), Name: asset.Name, Error: publishErr.Error()})
+			continue
+		}
+		if created {
+			result.Published++
+		} else {
+			result.Skipped++
+		}
+	}
+	return result, nil
+}
+
+func (s *StorageService) publishAsset(ctx context.Context, asset db.Asset, connection db.S3Connection, remote *storage.S3Store) (db.AssetRemoteExport, bool, error) {
+	existing, err := s.store.ListAssetRemoteExports(ctx, asset.ID)
+	if err != nil {
+		return db.AssetRemoteExport{}, false, err
+	}
+	for _, exported := range existing {
+		if exported.ConnectionID == connection.ID && exported.State == "ready" {
+			return exported, false, nil
+		}
+	}
+	file, object, err := s.local.Open(ctx, asset.ObjectID)
+	if err != nil {
+		return db.AssetRemoteExport{}, false, err
+	}
+	defer file.Close()
 	key := filepath.ToSlash(filepath.Join("projects", asset.ProjectID.String(), "assets", asset.ID.String(), object.OriginalName))
 	uploaded, err := remote.Upload(ctx, storage.UploadInput{Key: key, Reader: file, Size: object.SizeBytes, ContentType: object.MimeType})
 	if err != nil {
-		return db.AssetRemoteExport{}, err
+		return db.AssetRemoteExport{}, false, err
 	}
-	return s.store.CreateAssetRemoteExport(ctx, db.AssetRemoteExport{
+	exported, err := s.store.CreateAssetRemoteExport(ctx, db.AssetRemoteExport{
 		AssetID: asset.ID, ConnectionID: connection.ID, ObjectKey: uploaded.Key, PublicURL: uploaded.URL, State: "ready",
 	})
+	return exported, err == nil, err
 }
 
 func (s *StorageService) ProviderURL(ctx context.Context, exportID uuid.UUID, ttl time.Duration) (storage.SignedURL, error) {

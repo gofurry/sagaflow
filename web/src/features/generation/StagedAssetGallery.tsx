@@ -40,6 +40,7 @@ export function StagedAssetGallery({
   const [viewer, setViewer] = useState<StagedAsset | null>(null)
   const [renameItem, setRenameItem] = useState<StagedAsset | null>(null)
   const [groupID, setGroupID] = useState<string>()
+  const [publishConnectionID, setPublishConnectionID] = useState<string>()
   const [name, setName] = useState('')
   const effectiveProcessed = processed ?? processedFilter
   const filters = {
@@ -57,24 +58,39 @@ export function StagedAssetGallery({
     queryKey: ['staged-assets', projectID, filters],
     queryFn: () => api.stagedAssets(projectID, filters),
   })
+  const s3Query = useQuery({ queryKey: ['s3-connections'], queryFn: api.s3Connections })
   const pageData = itemsQuery.data
   const items = pageData?.items ?? []
   const groupOptions = useMemo(() => groups
     .map((group) => ({ value: group.id, label: assetGroupPath(group, groups) }))
     .sort((left, right) => left.label.localeCompare(right.label, 'zh-CN')), [groups])
+  const enabledConnections = (s3Query.data ?? []).filter((item) => item.enabled)
+  const effectivePublishConnectionID = publishConnectionID ?? (enabledConnections.find((item) => item.is_default) ?? enabledConnections[0])?.id
   const refresh = () => Promise.all([
     queryClient.invalidateQueries({ queryKey: ['staged-assets', projectID] }),
     queryClient.invalidateQueries({ queryKey: ['staged-summary', projectID] }),
     queryClient.invalidateQueries({ queryKey: ['assets', projectID] }),
+    queryClient.invalidateQueries({ queryKey: ['asset-exports', 'project', projectID] }),
   ])
   const importItem = useMutation({
-    mutationFn: () => api.importStagedAsset(selected!.id, { group_id: groupID!, name: name.trim() || undefined }),
-    onSuccess: async () => {
+    mutationFn: async ({ publish }: { publish: boolean }) => {
+      const asset = await api.importStagedAsset(selected!.id, { group_id: groupID!, name: name.trim() || undefined })
+      if (!publish) return { asset }
+      try {
+        await api.publishAsset(asset.id, effectivePublishConnectionID!)
+        return { asset, published: true }
+      } catch (publishError) {
+        return { asset, publishError }
+      }
+    },
+    onSuccess: async (result) => {
       await refresh()
       setSelected(null)
       setGroupID(undefined)
+      setPublishConnectionID(undefined)
       setName('')
-      message.success('素材已入库')
+      if (result.publishError) message.warning(`素材已入库，但 S3 上传失败：${errorMessage(result.publishError)}`)
+      else message.success(result.published ? '素材已入库并上传到 S3' : '素材已入库')
     },
     onError,
   })
@@ -99,6 +115,7 @@ export function StagedAssetGallery({
   const openImport = (item: StagedAsset) => {
     setSelected(item)
     setGroupID(item.target_asset_group_id ?? undefined)
+    setPublishConnectionID(undefined)
     setName(item.asset_name || item.name)
   }
   const openRename = (item: StagedAsset) => {
@@ -156,12 +173,8 @@ export function StagedAssetGallery({
     <MaterialViewerModal item={viewer} onClose={() => setViewer(null)} open={!!viewer} url={viewer ? api.stagedAssetURL(viewer.id) : ''}/>
 
     <Modal
-      cancelText="取消"
-      confirmLoading={importItem.isPending}
-      okButtonProps={{ disabled: !groupID }}
-      okText="加入资产库"
+      footer={<div className="generation-import-actions"><Button onClick={() => setSelected(null)}>取消</Button><Button disabled={!groupID} loading={importItem.isPending && !importItem.variables?.publish} onClick={() => importItem.mutate({ publish: false })}>仅加入资产库</Button><Button disabled={!groupID || !effectivePublishConnectionID} loading={importItem.isPending && !!importItem.variables?.publish} onClick={() => importItem.mutate({ publish: true })} type="primary">加入并上传</Button></div>}
       onCancel={() => setSelected(null)}
-      onOk={() => importItem.mutate()}
       open={!!selected}
       title="选择资产分组"
       width={640}
@@ -169,6 +182,7 @@ export function StagedAssetGallery({
       <div className="generation-import-form">
         <label><span>资产名称</span><Input onChange={(event) => setName(event.target.value)} value={name}/></label>
         <label><span>目标分组</span><Select autoFocus onChange={setGroupID} options={groupOptions} placeholder={groupOptions.length ? '选择一个资产分组' : '请先创建资产分组'} showSearch optionFilterProp="label" value={groupID}/></label>
+        <label><span>上传到 S3</span><Select disabled={!enabledConnections.length} onChange={setPublishConnectionID} options={enabledConnections.map((item) => ({ value: item.id, label: `${item.name} · ${item.bucket}${item.is_default ? ' · 默认' : ''}` }))} placeholder={enabledConnections.length ? '选择 S3 连接' : '尚未配置可用的 S3 连接'} value={effectivePublishConnectionID}/></label>
         <p>入库后仍可在“已入库”中查看；删除正式资产后，这项素材会重新回到“未处理”。</p>
       </div>
     </Modal>
@@ -208,4 +222,8 @@ function kindLabel(kind: AssetGroup['kind']) {
 
 function mediaLabel(media: StagedAsset['media_type']) {
   return ({ text: '文本', image: '图像', audio: '音频', video: '视频', file: '文件' })[media]
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : '未知错误'
 }

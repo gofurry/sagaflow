@@ -71,9 +71,12 @@ func RunWithOptions(ctx context.Context, cfg config.Config, log *zap.Logger, opt
 	if err != nil {
 		return err
 	}
-	objectStore, err := storage.NewManager(store, cfg.ObjectDir(), cfg.TempDir())
+	objectStore, err := storage.NewManager(store, cfg.App.DataDir, cfg.TempDir())
 	if err != nil {
 		return err
+	}
+	if err := objectStore.MigrateLegacyLayout(runCtx, cfg.ObjectDir()); err != nil {
+		return fmt.Errorf("migrate project file layout: %w", err)
 	}
 	storageService := service.NewStorageService(store, credentials, objectStore, log.Named("s3"))
 	httpClient := &http.Client{Timeout: 5 * time.Minute}

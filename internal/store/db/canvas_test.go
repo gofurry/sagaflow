@@ -199,3 +199,55 @@ func TestSaveCanvasAllowsAnnotationToTargetNote(t *testing.T) {
 		t.Fatalf("expected video-to-note annotation edge, got %#v", stored.Edges)
 	}
 }
+
+func TestSaveCanvasAllowsSelectedStoryboardVideoAsReference(t *testing.T) {
+	ctx := context.Background()
+	database, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "sagaflow.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	projectID := uuid.New()
+	episodeID := uuid.New()
+	sourceNodeID := uuid.New()
+	targetNodeID := uuid.New()
+	objectID := uuid.New()
+	assetID := uuid.New()
+	statements := []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO projects (id,title) VALUES ($1,'门后的世界')`, []any{projectID}},
+		{`INSERT INTO episodes (id,project_id,episode_number,title) VALUES ($1,$2,1,'选择')`, []any{episodeID, projectID}},
+		{`INSERT INTO canvas_nodes (id,episode_id,node_type,position_x,position_y,title,shot_number) VALUES ($1,$2,'video',0,0,'选择门',1)`, []any{sourceNodeID, episodeID}},
+		{`INSERT INTO local_objects (id,project_id,object_key,original_name,purpose,mime_type,state) VALUES ($1,$2,'videos/shot-1.mp4','shot-1.mp4','asset','video/mp4','ready')`, []any{objectID, projectID}},
+		{`INSERT INTO assets (id,project_id,episode_id,canvas_node_id,object_id,name,media_type,status,mime_type) VALUES ($1,$2,$3,$4,$5,'分镜一成片','video','adopted','video/mp4')`, []any{assetID, projectID, episodeID, sourceNodeID, objectID}},
+	}
+	for _, statement := range statements {
+		if _, err := database.ExecContext(ctx, statement.query, statement.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	first, second := int32(1), int32(2)
+	store := db.New(database)
+	canvas := db.Canvas{
+		Nodes: []db.CanvasNode{
+			{ID: sourceNodeID, EpisodeID: episodeID, NodeType: "video", PositionX: 0, PositionY: 0, Title: "选择门", ShotNumber: &first, SelectedVideoAssetID: &assetID},
+			{ID: targetNodeID, EpisodeID: episodeID, NodeType: "video", PositionX: 400, PositionY: 0, Title: "进入异世界", ShotNumber: &second},
+		},
+		Edges: []db.CanvasEdge{{ID: uuid.New(), EpisodeID: episodeID, SourceNodeID: sourceNodeID, TargetNodeID: targetNodeID, EdgeType: "reference"}},
+	}
+	if err := store.SaveCanvas(ctx, episodeID, canvas); err != nil {
+		t.Fatal(err)
+	}
+
+	ids, err := store.ListCanvasReferenceAssetIDs(ctx, targetNodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != assetID {
+		t.Fatalf("expected selected asset %s as the reference, got %v", assetID, ids)
+	}
+}

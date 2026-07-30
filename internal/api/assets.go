@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofurry/sagaflow/internal/media"
+	"github.com/gofurry/sagaflow/internal/platform/filemanager"
 	"github.com/gofurry/sagaflow/internal/platform/storage"
 	"github.com/gofurry/sagaflow/internal/service"
 	"github.com/gofurry/sagaflow/internal/store/db"
@@ -262,7 +264,7 @@ func (s *Server) uploadAsset(c fiber.Ctx) error {
 	}
 	assetID := uuid.New()
 	managed, err := s.storage.UploadManaged(c.Context(), storage.ManagedUploadInput{
-		ProjectID: &group.ProjectID, Purpose: "assets", OriginalName: header.Filename,
+		ProjectID: &group.ProjectID, OwnerID: &assetID, Purpose: filepath.ToSlash(filepath.Join("assets", group.Kind, group.ID.String())), OriginalName: header.Filename,
 		UploadInput: storage.UploadInput{Reader: upload.Reader, Size: header.Size, ContentType: mimeType},
 	})
 	if err != nil {
@@ -274,6 +276,7 @@ func (s *Server) uploadAsset(c fiber.Ctx) error {
 		_ = s.storage.DeleteManaged(c.Context(), managed.Record.ID)
 		return err
 	}
+	s.refreshProjectManifest(c.Context(), asset.ProjectID)
 	return writeCreated(c, asset)
 }
 
@@ -287,6 +290,28 @@ func (s *Server) getAssetFile(c fiber.Ctx) error {
 		return err
 	}
 	return s.sendStoredFile(c, asset.ObjectID, asset.MimeType, asset.Name, asset.MediaType == "text")
+}
+
+func (s *Server) revealAssetFile(c fiber.Ctx) error {
+	if !s.cfg.IsLoopback() {
+		return fmt.Errorf("%w: 只有本机工作台可以打开本地文件夹", db.ErrConflict)
+	}
+	id, err := idParam(c, "id")
+	if err != nil {
+		return err
+	}
+	asset, err := s.store.GetAsset(c.Context(), id)
+	if err != nil {
+		return err
+	}
+	filename, err := s.storage.Path(c.Context(), asset.ObjectID)
+	if err != nil {
+		return err
+	}
+	if err := filemanager.Reveal(filename); err != nil {
+		return fmt.Errorf("打开本地文件位置: %w", err)
+	}
+	return writeOK(c, fiber.Map{"opened": true})
 }
 
 type assetUpdateRequest struct {
@@ -309,6 +334,7 @@ func (s *Server) updateAsset(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	s.refreshProjectManifest(c.Context(), item.ProjectID)
 	return writeOK(c, item)
 }
 
@@ -335,6 +361,10 @@ func (s *Server) sendStoredFile(c fiber.Ctx, objectID uuid.UUID, mimeType, name 
 		_ = file.Close()
 		return fmt.Errorf("stored file size mismatch")
 	}
+	if strings.TrimSpace(mimeType) == "" {
+		mimeType = record.MimeType
+	}
+	name = downloadFilename(name, record.OriginalName, mimeType)
 	c.Set(fiber.HeaderContentType, mimeType)
 	disposition := "inline"
 	if download {
@@ -417,6 +447,7 @@ func (s *Server) setAssetStatus(c fiber.Ctx, status string) error {
 	if err != nil {
 		return err
 	}
+	s.refreshProjectManifest(c.Context(), item.ProjectID)
 	return writeOK(c, item)
 }
 
@@ -437,6 +468,7 @@ func (s *Server) deleteAsset(c fiber.Ctx) error {
 		return err
 	}
 	s.deleteAssetObjects(c.Context(), []db.Asset{asset})
+	s.refreshProjectManifest(c.Context(), asset.ProjectID)
 	return writeOK(c, fiber.Map{"deleted": true})
 }
 
@@ -481,4 +513,19 @@ func contentDisposition(disposition, name string) string {
 	ascii := "download" + filepath.Ext(name)
 	escaped := strings.ReplaceAll(url.PathEscape(name), "+", "%20")
 	return fmt.Sprintf(`%s; filename="%s"; filename*=UTF-8''%s`, disposition, ascii, escaped)
+}
+
+func downloadFilename(name, originalName, mimeType string) string {
+	name = safeFilename(name)
+	if strings.TrimSpace(name) == "" {
+		name = safeFilename(originalName)
+	}
+	if filepath.Ext(name) == "" {
+		extension := filepath.Ext(safeFilename(originalName))
+		if extension == "" {
+			extension = media.ExtensionForMIME(mimeType)
+		}
+		name += extension
+	}
+	return name
 }

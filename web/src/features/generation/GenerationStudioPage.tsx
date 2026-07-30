@@ -13,6 +13,7 @@ import { ImageEditWorkbench } from './ImageEditWorkbench'
 import { StagedAssetGallery, type ResultViewMode } from './StagedAssetGallery'
 import { assetExportLabel, preferredAssetExport, usableAssetExports } from '../assets/storage'
 import { completedJobTransition } from '../jobs/completionTransitions'
+import { canvasReferenceAssets } from './canvasReferences'
 
 type GenerationCapability = Extract<Capability, 'text' | 'image' | 'audio' | 'video'>
 type ImageOperation = 'generate' | 'outpaint' | 'inpaint'
@@ -605,18 +606,6 @@ function workflowTargets(workflows: WorkflowTemplate[], compatibilities: Workflo
   return compatibilities
     .filter((item) => item.status === 'ready' && workflowMap.has(item.workflow_template_id) && providerMap.has(item.provider_id))
     .map((item) => ({ workflow: workflowMap.get(item.workflow_template_id)!, provider: providerMap.get(item.provider_id)! }))
-}
-
-function canvasReferenceAssets(shot: CanvasNodeDTO, nodes: CanvasNodeDTO[], edges: CanvasEdgeDTO[], assets: Asset[]) {
-  const nodeMap = new Map(nodes.map((node) => [node.id, node]))
-  const assetMap = new Map(assets.map((asset) => [asset.id, asset]))
-  const seen = new Set<string>()
-  return edges
-    .filter((edge) => edge.target === shot.id && edge.type === 'reference')
-    .map((edge) => nodeMap.get(edge.source)?.data.asset_id)
-    .filter((id): id is string => !!id && !seen.has(id) && !!seen.add(id))
-    .map((id) => assetMap.get(id))
-    .filter((asset): asset is Asset => !!asset)
 }
 
 function canvasNotes(shot: CanvasNodeDTO, nodes: CanvasNodeDTO[], edges: CanvasEdgeDTO[]) {

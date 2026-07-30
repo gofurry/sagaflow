@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofurry/sagaflow/internal/platform/filemanager"
 	"github.com/gofurry/sagaflow/internal/service"
 	"github.com/gofurry/sagaflow/internal/store/db"
 	"github.com/google/uuid"
@@ -43,6 +44,30 @@ func (s *Server) getProject(c fiber.Ctx) error {
 		return err
 	}
 	return writeOK(c, item)
+}
+
+func (s *Server) revealProjectDirectory(c fiber.Ctx) error {
+	if !s.cfg.IsLoopback() {
+		return fmt.Errorf("%w: 只有本机工作台可以打开项目文件夹", db.ErrConflict)
+	}
+	id, err := idParam(c, "id")
+	if err != nil {
+		return err
+	}
+	if _, err := s.store.GetProject(c.Context(), id); err != nil {
+		return err
+	}
+	if err := s.storage.RefreshProjectManifest(c.Context(), id); err != nil {
+		return err
+	}
+	directory, err := s.storage.ProjectDirectory(id)
+	if err != nil {
+		return err
+	}
+	if err := filemanager.OpenDirectory(directory); err != nil {
+		return fmt.Errorf("打开项目文件夹: %w", err)
+	}
+	return writeOK(c, fiber.Map{"opened": true})
 }
 func (s *Server) createProject(c fiber.Ctx) error {
 	var req projectRequest

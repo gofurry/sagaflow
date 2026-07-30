@@ -14,6 +14,8 @@ export function normalizeCanvasConnection(
 
   if (sourceNode.data.kind === 'note' || targetNode.data.kind === 'note') {
     relation = 'annotation'
+  } else if (sourceNode.data.kind === 'video' && targetNode.data.kind === 'video') {
+    relation = 'reference'
   } else if ((sourceNode.data.kind === 'asset' && targetNode.data.kind === 'video') || (sourceNode.data.kind === 'video' && targetNode.data.kind === 'asset')) {
     relation = 'reference'
     if (sourceNode.data.kind === 'video') {
@@ -33,9 +35,13 @@ export function normalizeCanvasConnection(
   }
 }
 
-export function repairCanvasEdge(edge: CanvasEdgeDTO): CanvasEdgeDTO {
+export function repairCanvasEdge(edge: CanvasEdgeDTO, nodes: ConnectableNode[] = []): CanvasEdgeDTO {
   const sourceHandle = normalizeHandleID(edge.source_handle)
   const targetHandle = normalizeHandleID(edge.target_handle)
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]))
+  const sourceKind = nodeMap.get(edge.source)?.data.kind
+  const targetKind = nodeMap.get(edge.target)?.data.kind
+  const relation = edge.type === 'relation' && sourceKind === 'video' && targetKind === 'video' ? 'reference' : edge.type
   if (edge.type === 'annotation' && sourceHandle === 'left-target' && targetHandle === 'right-source') {
     return {
       ...edge,
@@ -47,6 +53,8 @@ export function repairCanvasEdge(edge: CanvasEdgeDTO): CanvasEdgeDTO {
   }
   return {
     ...edge,
+    type: relation,
+    data: edge.data ? { ...edge.data, relation } : { relation },
     source_handle: sourceEndpointHandle(sourceHandle),
     target_handle: targetEndpointHandle(targetHandle),
   }

@@ -1,4 +1,4 @@
-import type { Account, Asset, AssetGroup, AssetPage, AssetRemoteExport, AssetSummary, AuthStatus, CanvasDocument, CanvasNodeDTO, CatalogImportResult, CatalogUpdateStatus, ComfyUIDiscovery, ConnectionServerInfo, CurrentUser, Episode, EpisodeScript, GenerationImageTask, GenerationInputReference, GenerationInvocation, GenerationJob, GenerationJobPage, GenerationReferenceUpload, ID, MediaJob, MediaJobPage, MediaTool, MediaToolsStatus, Model, ModelPreset, ModelProvider, ModelSyncResult, MoonshotDiscovery, OllamaDiscovery, Project, PromptPreset, ProviderCredential, S3Connection, SiliconFlowDiscovery, StagedAsset, StagedAssetPage, StagedAssetSummary, TencentTokenHubDiscovery, VoiceBinding, VoiceProfile, VoiceProviderCapability, WorkflowAnalysis, WorkflowCompatibility, WorkflowTemplate } from './types'
+import type { Account, Asset, AssetGroup, AssetGroupPublishResult, AssetPage, AssetRemoteExport, AssetSummary, AuthStatus, CanvasDocument, CanvasNodeDTO, CatalogImportResult, CatalogUpdateStatus, ComfyUIDiscovery, ConnectionServerInfo, CurrentUser, Episode, EpisodeScript, GenerationImageTask, GenerationInputReference, GenerationInvocation, GenerationJob, GenerationJobPage, GenerationReferenceUpload, ID, MediaJob, MediaJobPage, MediaTool, MediaToolsStatus, Model, ModelPreset, ModelProvider, ModelSyncResult, MoonshotDiscovery, OllamaDiscovery, Project, PromptPreset, ProviderCredential, S3Connection, SiliconFlowDiscovery, StagedAsset, StagedAssetPage, StagedAssetSummary, TencentTokenHubDiscovery, VoiceBinding, VoiceProfile, VoiceProviderCapability, WorkflowAnalysis, WorkflowCompatibility, WorkflowTemplate } from './types'
 
 interface Envelope<T> { data?: T; error?: { code: string; message: string } }
 export class APIError extends Error {
@@ -34,6 +34,7 @@ export const api = {
   projects: () => request<Project[]>('/projects'),
   createProject: (input: { title: string; description?: string }) => request<Project>('/projects', { method: 'POST', body: body(input) }),
   updateProject: (id: ID, input: { title: string; description?: string; aspect_ratio?: string; resolution?: string; frame_rate?: number | null }) => request<Project>(`/projects/${id}`, { method: 'PATCH', body: body(input) }),
+  revealProject: (id: ID) => request<{ opened: boolean }>(`/projects/${id}/reveal`, { method: 'POST' }),
   deleteProject: (id: ID) => request(`/projects/${id}`, { method: 'DELETE' }),
   episodes: (projectID: ID) => request<Episode[]>(`/projects/${projectID}/episodes`),
   createEpisode: (projectID: ID, input: Partial<Episode> & { title: string; script_body?: string }) => request<Episode>(`/projects/${projectID}/episodes`, { method: 'POST', body: body(input) }),
@@ -67,11 +68,14 @@ export const api = {
   deleteAsset: (id: ID) => request<{ deleted: boolean }>(`/assets/${id}`, { method: 'DELETE' }),
   assetURL: (id: ID) => `/api/assets/${id}/file`,
   assetProxyURL: (id: ID) => `/api/assets/${id}/file?proxy=1`,
+	revealAsset: (id: ID) => request<{ opened: boolean }>(`/assets/${id}/reveal`, { method: 'POST' }),
 	assetExports: (id: ID) => request<AssetRemoteExport[]>(`/assets/${id}/exports`),
 	projectAssetExports: (id: ID) => request<AssetRemoteExport[]>(`/projects/${id}/asset-exports`),
 	publishAsset: (id: ID, connectionID: ID) => request<AssetRemoteExport>(`/assets/${id}/exports`, { method: 'POST', body: body({ connection_id: connectionID }) }),
+	publishAssetGroup: (id: ID, connectionID: ID) => request<AssetGroupPublishResult>(`/asset-groups/${id}/exports`, { method: 'POST', body: body({ connection_id: connectionID }) }),
 	deleteAssetExport: (id: ID) => request<{ deleted: boolean }>(`/asset-exports/${id}`, { method: 'DELETE' }),
 	assetExportURL: (id: ID) => request<{ url: string; expires_at: string }>(`/asset-exports/${id}/url`),
+	assetExportProxyURL: (id: ID) => `/api/asset-exports/${id}/file`,
   canvas: (episodeID: ID) => request<CanvasDocument>(`/episodes/${episodeID}/canvas`),
   saveCanvas: (episodeID: ID, document: CanvasDocument) => request<CanvasDocument>(`/episodes/${episodeID}/canvas`, { method: 'PUT', body: body(document) }),
   selectCanvasVideo: (nodeID: ID, assetID: ID | null) => request<CanvasNodeDTO>(`/canvas-nodes/${nodeID}/selected-video`, { method: 'PATCH', body: body({ asset_id: assetID }) }),

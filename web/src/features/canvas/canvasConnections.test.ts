@@ -19,4 +19,21 @@ describe('canvas connections', () => {
     }
     expect(repairCanvasEdge(edge)).toMatchObject({ source: 'video', target: 'note', source_handle: 'right-source', target_handle: 'left-target' })
   })
+
+  it('treats a storyboard video connected to another shot as a reference', () => {
+    expect(normalizeCanvasConnection(
+      { id: 'shot-1', data: { kind: 'video' } },
+      { id: 'shot-2', data: { kind: 'video' } },
+      'right-source',
+      'left-target',
+    )).toEqual({ source: 'shot-1', target: 'shot-2', sourceHandle: 'right-source', targetHandle: 'left-target', relation: 'reference' })
+  })
+
+  it('upgrades video-to-video relations saved by earlier builds', () => {
+    const edge: CanvasEdgeDTO = { id: 'edge', source: 'shot-1', target: 'shot-2', type: 'relation', data: { relation: 'relation' } }
+    expect(repairCanvasEdge(edge, [
+      { id: 'shot-1', data: { kind: 'video' } },
+      { id: 'shot-2', data: { kind: 'video' } },
+    ])).toMatchObject({ type: 'reference', data: { relation: 'reference' } })
+  })
 })
