@@ -85,7 +85,7 @@ func (s *Server) uploadStagedAsset(c fiber.Ctx) error {
 		reader = io.TeeReader(upload.Reader, &contentText)
 	}
 	managed, err := s.storage.UploadManaged(c.Context(), storage.ManagedUploadInput{
-		ProjectID: &projectID, Purpose: "staging", OriginalName: header.Filename,
+		ProjectID: &projectID, OwnerID: &id, Purpose: "staging", OriginalName: header.Filename,
 		UploadInput: storage.UploadInput{Reader: reader, Size: header.Size, ContentType: mimeType},
 	})
 	if err != nil {
@@ -159,6 +159,10 @@ func (s *Server) importStagedAsset(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	if err := s.storage.ReconcileManaged(c.Context(), asset.ObjectID); err != nil {
+		s.log.Warn("organize imported asset file", zap.String("asset_id", asset.ID.String()), zap.Error(err))
+	}
+	_ = s.storage.RefreshProjectManifest(c.Context(), asset.ProjectID)
 	return writeCreated(c, asset)
 }
 

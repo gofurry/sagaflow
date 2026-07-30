@@ -396,7 +396,7 @@ func (s *MediaToolsService) Execute(ctx context.Context, id uuid.UUID) (returnEr
 	}
 	projectID := job.ProjectID
 	managed, err := s.storage.UploadManaged(ctx, storage.ManagedUploadInput{
-		ProjectID: &projectID, Purpose: "media-tools", OriginalName: outputName,
+		ProjectID: &projectID, OwnerID: &job.ID, Purpose: "media-tools", OriginalName: outputName,
 		UploadInput: storage.UploadInput{Reader: outputFile, Size: info.Size(), ContentType: outputSpec.mimeType},
 	})
 	if err != nil {
@@ -421,6 +421,9 @@ func (s *MediaToolsService) Execute(ctx context.Context, id uuid.UUID) (returnEr
 			return fail(createErr)
 		}
 		outputStagedAssetID = &staged.ID
+		if organizeErr := s.storage.ReconcileManaged(ctx, managed.Record.ID); organizeErr != nil {
+			s.log.Warn("organize media output", zap.String("staged_asset_id", staged.ID.String()), zap.Error(organizeErr))
+		}
 	} else {
 		asset, createErr := s.store.CreateAsset(ctx, db.CreateAssetInput{
 			ProjectID: job.ProjectID, GroupID: job.TargetAssetGroupID, ObjectID: managed.Record.ID,
@@ -433,6 +436,9 @@ func (s *MediaToolsService) Execute(ctx context.Context, id uuid.UUID) (returnEr
 			return fail(createErr)
 		}
 		outputAssetID = &asset.ID
+		if organizeErr := s.storage.ReconcileManaged(ctx, managed.Record.ID); organizeErr != nil {
+			s.log.Warn("organize media output", zap.String("asset_id", asset.ID.String()), zap.Error(organizeErr))
+		}
 	}
 	if _, err := s.store.MarkMediaJobSucceeded(ctx, id, outputAssetID, outputStagedAssetID, probe.Raw); err != nil {
 		return err

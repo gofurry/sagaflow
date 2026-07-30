@@ -57,15 +57,16 @@ func (s *Server) importGenerationReferenceURL(c fiber.Ctx) error {
 		_ = downloaded.File.Close()
 		_ = os.Remove(downloaded.File.Name())
 	}()
+	uploadID := uuid.New()
 	managed, err := s.storage.UploadManaged(c.Context(), storage.ManagedUploadInput{
-		ProjectID: &projectID, Purpose: "generation-references", OriginalName: downloaded.Name,
+		ProjectID: &projectID, OwnerID: &uploadID, Purpose: "references", OriginalName: downloaded.Name,
 		UploadInput: storage.UploadInput{Reader: downloaded.File, Size: downloaded.Size, ContentType: downloaded.MIMEType},
 	})
 	if err != nil {
 		return err
 	}
 	item, err := s.store.CreateGenerationReferenceUpload(c.Context(), db.CreateGenerationReferenceUploadInput{
-		ID: uuid.New(), ProjectID: projectID, ObjectID: managed.Record.ID, Name: downloaded.Name,
+		ID: uploadID, ProjectID: projectID, ObjectID: managed.Record.ID, Name: downloaded.Name,
 		MediaType: mediaTypeFromMIME(downloaded.MIMEType), MimeType: downloaded.MIMEType, FileSizeBytes: downloaded.Size,
 		Metadata: db.JSON(map[string]any{"source_kind": "url", "source_url": downloaded.SourceURL}),
 	})

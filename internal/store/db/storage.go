@@ -2,11 +2,18 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/google/uuid"
 )
+
+type LocalObjectPlacement struct {
+	Purpose string
+	OwnerID uuid.UUID
+}
 
 func (s *Store) CreateLocalObject(ctx context.Context, object LocalObject) (LocalObject, error) {
 	if object.ID == uuid.Nil {
@@ -34,6 +41,60 @@ func (s *Store) MarkLocalObjectFailed(ctx context.Context, id uuid.UUID) error {
 
 func (s *Store) GetLocalObject(ctx context.Context, id uuid.UUID) (LocalObject, error) {
 	return one[LocalObject](s.pool.Query(ctx, `SELECT * FROM local_objects WHERE id=$1 AND state<>'deleted'`, id))
+}
+
+func (s *Store) ListReadyLocalObjects(ctx context.Context) ([]LocalObject, error) {
+	return collectRows[LocalObject](s.pool.Query(ctx, `SELECT * FROM local_objects WHERE state='ready' ORDER BY created_at,id`))
+}
+
+func (s *Store) CountReadyLocalObjectsByKey(ctx context.Context, key string) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM local_objects WHERE state='ready' AND object_key=$1`, key).Scan(&count)
+	return count, err
+}
+
+func (s *Store) ResolveLocalObjectPlacement(ctx context.Context, object LocalObject) (LocalObjectPlacement, error) {
+	var assetID string
+	var groupID, groupKind, episodeID sql.NullString
+	err := s.pool.QueryRow(ctx, `
+		SELECT a.id,a.group_id,COALESCE(g.kind,''),a.episode_id
+		FROM assets a
+		LEFT JOIN asset_groups g ON g.id=a.group_id
+		WHERE a.object_id=$1 AND a.deleted_at IS NULL
+		ORDER BY CASE WHEN a.group_id IS NOT NULL THEN 0 WHEN a.episode_id IS NOT NULL THEN 1 ELSE 2 END
+		LIMIT 1`, object.ID).Scan(&assetID, &groupID, &groupKind, &episodeID)
+	if err == nil {
+		ownerID, parseErr := uuid.Parse(assetID)
+		if parseErr != nil {
+			return LocalObjectPlacement{}, parseErr
+		}
+		switch {
+		case groupID.Valid:
+			return LocalObjectPlacement{Purpose: path.Join("assets", groupKind.String, groupID.String), OwnerID: ownerID}, nil
+		case episodeID.Valid:
+			return LocalObjectPlacement{Purpose: path.Join("episodes", episodeID.String, "storyboard-videos"), OwnerID: ownerID}, nil
+		default:
+			return LocalObjectPlacement{Purpose: "assets/ungrouped", OwnerID: ownerID}, nil
+		}
+	}
+	if err != sql.ErrNoRows {
+		return LocalObjectPlacement{}, err
+	}
+
+	var ownerText string
+	if err = s.pool.QueryRow(ctx, `SELECT id FROM staged_assets WHERE object_id=$1 ORDER BY created_at DESC LIMIT 1`, object.ID).Scan(&ownerText); err == nil {
+		ownerID, parseErr := uuid.Parse(ownerText)
+		return LocalObjectPlacement{Purpose: "staging", OwnerID: ownerID}, parseErr
+	} else if err != sql.ErrNoRows {
+		return LocalObjectPlacement{}, err
+	}
+	if err = s.pool.QueryRow(ctx, `SELECT id FROM generation_reference_uploads WHERE object_id=$1 ORDER BY created_at DESC LIMIT 1`, object.ID).Scan(&ownerText); err == nil {
+		ownerID, parseErr := uuid.Parse(ownerText)
+		return LocalObjectPlacement{Purpose: "references", OwnerID: ownerID}, parseErr
+	} else if err != sql.ErrNoRows {
+		return LocalObjectPlacement{}, err
+	}
+	return LocalObjectPlacement{Purpose: object.Purpose, OwnerID: object.ID}, nil
 }
 
 func (s *Store) MarkLocalObjectDeleting(ctx context.Context, id uuid.UUID) (LocalObject, error) {

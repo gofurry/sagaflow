@@ -65,6 +65,9 @@ func Create(ctx context.Context, cfg config.Config, output string) (string, erro
 	archive := zip.NewWriter(file)
 	writeErr := addFile(archive, snapshotPath, databaseName)
 	for _, item := range []struct{ path, name string }{
+		{filepath.Join(cfg.App.DataDir, "projects"), "projects"},
+		{filepath.Join(cfg.App.DataDir, "shared"), "shared"},
+		// Keep legacy archives recoverable while pre-v0.1.0 workspaces migrate.
 		{cfg.ObjectDir(), "objects"},
 		{cfg.SecretDir(), "secrets"},
 	} {

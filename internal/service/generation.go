@@ -162,6 +162,9 @@ func (s *GenerationService) Execute(ctx context.Context, jobID uuid.UUID) (err e
 			_ = s.storage.DeleteManaged(ctx, managed.Record.ID)
 			return createErr
 		}
+		if organizeErr := s.storage.ReconcileManaged(ctx, managed.Record.ID); organizeErr != nil {
+			s.log.Warn("organize generated artifact", zap.String("job_id", job.ID.String()), zap.Error(organizeErr))
+		}
 		stagedIDs = append(stagedIDs, staged.ID)
 		if target.Capability == inference.CapabilityVideo && job.EpisodeID != nil && job.CanvasNodeID != nil {
 			asset, importErr := s.store.ImportStagedVideoAsset(ctx, staged.ID, *job.EpisodeID, *job.CanvasNodeID, staged.Name)
@@ -169,6 +172,9 @@ func (s *GenerationService) Execute(ctx context.Context, jobID uuid.UUID) (err e
 				return importErr
 			}
 			assetIDs = append(assetIDs, asset.ID)
+			if organizeErr := s.storage.ReconcileManaged(ctx, managed.Record.ID); organizeErr != nil {
+				s.log.Warn("organize storyboard video", zap.String("asset_id", asset.ID.String()), zap.Error(organizeErr))
+			}
 		}
 		progress := .85 + (.1 * float64(index+1) / float64(len(result.Artifacts)))
 		if err := trace.event(ctx, inference.Event{Stage: "storing", Progress: progress, Message: fmt.Sprintf("artifact %d/%d stored", index+1, len(result.Artifacts))}); err != nil {
@@ -384,7 +390,7 @@ func (s *GenerationService) storeArtifact(ctx context.Context, job db.Generation
 		if int64(len(data)) > maxTextArtifactSize {
 			return storage.ManagedObject{}, "", 0, "", fmt.Errorf("text artifact exceeds size limit")
 		}
-		object, err := s.storage.UploadManaged(ctx, storage.ManagedUploadInput{ProjectID: &projectID, Purpose: "generation", OriginalName: filepath.Base(key), UploadInput: storage.UploadInput{Data: data, ContentType: mimeType}})
+		object, err := s.storage.UploadManaged(ctx, storage.ManagedUploadInput{ProjectID: &projectID, OwnerID: &job.ID, Purpose: "generation", OriginalName: filepath.Base(key), UploadInput: storage.UploadInput{Data: data, ContentType: mimeType}})
 		return object, mimeType, int64(len(data)), string(data), err
 	}
 	sizedReader, size, cleanup, err := sizedArtifactReader(ctx, reader, info.Size)
@@ -393,7 +399,7 @@ func (s *GenerationService) storeArtifact(ctx context.Context, job db.Generation
 	}
 	defer cleanup()
 	counter := &countingReader{reader: sizedReader}
-	object, err := s.storage.UploadManaged(ctx, storage.ManagedUploadInput{ProjectID: &projectID, Purpose: "generation", OriginalName: filepath.Base(key), UploadInput: storage.UploadInput{Reader: counter, Size: size, ContentType: mimeType}})
+	object, err := s.storage.UploadManaged(ctx, storage.ManagedUploadInput{ProjectID: &projectID, OwnerID: &job.ID, Purpose: "generation", OriginalName: filepath.Base(key), UploadInput: storage.UploadInput{Reader: counter, Size: size, ContentType: mimeType}})
 	if err != nil {
 		return storage.ManagedObject{}, "", 0, "", err
 	}
