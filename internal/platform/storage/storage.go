@@ -65,6 +65,6 @@ type Object struct {
 }
 
 type SignedURL struct {
-	URL       string
-	ExpiresAt time.Time
+	URL       string    `json:"url"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
