@@ -183,6 +183,9 @@ func (s *GenerationService) Execute(ctx context.Context, jobID uuid.UUID) (err e
 	}
 	_, err = s.store.MarkGenerationSucceeded(ctx, jobID, stagedIDs)
 	if err == nil {
+		if manifestErr := s.storage.RefreshProjectManifest(ctx, job.ProjectID); manifestErr != nil {
+			s.log.Warn("refresh generated project manifest", zap.String("project_id", job.ProjectID.String()), zap.Error(manifestErr))
+		}
 		if traceErr := trace.complete(ctx, stagedIDs, assetIDs); traceErr != nil {
 			s.log.Error("complete generation invocation", zap.Error(traceErr))
 		}

@@ -276,6 +276,7 @@ func (s *Server) uploadAsset(c fiber.Ctx) error {
 		_ = s.storage.DeleteManaged(c.Context(), managed.Record.ID)
 		return err
 	}
+	s.refreshProjectManifest(c.Context(), asset.ProjectID)
 	return writeCreated(c, asset)
 }
 
@@ -333,6 +334,7 @@ func (s *Server) updateAsset(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	s.refreshProjectManifest(c.Context(), item.ProjectID)
 	return writeOK(c, item)
 }
 
@@ -445,6 +447,7 @@ func (s *Server) setAssetStatus(c fiber.Ctx, status string) error {
 	if err != nil {
 		return err
 	}
+	s.refreshProjectManifest(c.Context(), item.ProjectID)
 	return writeOK(c, item)
 }
 
@@ -465,6 +468,7 @@ func (s *Server) deleteAsset(c fiber.Ctx) error {
 		return err
 	}
 	s.deleteAssetObjects(c.Context(), []db.Asset{asset})
+	s.refreshProjectManifest(c.Context(), asset.ProjectID)
 	return writeOK(c, fiber.Map{"deleted": true})
 }
 

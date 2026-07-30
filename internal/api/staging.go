@@ -162,7 +162,7 @@ func (s *Server) importStagedAsset(c fiber.Ctx) error {
 	if err := s.storage.ReconcileManaged(c.Context(), asset.ObjectID); err != nil {
 		s.log.Warn("organize imported asset file", zap.String("asset_id", asset.ID.String()), zap.Error(err))
 	}
-	_ = s.storage.RefreshProjectManifest(c.Context(), asset.ProjectID)
+	s.refreshProjectManifest(c.Context(), asset.ProjectID)
 	return writeCreated(c, asset)
 }
 

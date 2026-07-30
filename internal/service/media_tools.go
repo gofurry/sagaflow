@@ -443,6 +443,9 @@ func (s *MediaToolsService) Execute(ctx context.Context, id uuid.UUID) (returnEr
 	if _, err := s.store.MarkMediaJobSucceeded(ctx, id, outputAssetID, outputStagedAssetID, probe.Raw); err != nil {
 		return err
 	}
+	if manifestErr := s.storage.RefreshProjectManifest(ctx, job.ProjectID); manifestErr != nil {
+		s.log.Warn("refresh media project manifest", zap.String("project_id", job.ProjectID.String()), zap.Error(manifestErr))
+	}
 	return nil
 }
 
