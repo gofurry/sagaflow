@@ -65,6 +65,11 @@ export function MaterialViewerModal({ assetID, item, open, url, exports = [], on
   const activeURL = remotePreview?.url ?? url
   const previewURL = item && ['audio', 'video'].includes(item.media_type) && !remotePreview ? withQuery(url, 'proxy=1') : activeURL
   const downloadURL = url ? `${url}${url.includes('?') ? '&' : '?'}download=1` : ''
+  useEffect(() => {
+    if (!open || !item || !['audio', 'video'].includes(item.media_type)) return
+    const media = item.media_type === 'video' ? videoRef.current : audioRef.current
+    media?.load()
+  }, [item, open, previewURL])
   const previewRemote = async (id: string) => {
     setRemoteLoadingID(id)
     try {
