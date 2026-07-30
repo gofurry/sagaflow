@@ -73,12 +73,12 @@ export function MaterialViewerModal({ assetID, item, open, url, exports = [], on
   const previewRemote = async (id: string) => {
     setRemoteLoadingID(id)
     try {
-      const signed = await api.assetExportURL(id)
       if (item && ['image', 'audio', 'video'].includes(item.media_type)) {
         stopPlayback()
-        setRemotePreview({ id, url: signed.url })
+        setRemotePreview({ id, url: api.assetExportProxyURL(id) })
         message.success('已切换到 S3 临时预览')
       } else {
+        const signed = await api.assetExportURL(id)
         await navigator.clipboard.writeText(signed.url)
         message.success('S3 临时访问链接已复制')
       }

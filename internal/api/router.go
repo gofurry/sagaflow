@@ -90,6 +90,7 @@ func (s *Server) RegisterRoutes(app *fiber.App) {
 	p.Post("/assets/:id/exports", s.publishAsset)
 	p.Delete("/asset-exports/:id", s.deleteAssetExport)
 	p.Get("/asset-exports/:id/url", s.getAssetExportURL)
+	p.Get("/asset-exports/:id/file", s.proxyAssetExport)
 	p.Get("/episodes/:id/canvas", s.getCanvas)
 	p.Put("/episodes/:id/canvas", s.saveCanvas)
 	p.Patch("/canvas-nodes/:id/selected-video", s.selectCanvasVideo)

@@ -75,6 +75,7 @@ export const api = {
 	publishAssetGroup: (id: ID, connectionID: ID) => request<AssetGroupPublishResult>(`/asset-groups/${id}/exports`, { method: 'POST', body: body({ connection_id: connectionID }) }),
 	deleteAssetExport: (id: ID) => request<{ deleted: boolean }>(`/asset-exports/${id}`, { method: 'DELETE' }),
 	assetExportURL: (id: ID) => request<{ url: string; expires_at: string }>(`/asset-exports/${id}/url`),
+	assetExportProxyURL: (id: ID) => `/api/asset-exports/${id}/file`,
   canvas: (episodeID: ID) => request<CanvasDocument>(`/episodes/${episodeID}/canvas`),
   saveCanvas: (episodeID: ID, document: CanvasDocument) => request<CanvasDocument>(`/episodes/${episodeID}/canvas`, { method: 'PUT', body: body(document) }),
   selectCanvasVideo: (nodeID: ID, assetID: ID | null) => request<CanvasNodeDTO>(`/canvas-nodes/${nodeID}/selected-video`, { method: 'PATCH', body: body({ asset_id: assetID }) }),

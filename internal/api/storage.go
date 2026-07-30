@@ -1,6 +1,10 @@
 package api
 
 import (
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -175,4 +179,49 @@ func (s *Server) getAssetExportURL(c fiber.Ctx) error {
 		return err
 	}
 	return writeOK(c, signed)
+}
+
+func (s *Server) proxyAssetExport(c fiber.Ctx) error {
+	id, err := idParam(c, "id")
+	if err != nil {
+		return err
+	}
+	select {
+	case s.downloadSlots <- struct{}{}:
+		defer func() { <-s.downloadSlots }()
+	default:
+		c.Set(fiber.HeaderRetryAfter, "1")
+		return fiber.NewError(fiber.StatusServiceUnavailable, "too many concurrent file transfers")
+	}
+	signed, err := s.storageService.ProviderURL(c.Context(), id, 15*time.Minute)
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(c.Context(), http.MethodGet, signed.URL, nil)
+	if err != nil {
+		return fmt.Errorf("prepare S3 preview request: %w", err)
+	}
+	if value := strings.TrimSpace(c.Get(fiber.HeaderRange)); value != "" {
+		request.Header.Set(fiber.HeaderRange, value)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("read S3 preview: %w", err)
+	}
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusPartialContent {
+		_ = response.Body.Close()
+		return fiber.NewError(fiber.StatusBadGateway, "S3 preview is temporarily unavailable")
+	}
+	for _, name := range []string{fiber.HeaderContentType, fiber.HeaderContentRange, fiber.HeaderAcceptRanges, fiber.HeaderETag, fiber.HeaderLastModified} {
+		if value := response.Header.Get(name); value != "" {
+			c.Set(name, value)
+		}
+	}
+	c.Set(fiber.HeaderContentDisposition, "inline")
+	c.Status(response.StatusCode)
+	if response.ContentLength >= 0 {
+		c.Set(fiber.HeaderContentLength, strconv.FormatInt(response.ContentLength, 10))
+		return c.SendStream(response.Body, int(response.ContentLength))
+	}
+	return c.SendStream(response.Body)
 }
