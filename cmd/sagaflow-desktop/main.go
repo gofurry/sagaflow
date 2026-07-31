@@ -196,7 +196,7 @@ func main() {
 	))
 	settingsTitle := widget.NewLabelWithStyle("设置偏好", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	settings := container.NewPadded(container.NewVBox(settingsTitle, autoOpenCheck, closeQuitsCheck))
-	footer := container.NewHBox(widget.NewLabel("SagaFlow Desktop "+version), layout.NewSpacer(), widget.NewLabel("MIT License"))
+	footer := container.NewHBox(widget.NewLabel("SagaFlow Desktop "+version), layout.NewSpacer(), widget.NewLabel("AGPL-3.0"))
 	mainContent := container.NewVBox(statusSection, primaryActions, maintenance, resources, settings)
 
 	window.SetContent(container.NewBorder(

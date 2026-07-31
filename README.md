@@ -9,7 +9,7 @@
 <p align="center">
   <a href="https://go.dev/"><img alt="Go 1.26" src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white"></a>
   <a href="https://react.dev/"><img alt="React 19" src="https://img.shields.io/badge/React-19-6F42C1?logo=react&logoColor=white"></a>
-  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-cd7540"></a>
+  <a href="LICENSE"><img alt="AGPL-3.0 License" src="https://img.shields.io/badge/License-AGPL--3.0-6F42C1"></a>
 </p>
 
 SagaFlow 面向希望在自己的电脑、NAS 或小型服务器上完成 AI 漫剧生产的个人创作者。应用由单个 Go 进程提供 API、任务执行和内嵌的 React 工作台，默认只依赖 SQLite 与本地文件系统，不需要 PostgreSQL、Redis、独立 Worker 或强制 S3。
@@ -260,4 +260,4 @@ cd web && corepack pnpm lint && corepack pnpm build
 
 ## 许可证
 
-SagaFlow 源代码使用 [MIT License](LICENSE)。
+SagaFlow 源代码使用 [GNU Affero General Public License v3.0](LICENSE)（`AGPL-3.0-only`）。
