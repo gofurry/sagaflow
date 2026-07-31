@@ -46,6 +46,6 @@ Windows 使用 `ffmpeg.exe` 和 `ffprobe.exe`，其他系统使用无扩展名�
 ## 许可证边界
 
 托管下载源使用 GPL 构建，具体构建信息和许可证以各下载源为准。SagaFlow
-源码继续使用 MIT License；用户触发下载后，工具目录会写入来源和 FFmpeg
-许可页面链接。重新分发第三方二进制时，分发者仍需独立满足对应构建的许可
-和源码义务。
+源码使用 GNU Affero General Public License v3.0（`AGPL-3.0-only`）；
+用户触发下载后，工具目录会写入来源和 FFmpeg 许可页面链接。重新分发第三方
+二进制时，分发者仍需独立满足对应构建的许可和源码义务。
