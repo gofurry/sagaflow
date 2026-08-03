@@ -58,8 +58,20 @@ func videoInput(provider string, request inference.Request) (map[string]any, err
 	modelID := strings.ToLower(request.Target.ID)
 	input := map[string]any{"prompt": request.Prompt}
 	if strings.Contains(modelID, "t2v") {
+		if modelID == "wan2.7-t2v" {
+			if len(request.Inputs) > 1 || (len(request.Inputs) == 1 && request.Inputs[0].MediaType != "audio") {
+				return nil, inference.NewError(inference.ErrorInvalidRequest, provider, "Wan 2.7 text-to-video accepts at most one audio reference", false, nil)
+			}
+			if len(request.Inputs) == 1 {
+				if err := adapterutil.Required(request.Inputs[0].URL, "provider-reachable audio reference", provider); err != nil {
+					return nil, err
+				}
+				input["audio_url"] = request.Inputs[0].URL
+			}
+			return input, nil
+		}
 		if len(request.Inputs) != 0 {
-			return nil, inference.NewError(inference.ErrorInvalidRequest, provider, "text-to-video model does not accept references", false, nil)
+			return nil, inference.NewError(inference.ErrorInvalidRequest, provider, "selected text-to-video model does not accept references", false, nil)
 		}
 		return input, nil
 	}

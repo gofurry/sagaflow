@@ -77,6 +77,43 @@ func TestImageSubmitsPollsAndDownloads(t *testing.T) {
 	assertArtifactBytes(t, result.Artifacts[0], "png")
 }
 
+func TestQwenImageUsesSynchronousMultimodalContract(t *testing.T) {
+	t.Parallel()
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/services/aigc/multimodal-generation/generation":
+			if r.Header.Get("X-DashScope-Async") != "" {
+				t.Fatal("Qwen Image must use the synchronous endpoint")
+			}
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			parameters := body["parameters"].(map[string]any)
+			if parameters["size"] != "2688*1536" || parameters["negative_prompt"] != "模糊" || parameters["thinking_mode"] != nil {
+				t.Fatalf("unexpected Qwen Image parameters %#v", parameters)
+			}
+			writeJSON(t, w, map[string]any{"request_id": "qwen-image-1", "output": map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": []any{map[string]any{"image": server.URL + "/qwen.png"}}}}}}})
+		case "/qwen.png":
+			_, _ = w.Write([]byte("qwen"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	result, err := bailian.New(bailian.Config{HTTPClient: server.Client()}).Execute(context.Background(), inference.Request{
+		Runtime: inference.Runtime{ProviderCode: "aliyun_bailian", Endpoint: server.URL, APIKey: "secret"},
+		Target:  inference.Target{Kind: inference.TargetModel, ID: "qwen-image-2.0-pro", Capability: inference.CapabilityImage},
+		Prompt:  "带有中文招牌的街道", Parameters: map[string]any{"size": "2688*1536", "negative_prompt": "模糊", "prompt_extend": true},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertArtifactBytes(t, result.Artifacts[0], "qwen")
+}
+
 func TestPreciseImageEditSubmitsNativeOutpaintAndMaskPayloads(t *testing.T) {
 	t.Parallel()
 	source := testPNG(t, false)
@@ -211,6 +248,43 @@ func TestVideoResumesExistingTaskWithoutSubmitting(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertArtifactBytes(t, result.Artifacts[0], "mp4")
+}
+
+func TestWanTextToVideoAcceptsOneAudioReference(t *testing.T) {
+	t.Parallel()
+	var submitted map[string]any
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/services/aigc/video-generation/video-synthesis":
+			if err := json.NewDecoder(r.Body).Decode(&submitted); err != nil {
+				t.Fatal(err)
+			}
+			writeJSON(t, w, map[string]any{"output": map[string]any{"task_id": "wan-t2v-task"}})
+		case "/api/v1/tasks/wan-t2v-task":
+			writeJSON(t, w, map[string]any{"output": map[string]any{"task_status": "SUCCEEDED", "video_url": server.URL + "/wan.mp4"}})
+		case "/wan.mp4":
+			_, _ = w.Write([]byte("wan"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	result, err := bailian.New(bailian.Config{HTTPClient: server.Client(), PollInterval: time.Millisecond}).Execute(context.Background(), inference.Request{
+		Runtime: inference.Runtime{ProviderCode: "aliyun_bailian", Endpoint: server.URL, APIKey: "secret"},
+		Target:  inference.Target{Kind: inference.TargetModel, ID: "wan2.7-t2v", Capability: inference.CapabilityVideo},
+		Prompt:  "狼兽人推开异世界之门", Parameters: map[string]any{"ratio": "16:9", "duration": 6, "negative_prompt": "模糊"},
+		Inputs: []inference.Input{{MediaType: "audio", URL: "https://assets.example/voice.mp3"}},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := submitted["input"].(map[string]any)
+	if input["audio_url"] != "https://assets.example/voice.mp3" || input["negative_prompt"] != "模糊" {
+		t.Fatalf("unexpected Wan text-to-video input %#v", input)
+	}
+	assertArtifactBytes(t, result.Artifacts[0], "wan")
 }
 
 func writeJSON(t *testing.T, w http.ResponseWriter, value any) {

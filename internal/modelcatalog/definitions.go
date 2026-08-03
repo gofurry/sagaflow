@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const manifestVersion = 7
+const manifestVersion = 8
 
 func Builtins() []Definition {
 	embedded, err := embeddedDefinitions()
@@ -106,6 +106,12 @@ func compiledBuiltins() []Definition {
 		model("20000000-0000-0000-0000-000000000036", "aliyun_bailian", "wanx2.1-imageedit", "Wan 2.1 精确图像编辑", "image",
 			[]string{"text", "image"}, []string{"image_edit", "outpaint", "inpaint", "mask_input", "local_reference"}, bailianImageEditSchema(), values("n", 1, "watermark", false),
 			"https://help.aliyun.com/zh/model-studio/wanx-image-edit-api-reference"),
+		model("20000000-0000-0000-0000-000000000037", "aliyun_bailian", "qwen-image-2.0-pro", "Qwen Image 2.0 Pro", "image",
+			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "negative_prompt", "chinese_text"}, bailianQwenImageSchema(), values("size", "2048*2048", "n", 1, "watermark", false, "prompt_extend", true),
+			"https://help.aliyun.com/zh/model-studio/qwen-image-api"),
+		disabledModel("20000000-0000-0000-0000-000000000038", "aliyun_bailian", "qwen-image-3.0-pro", "Qwen Image 3.0 Pro（邀测）", "image",
+			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "negative_prompt", "chinese_text", "limited_preview"}, bailianQwenImageSchema(), values("n", 1, "watermark", false, "prompt_extend", true),
+			"https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference"),
 		model("20000000-0000-0000-0000-000000000021", "aliyun_bailian", "qwen-audio-3.0-tts-plus", "Qwen Audio 3.0 TTS Plus", "audio",
 			[]string{"text"}, []string{"speech_generation", "voice_clone", "instruction_control", "multilingual"}, bailianSpeechSchema(), bailianSpeechDefaults("longanlingxin"),
 			"https://help.aliyun.com/zh/model-studio/qwen-tts-api"),
@@ -127,7 +133,16 @@ func compiledBuiltins() []Definition {
 		model("20000000-0000-0000-0000-000000000027", "aliyun_bailian", "wan2.7-r2v-2026-06-12", "Wan 2.7 Reference to Video", "video",
 			[]string{"text", "image", "video", "audio"}, []string{"video_generation", "multi_reference", "audio_driven"}, bailianVideoSchema("wan-r2v"), values("resolution", "720P", "ratio", "16:9", "duration", 5, "watermark", false, "prompt_extend", true),
 			"https://help.aliyun.com/zh/model-studio/wan-video-generation-api-reference"),
+		model("20000000-0000-0000-0000-000000000039", "aliyun_bailian", "wan2.7-t2v", "Wan 2.7 Text to Video", "video",
+			[]string{"text", "audio"}, []string{"video_generation", "text_to_video", "audio_driven", "native_audio"}, bailianVideoSchema("wan-t2v"), values("resolution", "720P", "ratio", "16:9", "duration", 5, "watermark", false, "prompt_extend", true),
+			"https://help.aliyun.com/zh/model-studio/text-to-video-api-reference"),
 	}
+}
+
+func disabledModel(id, provider, modelID, displayName, capability string, inputs, features []string, schema, defaults json.RawMessage, docs string) Definition {
+	definition := model(id, provider, modelID, displayName, capability, inputs, features, schema, defaults, docs)
+	definition.Model.Enabled = false
+	return definition
 }
 
 func model(id, provider, modelID, displayName, capability string, inputs, features []string, schema, defaults json.RawMessage, docs string) Definition {

@@ -82,6 +82,21 @@ var supportedModels = map[string]ModelInfo{
 		InputModalities: []string{"text", "image"}, Features: []string{"video_generation", "text_to_video", "image_to_video"},
 		SupportStatus: "verified", SupportsGeneration: true,
 	},
+	"kl-video-v3": {
+		DisplayName: "Kling Video v3", Task: "text_to_video", Capability: "video",
+		InputModalities: []string{"text", "image"}, Features: []string{"video_generation", "text_to_video", "image_to_video", "first_last_frame", "native_audio", "smart_storyboard"},
+		SupportStatus: "verified", SupportsGeneration: true,
+	},
+	"vd-video-q3-pro": {
+		DisplayName: "Vidu Video Q3 Pro", Task: "text_to_video", Capability: "video",
+		InputModalities: []string{"text", "image"}, Features: []string{"video_generation", "text_to_video", "image_to_video", "first_last_frame", "native_audio", "1080p"},
+		SupportStatus: "verified", SupportsGeneration: true,
+	},
+	"vd-video-q3-turbo": {
+		DisplayName: "Vidu Video Q3 Turbo", Task: "text_to_video", Capability: "video",
+		InputModalities: []string{"text", "image"}, Features: []string{"video_generation", "text_to_video", "image_to_video", "first_last_frame", "native_audio", "1080p", "fast"},
+		SupportStatus: "verified", SupportsGeneration: true,
+	},
 	"yt-video-2.0": {
 		DisplayName: "YT Video 2.0", Task: "image_to_video", Capability: "video",
 		InputModalities: []string{"text", "image"}, Features: []string{"video_generation", "image_to_video", "remote_reference_required"},

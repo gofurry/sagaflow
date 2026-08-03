@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "catalog_version": "2026.08.03.1",
+  "catalog_version": "2026.08.03.2",
   "published_at": "2026-08-03T00:00:00+08:00",
   "profiles": {
     "siliconflow-chat": {
@@ -558,6 +558,50 @@
       "support_status": "verified",
       "documentation_url": "https://cloud.tencent.com/document/product/1823/130081"
     },
+    "tencent-tokenhub-kling-v3": {
+      "task": "text_to_video",
+      "capability": "video",
+      "input_modalities": ["text", "image"],
+      "features": ["video_generation", "text_to_video", "image_to_video", "first_last_frame", "native_audio", "smart_storyboard"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "negative_prompt": {"type": "string", "title": "负面 Prompt", "maxLength": 2500},
+          "duration": {"type": "integer", "title": "时长（秒）", "minimum": 3, "maximum": 15},
+          "mode": {"type": "string", "title": "质量模式", "enum": ["std", "pro"]},
+          "cfg_scale": {"type": "number", "title": "Prompt 一致程度", "minimum": 0, "maximum": 1},
+          "aspect_ratio": {"type": "string", "title": "画面比例", "description": "文生视频时生效；图生视频沿用参考图比例。", "enum": ["16:9", "9:16", "1:1"]},
+          "sound": {"type": "string", "title": "图生视频声音", "description": "图生视频时生效。", "enum": ["off", "on"]}
+        }
+      },
+      "default_parameters": {"duration": 5, "mode": "std", "cfg_scale": 0.5, "aspect_ratio": "16:9", "sound": "off"},
+      "support_status": "verified",
+      "documentation_url": "https://cloud.tencent.com/document/product/1616/128996"
+    },
+    "tencent-tokenhub-vidu-q3": {
+      "task": "text_to_video",
+      "capability": "video",
+      "input_modalities": ["text", "image"],
+      "features": ["video_generation", "text_to_video", "image_to_video", "first_last_frame", "native_audio", "1080p", "fast_variant"],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "duration": {"type": "integer", "title": "时长（秒）", "minimum": 1, "maximum": 16},
+          "resolution": {"type": "string", "title": "分辨率", "enum": ["540p", "720p", "1080p"]},
+          "aspect_ratio": {"type": "string", "title": "画面比例", "description": "文生视频时生效；图生视频沿用参考图比例。", "enum": ["16:9", "9:16", "4:3", "3:4", "1:1"]},
+          "audio": {"type": "boolean", "title": "图生视频音画直出", "description": "图生视频时生效，Q3 默认开启。"},
+          "voice_id": {"type": "string", "title": "音色 ID", "description": "单张参考图且开启音画直出时可选；留空由模型自动推荐。"},
+          "bgm": {"type": "boolean", "title": "文生视频背景音乐", "description": "文生视频时生效。"},
+          "is_rec": {"type": "boolean", "title": "推荐 Prompt", "description": "图生视频时由厂商推荐提示词，会额外消耗积分。"},
+          "seed": {"type": "integer", "title": "随机种子", "minimum": 0, "maximum": 2147483647},
+          "off_peak": {"type": "boolean", "title": "错峰生成", "description": "降低积分消耗，但任务可能在 48 小时内完成。"},
+          "logo_add": {"type": "integer", "title": "AI 标识", "enum": [0, 1]}
+        }
+      },
+      "default_parameters": {"duration": 5, "resolution": "720p", "aspect_ratio": "16:9", "audio": true, "bgm": false, "is_rec": false, "off_peak": false, "logo_add": 1},
+      "support_status": "verified",
+      "documentation_url": "https://cloud.tencent.com/document/product/1616/128996"
+    },
     "tencent-tokenhub-yt-video": {
       "task": "image_to_video",
       "capability": "video",
@@ -826,6 +870,25 @@
       "provider_code": "tencent_tokenhub",
       "model_id": "hy-video-1.5",
       "display_name": "Hunyuan Video 1.5"
+    },
+    {
+      "profile": "tencent-tokenhub-kling-v3",
+      "provider_code": "tencent_tokenhub",
+      "model_id": "kl-video-v3",
+      "display_name": "Kling Video v3"
+    },
+    {
+      "profile": "tencent-tokenhub-vidu-q3",
+      "provider_code": "tencent_tokenhub",
+      "model_id": "vd-video-q3-pro",
+      "display_name": "Vidu Video Q3 Pro"
+    },
+    {
+      "profile": "tencent-tokenhub-vidu-q3",
+      "provider_code": "tencent_tokenhub",
+      "model_id": "vd-video-q3-turbo",
+      "display_name": "Vidu Video Q3 Turbo",
+      "features": ["video_generation", "text_to_video", "image_to_video", "first_last_frame", "native_audio", "1080p", "fast"]
     },
     {
       "profile": "tencent-tokenhub-chat",

@@ -3,6 +3,7 @@ package tencenttokenhub
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gofurry/sagaflow/internal/inference"
@@ -16,21 +17,73 @@ func (d *Driver) generateVideo(ctx context.Context, request inference.Request, e
 		return inference.Result{}, err
 	}
 	isYT := strings.EqualFold(request.Target.ID, "yt-video-2.0")
+	isKling := strings.HasPrefix(strings.ToLower(request.Target.ID), "kl-video-")
+	isVidu := strings.HasPrefix(strings.ToLower(request.Target.ID), "vd-video-")
 	if isYT && len(inputs) != 1 {
 		return inference.Result{}, inference.NewError(inference.ErrorInvalidRequest, providerName, "YT Video 2 requires exactly one image reference", false, nil)
 	}
 	if isYT && inputs[0].URL == "" {
 		return inference.Result{}, inference.NewError(inference.ErrorInvalidRequest, providerName, "TokenHub YT Video 2 references must be manually published to S3 first", false, nil)
 	}
-	if !isYT && len(inputs) > 1 {
+	if !isYT && !isKling && !isVidu && len(inputs) > 1 {
 		return inference.Result{}, inference.NewError(inference.ErrorInvalidRequest, providerName, "Hunyuan Video accepts at most one image reference", false, nil)
 	}
+	if (isKling || isVidu) && len(inputs) > 2 {
+		return inference.Result{}, inference.NewError(inference.ErrorInvalidRequest, providerName, "selected video model accepts at most two image references", false, nil)
+	}
 	payload := map[string]any{"model": request.Target.ID, "prompt": request.Prompt}
-	for _, key := range []string{"resolution", "fps"} {
-		adapterutil.CopyParam(payload, request.Parameters, key)
+	switch {
+	case isKling:
+		for _, key := range []string{"negative_prompt", "mode", "cfg_scale"} {
+			adapterutil.CopyParam(payload, request.Parameters, key)
+		}
+		if duration := int(adapterutil.NumberParam(request.Parameters, "duration", 5)); duration > 0 {
+			payload["duration"] = strconv.Itoa(duration)
+		}
+		if len(inputs) == 0 {
+			adapterutil.CopyParam(payload, request.Parameters, "aspect_ratio")
+		} else {
+			adapterutil.CopyParam(payload, request.Parameters, "sound")
+		}
+	case isVidu:
+		for _, key := range []string{"duration", "resolution", "seed", "logo_add", "off_peak"} {
+			adapterutil.CopyParam(payload, request.Parameters, key)
+		}
+		if len(inputs) == 0 {
+			for _, key := range []string{"aspect_ratio", "bgm"} {
+				adapterutil.CopyParam(payload, request.Parameters, key)
+			}
+		} else {
+			for _, key := range []string{"audio", "is_rec"} {
+				adapterutil.CopyParam(payload, request.Parameters, key)
+			}
+			if len(inputs) == 1 {
+				adapterutil.CopyParam(payload, request.Parameters, "voice_id")
+			}
+		}
+	default:
+		for _, key := range []string{"resolution", "fps"} {
+			adapterutil.CopyParam(payload, request.Parameters, key)
+		}
 	}
 	trace := cloneMap(payload)
-	if len(inputs) == 1 {
+	if isKling && len(inputs) > 0 {
+		payload["image"] = inputValue(inputs[0])
+		trace["image"] = inputs[0].traceValue()
+		if len(inputs) == 2 {
+			payload["image_tail"] = inputValue(inputs[1])
+			trace["image_tail"] = inputs[1].traceValue()
+		}
+	} else if isVidu && len(inputs) > 0 {
+		images := make([]string, 0, len(inputs))
+		traceImages := make([]string, 0, len(inputs))
+		for _, input := range inputs {
+			images = append(images, inputValue(input))
+			traceImages = append(traceImages, input.traceValue())
+		}
+		payload["images"] = images
+		trace["images"] = traceImages
+	} else if len(inputs) == 1 {
 		image := map[string]any{}
 		traceImage := map[string]any{}
 		if inputs[0].URL != "" {
@@ -105,4 +158,11 @@ func (d *Driver) generateVideo(ctx context.Context, request inference.Request, e
 			}
 		}
 	}
+}
+
+func inputValue(input materializedInput) string {
+	if input.URL != "" {
+		return input.URL
+	}
+	return input.Base64
 }

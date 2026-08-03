@@ -208,6 +208,22 @@ func bailianImageEditSchema() json.RawMessage {
 	})
 }
 
+func bailianQwenImageSchema() json.RawMessage {
+	return schema(map[string]any{
+		"size": stringSuggestions(
+			"图像尺寸",
+			"可选择推荐尺寸，也可输入宽*高；总像素需在 512*512 至 2048*2048 之间。",
+			`^[1-9][0-9]{2,4}\*[1-9][0-9]{2,4}$`,
+			"2688*1536", "1536*2688", "2048*2048", "2368*1728", "1728*2368",
+		),
+		"n":               integer("生成数量", 1, 6),
+		"seed":            integer("随机种子", 0, 2147483647),
+		"negative_prompt": map[string]any{"type": "string", "title": "负面 Prompt", "maxLength": 500},
+		"prompt_extend":   boolean("Prompt 优化"),
+		"watermark":       boolean("添加水印"),
+	})
+}
+
 func bailianSpeechSchema() json.RawMessage {
 	return schema(map[string]any{
 		"voice":       map[string]any{"type": "string", "title": "音色 ID"},
@@ -235,6 +251,11 @@ func bailianVideoSchema(mode string) json.RawMessage {
 		"watermark":  boolean("添加水印"),
 	}
 	switch mode {
+	case "wan-t2v":
+		properties["ratio"] = choice("画面比例", "16:9", "9:16", "1:1", "4:3", "3:4")
+		properties["duration"] = integer("时长（秒）", 2, 15)
+		properties["prompt_extend"] = boolean("Prompt 优化")
+		properties["negative_prompt"] = map[string]any{"type": "string", "title": "负面 Prompt"}
 	case "happyhorse-t2v":
 		properties["ratio"] = choice("画面比例", "16:9", "9:16", "1:1", "4:3", "3:4", "4:5", "5:4", "9:21", "21:9")
 		properties["duration"] = integer("时长（秒）", 3, 15)
