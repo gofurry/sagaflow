@@ -44,7 +44,10 @@ func TestSyncCreatesVersionedBuiltinsIdempotently(t *testing.T) {
 	var arkModels int
 	var bailianModels int
 	var preciseImageEdit bool
+	var qwenImage3Disabled bool
+	var wanTextToVideo bool
 	var tencentModels int
+	tencentVideoModels := make(map[string]bool)
 	var moonshotModels int
 	arkThinkingDefaults := make(map[string]string)
 	deepSeekModels := make(map[string]bool)
@@ -67,9 +70,16 @@ func TestSyncCreatesVersionedBuiltinsIdempotently(t *testing.T) {
 			if model.ModelID == "wanx2.1-imageedit" {
 				preciseImageEdit = containsAll(model.Features, "outpaint", "inpaint", "mask_input", "local_reference")
 			}
+			if model.ModelID == "qwen-image-3.0-pro" {
+				qwenImage3Disabled = !model.Enabled && containsAll(model.Features, "limited_preview", "image_edit")
+			}
+			if model.ModelID == "wan2.7-t2v" {
+				wanTextToVideo = containsAll(model.Features, "text_to_video", "audio_driven")
+			}
 		}
 		if model.ProviderCode == "tencent_tokenhub" {
 			tencentModels++
+			tencentVideoModels[model.ModelID] = containsAll(model.Features, "video_generation")
 		}
 		if model.ProviderCode == "moonshot" {
 			moonshotModels++
@@ -86,14 +96,25 @@ func TestSyncCreatesVersionedBuiltinsIdempotently(t *testing.T) {
 	if !deepSeekModels["deepseek-v4-flash"] || !deepSeekModels["deepseek-v4-pro"] {
 		t.Fatalf("expected current DeepSeek V4 catalog, got %#v", deepSeekModels)
 	}
-	if bailianModels != 13 {
-		t.Fatalf("expected thirteen Bailian models, got %d", bailianModels)
+	if bailianModels != 16 {
+		t.Fatalf("expected sixteen Bailian models, got %d", bailianModels)
 	}
 	if !preciseImageEdit {
 		t.Fatal("expected Wan 2.1 precise image edit capabilities")
 	}
-	if tencentModels != 11 {
-		t.Fatalf("expected eleven TokenHub models, got %d", tencentModels)
+	if !qwenImage3Disabled {
+		t.Fatal("expected Qwen Image 3.0 preview to remain disabled by default")
+	}
+	if !wanTextToVideo {
+		t.Fatal("expected Wan 2.7 text-to-video with audio input")
+	}
+	if tencentModels != 14 {
+		t.Fatalf("expected fourteen TokenHub models, got %d", tencentModels)
+	}
+	for _, modelID := range []string{"kl-video-v3", "vd-video-q3-pro", "vd-video-q3-turbo"} {
+		if !tencentVideoModels[modelID] {
+			t.Fatalf("expected current TokenHub video model %s", modelID)
+		}
 	}
 	if moonshotModels != 4 {
 		t.Fatalf("expected four Moonshot models, got %d", moonshotModels)

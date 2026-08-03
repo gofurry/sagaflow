@@ -118,6 +118,8 @@ export interface JSONSchema {
   properties?: Record<string, {
     type?: string
     enum?: unknown[]
+    examples?: unknown[]
+    pattern?: string
     minimum?: number
     maximum?: number
     multipleOf?: number

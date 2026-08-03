@@ -130,6 +130,62 @@ func TestImageLiteAndAsyncVideoContracts(t *testing.T) {
 	}
 }
 
+func TestCurrentThirdPartyVideoPayloads(t *testing.T) {
+	t.Parallel()
+	requests := make(map[string]map[string]any)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/video/submit":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			model := payload["model"].(string)
+			requests[model] = payload
+			_, _ = io.WriteString(w, `{"id":"`+model+`-task","status":"queued"}`)
+		case "/api/video/query":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			_, _ = io.WriteString(w, `{"id":"done","status":"completed","url":"https://assets.example/video.mp4"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	driver := New(Config{HTTPClient: server.Client(), PollInterval: time.Millisecond})
+
+	for _, request := range []inference.Request{
+		{
+			Runtime: inference.Runtime{Endpoint: server.URL},
+			Target:  inference.Target{Kind: inference.TargetModel, ID: "kl-video-v3", Capability: inference.CapabilityVideo},
+			Prompt:  "首尾帧过渡", Parameters: map[string]any{"duration": 8, "mode": "pro", "cfg_scale": .6, "sound": "on", "aspect_ratio": "9:16"},
+			Inputs: []inference.Input{{MediaType: "image", URL: "https://assets.example/first.png"}, {MediaType: "image", URL: "https://assets.example/last.png"}},
+		},
+		{
+			Runtime: inference.Runtime{Endpoint: server.URL},
+			Target:  inference.Target{Kind: inference.TargetModel, ID: "vd-video-q3-pro", Capability: inference.CapabilityVideo},
+			Prompt:  "首尾帧过渡", Parameters: map[string]any{"duration": 12, "resolution": "1080p", "audio": true, "voice_id": "ignored-with-two-images", "aspect_ratio": "9:16"},
+			Inputs: []inference.Input{{MediaType: "image", URL: "https://assets.example/first.png"}, {MediaType: "image", URL: "https://assets.example/last.png"}},
+		},
+	} {
+		if _, err := driver.Execute(context.Background(), request, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	kling := requests["kl-video-v3"]
+	if kling["duration"] != "8" || kling["image"] != "https://assets.example/first.png" || kling["image_tail"] != "https://assets.example/last.png" || kling["aspect_ratio"] != nil {
+		t.Fatalf("unexpected Kling payload %#v", kling)
+	}
+	vidu := requests["vd-video-q3-pro"]
+	images, ok := vidu["images"].([]any)
+	if !ok || len(images) != 2 || images[1] != "https://assets.example/last.png" || vidu["audio"] != true || vidu["voice_id"] != nil || vidu["aspect_ratio"] != nil {
+		t.Fatalf("unexpected Vidu payload %#v", vidu)
+	}
+}
+
 func serverURL(r *http.Request) string {
 	return "http://" + r.Host
 }

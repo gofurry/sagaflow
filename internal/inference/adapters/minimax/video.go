@@ -81,6 +81,12 @@ func miniMaxVideoPayload(request inference.Request) (map[string]any, error) {
 		"duration":   adapterutil.NumberParam(p, "duration", 6),
 		"resolution": adapterutil.StringParam(p, "resolution", "1080P"),
 	}
+	if payload["resolution"] == "1080P" && payload["duration"].(float64) != 6 {
+		return nil, inference.NewError(inference.ErrorInvalidRequest, provider, "MiniMax 1080P video only supports 6 seconds", false, nil)
+	}
+	if strings.Contains(strings.ToLower(request.Target.ID), "fast") && adapterutil.StringParam(p, "reference_mode", "first_frame") != "first_frame" {
+		return nil, inference.NewError(inference.ErrorInvalidRequest, provider, "MiniMax Fast only supports first-frame image-to-video", false, nil)
+	}
 	adapterutil.CopyParam(payload, p, "prompt_optimizer")
 	images := make([]string, 0, len(request.Inputs))
 	for _, input := range request.Inputs {

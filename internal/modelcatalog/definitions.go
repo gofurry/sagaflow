@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const manifestVersion = 6
+const manifestVersion = 8
 
 func Builtins() []Definition {
 	embedded, err := embeddedDefinitions()
@@ -45,10 +45,10 @@ func compiledBuiltins() []Definition {
 			[]string{"text", "image"}, []string{"image_generation", "character_reference", "illustration_styles"}, miniMaxImageSchema(true), values("aspect_ratio", "16:9", "response_format", "url", "n", 1),
 			"https://platform.minimaxi.com/docs/guides/image-generation"),
 		model("20000000-0000-0000-0000-000000000012", "minimax", "MiniMax-Hailuo-2.3", "MiniMax Hailuo 2.3", "video",
-			[]string{"text", "image"}, []string{"video_generation", "text_to_video", "image_to_video", "first_last_frame", "subject_reference"}, miniMaxVideoSchema(), values("duration", 6, "resolution", "1080P", "reference_mode", "first_frame"),
+			[]string{"text", "image"}, []string{"video_generation", "text_to_video", "image_to_video", "first_last_frame", "subject_reference"}, miniMaxVideoSchema(false), values("duration", 6, "resolution", "1080P", "reference_mode", "first_frame"),
 			"https://platform.minimaxi.com/docs/guides/video-generation"),
 		model("20000000-0000-0000-0000-000000000013", "minimax", "MiniMax-Hailuo-2.3-Fast", "MiniMax Hailuo 2.3 Fast", "video",
-			[]string{"text", "image"}, []string{"video_generation", "image_to_video", "fast"}, miniMaxVideoSchema(), values("duration", 6, "resolution", "768P", "reference_mode", "first_frame"),
+			[]string{"text", "image"}, []string{"video_generation", "image_to_video", "fast"}, miniMaxVideoSchema(true), values("duration", 6, "resolution", "768P", "reference_mode", "first_frame"),
 			"https://platform.minimaxi.com/docs/guides/video-generation"),
 
 		model("20000000-0000-0000-0000-000000000014", "volcengine", "doubao-seed-2-0-lite-260215", "Doubao Seed 2.0 Lite", "text",
@@ -79,7 +79,7 @@ func compiledBuiltins() []Definition {
 			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "sequential_images"}, seedreamSchema(), values("size", "2K", "seed", -1, "max_images", 1, "watermark", false),
 			"https://api.volcengine.com/api-docs/view?action=ImageGenerations&serviceCode=ark&version=2024-01-01"),
 		model("20000000-0000-0000-0000-000000000003", "volcengine", "doubao-seedance-2-0-mini-260615", "Seedance 2.0 Mini", "video",
-			[]string{"text", "image", "video", "audio"}, []string{"video_generation", "multi_reference", "audio_generation"}, seedanceSchema(), values("ratio", "16:9", "duration", 5, "generate_audio", true, "watermark", false),
+			[]string{"text", "image", "video", "audio"}, []string{"video_generation", "multi_reference", "audio_generation"}, seedanceSchema(), values("ratio", "16:9", "duration", 5, "resolution", "720p", "generate_audio", true, "watermark", false),
 			"https://www.volcengine.com/docs/82379/2222480"),
 		model("20000000-0000-0000-0000-000000000034", "volcengine", "doubao-seedance-2-0-260128", "Seedance 2.0", "video",
 			[]string{"text", "image", "video", "audio"}, []string{"video_generation", "multi_reference", "audio_generation", "1080p"}, seedanceSchema(), values("ratio", "16:9", "duration", 5, "resolution", "720p", "generate_audio", true, "watermark", false),
@@ -98,14 +98,20 @@ func compiledBuiltins() []Definition {
 			[]string{"text", "image"}, []string{"reasoning", "vision", "tools", "structured_output"}, bailianTextSchema(), values("max_tokens", 8192, "enable_thinking", true, "temperature", 0.7),
 			"https://help.aliyun.com/zh/model-studio/models"),
 		model("20000000-0000-0000-0000-000000000019", "aliyun_bailian", "wan2.7-image-pro", "Wan 2.7 Image Pro", "image",
-			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "4k"}, bailianImageSchema(), values("size", "2K", "n", 1, "watermark", false, "thinking_mode", true),
+			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "4k"}, bailianImageSchema(true), values("size", "2K", "n", 1, "watermark", false, "thinking_mode", true),
 			"https://help.aliyun.com/zh/model-studio/wan-image-generation-api-reference"),
 		model("20000000-0000-0000-0000-000000000020", "aliyun_bailian", "wan2.7-image", "Wan 2.7 Image", "image",
-			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "fast"}, bailianImageSchema(), values("size", "2K", "n", 1, "watermark", false, "thinking_mode", true),
+			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "fast"}, bailianImageSchema(false), values("size", "2K", "n", 1, "watermark", false, "thinking_mode", true),
 			"https://help.aliyun.com/zh/model-studio/wan-image-generation-api-reference"),
 		model("20000000-0000-0000-0000-000000000036", "aliyun_bailian", "wanx2.1-imageedit", "Wan 2.1 精确图像编辑", "image",
 			[]string{"text", "image"}, []string{"image_edit", "outpaint", "inpaint", "mask_input", "local_reference"}, bailianImageEditSchema(), values("n", 1, "watermark", false),
 			"https://help.aliyun.com/zh/model-studio/wanx-image-edit-api-reference"),
+		model("20000000-0000-0000-0000-000000000037", "aliyun_bailian", "qwen-image-2.0-pro", "Qwen Image 2.0 Pro", "image",
+			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "negative_prompt", "chinese_text"}, bailianQwenImageSchema(), values("size", "2048*2048", "n", 1, "watermark", false, "prompt_extend", true),
+			"https://help.aliyun.com/zh/model-studio/qwen-image-api"),
+		disabledModel("20000000-0000-0000-0000-000000000038", "aliyun_bailian", "qwen-image-3.0-pro", "Qwen Image 3.0 Pro（邀测）", "image",
+			[]string{"text", "image"}, []string{"image_generation", "image_edit", "multi_reference", "negative_prompt", "chinese_text", "limited_preview"}, bailianQwenImageSchema(), values("n", 1, "watermark", false, "prompt_extend", true),
+			"https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference"),
 		model("20000000-0000-0000-0000-000000000021", "aliyun_bailian", "qwen-audio-3.0-tts-plus", "Qwen Audio 3.0 TTS Plus", "audio",
 			[]string{"text"}, []string{"speech_generation", "voice_clone", "instruction_control", "multilingual"}, bailianSpeechSchema(), bailianSpeechDefaults("longanlingxin"),
 			"https://help.aliyun.com/zh/model-studio/qwen-tts-api"),
@@ -113,21 +119,30 @@ func compiledBuiltins() []Definition {
 			[]string{"text"}, []string{"speech_generation", "voice_clone", "voice_design", "instruction_control", "multilingual"}, bailianSpeechSchema(), bailianSpeechDefaults(""),
 			"https://help.aliyun.com/zh/model-studio/cosyvoice-api"),
 		model("20000000-0000-0000-0000-000000000023", "aliyun_bailian", "happyhorse-1.1-t2v", "HappyHorse 1.1 Text to Video", "video",
-			[]string{"text"}, []string{"video_generation", "text_to_video", "native_audio"}, bailianVideoSchema(), values("resolution", "720P", "ratio", "16:9", "duration", 5, "watermark", false, "prompt_extend", true),
+			[]string{"text"}, []string{"video_generation", "text_to_video", "native_audio"}, bailianVideoSchema("happyhorse-t2v"), values("resolution", "720P", "ratio", "16:9", "duration", 5, "watermark", false),
 			"https://help.aliyun.com/zh/model-studio/happyhorse-api"),
 		model("20000000-0000-0000-0000-000000000024", "aliyun_bailian", "happyhorse-1.1-i2v", "HappyHorse 1.1 Image to Video", "video",
-			[]string{"text", "image"}, []string{"video_generation", "first_frame", "native_audio"}, bailianVideoSchema(), values("resolution", "720P", "ratio", "16:9", "duration", 5, "watermark", false, "prompt_extend", true),
+			[]string{"text", "image"}, []string{"video_generation", "first_frame", "native_audio"}, bailianVideoSchema("happyhorse-i2v"), values("resolution", "720P", "duration", 5, "watermark", false),
 			"https://help.aliyun.com/zh/model-studio/happyhorse-api"),
 		model("20000000-0000-0000-0000-000000000025", "aliyun_bailian", "happyhorse-1.1-r2v", "HappyHorse 1.1 Reference to Video", "video",
-			[]string{"text", "image"}, []string{"video_generation", "multi_reference", "native_audio"}, bailianVideoSchema(), values("resolution", "720P", "ratio", "16:9", "duration", 5, "watermark", false, "prompt_extend", true),
+			[]string{"text", "image"}, []string{"video_generation", "multi_reference", "native_audio"}, bailianVideoSchema("happyhorse-r2v"), values("resolution", "720P", "duration", 5, "watermark", false),
 			"https://help.aliyun.com/zh/model-studio/happyhorse-api"),
 		model("20000000-0000-0000-0000-000000000026", "aliyun_bailian", "wan2.7-i2v-2026-04-25", "Wan 2.7 Image to Video", "video",
-			[]string{"text", "image", "video", "audio"}, []string{"video_generation", "first_last_frame", "video_continuation", "audio_driven"}, bailianVideoSchema(), values("resolution", "720P", "ratio", "16:9", "duration", 5, "watermark", false, "prompt_extend", true),
+			[]string{"text", "image", "video", "audio"}, []string{"video_generation", "first_last_frame", "video_continuation", "audio_driven"}, bailianVideoSchema("wan-i2v"), values("resolution", "720P", "duration", 5, "watermark", false, "prompt_extend", true),
 			"https://help.aliyun.com/zh/model-studio/wan-video-generation-api-reference"),
 		model("20000000-0000-0000-0000-000000000027", "aliyun_bailian", "wan2.7-r2v-2026-06-12", "Wan 2.7 Reference to Video", "video",
-			[]string{"text", "image", "video", "audio"}, []string{"video_generation", "multi_reference", "audio_driven"}, bailianVideoSchema(), values("resolution", "720P", "ratio", "16:9", "duration", 5, "watermark", false, "prompt_extend", true),
+			[]string{"text", "image", "video", "audio"}, []string{"video_generation", "multi_reference", "audio_driven"}, bailianVideoSchema("wan-r2v"), values("resolution", "720P", "ratio", "16:9", "duration", 5, "watermark", false, "prompt_extend", true),
 			"https://help.aliyun.com/zh/model-studio/wan-video-generation-api-reference"),
+		model("20000000-0000-0000-0000-000000000039", "aliyun_bailian", "wan2.7-t2v", "Wan 2.7 Text to Video", "video",
+			[]string{"text", "audio"}, []string{"video_generation", "text_to_video", "audio_driven", "native_audio"}, bailianVideoSchema("wan-t2v"), values("resolution", "720P", "ratio", "16:9", "duration", 5, "watermark", false, "prompt_extend", true),
+			"https://help.aliyun.com/zh/model-studio/text-to-video-api-reference"),
 	}
+}
+
+func disabledModel(id, provider, modelID, displayName, capability string, inputs, features []string, schema, defaults json.RawMessage, docs string) Definition {
+	definition := model(id, provider, modelID, displayName, capability, inputs, features, schema, defaults, docs)
+	definition.Model.Enabled = false
+	return definition
 }
 
 func model(id, provider, modelID, displayName, capability string, inputs, features []string, schema, defaults json.RawMessage, docs string) Definition {

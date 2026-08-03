@@ -21,11 +21,18 @@ func (d *Driver) generateImage(ctx context.Context, request inference.Request, e
 	}
 	payload := map[string]any{
 		"model": request.Target.ID, "prompt": request.Prompt,
-		"aspect_ratio":    adapterutil.StringParam(p, "aspect_ratio", "16:9"),
 		"response_format": adapterutil.StringParam(p, "response_format", "url"),
 		"n":               adapterutil.NumberParam(p, "n", 1),
 	}
-	for _, key := range []string{"width", "height", "style"} {
+	_, hasWidth := p["width"]
+	_, hasHeight := p["height"]
+	if hasWidth != hasHeight {
+		return inference.Result{}, inference.NewError(inference.ErrorInvalidRequest, provider, "MiniMax custom image size requires both width and height", false, nil)
+	}
+	if !hasWidth {
+		payload["aspect_ratio"] = adapterutil.StringParam(p, "aspect_ratio", "16:9")
+	}
+	for _, key := range []string{"width", "height", "style", "seed", "prompt_optimizer", "aigc_watermark"} {
 		adapterutil.CopyParam(payload, p, key)
 	}
 	if len(request.Inputs) > 1 {

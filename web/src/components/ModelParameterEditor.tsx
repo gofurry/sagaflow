@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Checkbox, Input, InputNumber, Select } from 'antd'
+import { AutoComplete, Checkbox, Input, InputNumber, Select } from 'antd'
 import type { JSONSchema } from '../api/types'
 
 type ParameterSchema = NonNullable<JSONSchema['properties']>[string]
@@ -17,6 +17,8 @@ export function ModelParameterEditor({ definition, value, onChange, hiddenKeys =
 }
 
 function ParameterField({ name, schema, value, onChange }: { name: string; schema: ParameterSchema; value: unknown; onChange: (value: unknown) => void }) {
+  const stringValue = String(value ?? '')
+  const invalidPattern = schema.pattern && stringValue !== '' ? !matchesPattern(stringValue, schema.pattern) : false
   return <div className="parameter-field">
     <label className="field-label">{schema.title ?? name}</label>
     {schema.description && <small>{schema.description}</small>}
@@ -30,8 +32,27 @@ function ParameterField({ name, schema, value, onChange }: { name: string; schem
             ? <JSONParameterInput expected={schema.type} onChange={onChange} value={value}/>
             : schema.format === 'textarea'
               ? <Input.TextArea autoSize={{ minRows: 3, maxRows: 8 }} value={String(value ?? '')} onChange={(event) => onChange(event.target.value)}/>
-              : <Input value={String(value ?? '')} onChange={(event) => onChange(event.target.value)}/>}
+              : schema.examples?.length
+                ? <>
+                    <AutoComplete
+                      options={schema.examples.map((item) => ({ value: String(item) }))}
+                      status={invalidPattern ? 'error' : undefined}
+                      value={stringValue}
+                      onChange={onChange}
+                      placeholder="选择建议值或自行输入"
+                    />
+                    {invalidPattern && <small className="parameter-json-error">输入格式不符合该模型要求</small>}
+                  </>
+                : <Input status={invalidPattern ? 'error' : undefined} value={stringValue} onChange={(event) => onChange(event.target.value)}/>}
   </div>
+}
+
+function matchesPattern(value: string, pattern: string) {
+  try {
+    return new RegExp(pattern).test(value)
+  } catch {
+    return true
+  }
 }
 
 function JSONParameterInput({ expected, value, onChange }: { expected: 'object' | 'array'; value: unknown; onChange: (value: unknown) => void }) {
