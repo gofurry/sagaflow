@@ -23,12 +23,14 @@ func (d *Driver) generateVideo(ctx context.Context, request inference.Request, e
 	}
 	parameters := map[string]any{
 		"resolution": adapterutil.StringParam(p, "resolution", "720P"),
-		"ratio":      adapterutil.StringParam(p, "ratio", "16:9"),
 		"duration":   int(adapterutil.NumberParam(p, "duration", 5)),
 		"watermark":  adapterutil.BoolParam(p, "watermark", false),
 	}
-	for _, key := range []string{"seed", "prompt_extend", "negative_prompt", "shot_type"} {
+	for _, key := range []string{"ratio", "seed", "prompt_extend", "shot_type"} {
 		adapterutil.CopyParam(parameters, p, key)
+	}
+	if negativePrompt := strings.TrimSpace(adapterutil.StringParam(p, "negative_prompt", "")); negativePrompt != "" {
+		input["negative_prompt"] = negativePrompt
 	}
 	payload := map[string]any{"model": request.Target.ID, "input": input, "parameters": parameters}
 	taskID, err := d.submitTask(ctx, request, events, "/api/v1/services/aigc/video-generation/video-synthesis", payload)

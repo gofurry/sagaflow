@@ -40,7 +40,7 @@ func (d *Driver) generateImage(ctx context.Context, request inference.Request, e
 		"watermark":     adapterutil.BoolParam(p, "watermark", false),
 		"thinking_mode": adapterutil.BoolParam(p, "thinking_mode", true),
 	}
-	for _, key := range []string{"seed", "prompt_extend", "negative_prompt"} {
+	for _, key := range []string{"seed"} {
 		adapterutil.CopyParam(parameters, p, key)
 	}
 	payload := map[string]any{

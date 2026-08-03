@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -72,6 +73,7 @@ func TestDriverGeneratesImageWithCharacterReference(t *testing.T) {
 		Runtime: inference.Runtime{ProviderCode: "minimax", AdapterCode: "minimax", Endpoint: server.URL},
 		Target:  inference.Target{Kind: inference.TargetModel, ID: "image-01", Capability: inference.CapabilityImage},
 		Prompt:  "角色立绘", Inputs: []inference.Input{{MediaType: "image", URL: "https://assets.example/character.png"}},
+		Parameters: map[string]any{"width": 1536, "height": 1024, "seed": 42, "prompt_optimizer": true},
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -80,11 +82,25 @@ func TestDriverGeneratesImageWithCharacterReference(t *testing.T) {
 	if !ok || len(references) != 1 {
 		t.Fatalf("character reference was not forwarded: %#v", requestBody)
 	}
+	if requestBody["width"] != float64(1536) || requestBody["height"] != float64(1024) || requestBody["seed"] != float64(42) || requestBody["aspect_ratio"] != nil {
+		t.Fatalf("custom image parameters were not forwarded correctly: %#v", requestBody)
+	}
 	reader, _, _ := result.Artifacts[0].Content.Open(context.Background())
 	defer reader.Close()
 	data, _ := io.ReadAll(reader)
 	if string(data) != "png" {
 		t.Fatalf("unexpected image %q", data)
+	}
+}
+
+func TestDriverRejectsInvalidVideoResolutionDurationCombination(t *testing.T) {
+	_, err := minimax.New(http.DefaultClient).Execute(context.Background(), inference.Request{
+		Runtime: inference.Runtime{ProviderCode: "minimax", AdapterCode: "minimax", Endpoint: "https://example.test"},
+		Target:  inference.Target{Kind: inference.TargetModel, ID: "MiniMax-Hailuo-2.3", Capability: inference.CapabilityVideo},
+		Prompt:  "缓慢推进", Parameters: map[string]any{"resolution": "1080P", "duration": 10},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "only supports 6 seconds") {
+		t.Fatalf("expected resolution/duration validation, got %v", err)
 	}
 }
 

@@ -202,8 +202,15 @@ func ParameterSchema(info ModelInfo) json.RawMessage {
 			"thinking_budget": map[string]any{"type": "integer", "title": "思考预算", "minimum": 128, "maximum": 32768},
 		}
 	case "image_generation":
+		examples := []string{"1024x1024", "1280x720", "720x1280"}
+		lowerName := strings.ToLower(info.Name)
+		if strings.Contains(lowerName, "kolors") {
+			examples = []string{"1024x1024", "960x1280", "768x1024", "720x1440", "720x1280"}
+		} else if strings.Contains(lowerName, "qwen") {
+			examples = []string{"1328x1328", "1664x928", "928x1664", "1472x1140", "1140x1472", "1584x1056", "1056x1584"}
+		}
 		properties = map[string]any{
-			"image_size":      map[string]any{"type": "string", "title": "图像尺寸"},
+			"image_size":      map[string]any{"type": "string", "title": "图像尺寸", "description": "选择官方建议尺寸或输入具体模型支持的 宽x高。", "pattern": `^[1-9][0-9]{2,4}x[1-9][0-9]{2,4}$`, "examples": examples},
 			"negative_prompt": map[string]any{"type": "string", "title": "负面 Prompt"},
 			"seed":            map[string]any{"type": "integer", "title": "随机种子", "minimum": 0},
 		}

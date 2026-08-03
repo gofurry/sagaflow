@@ -62,6 +62,7 @@ type resolvedGenerationTarget struct {
 	ProviderCode      string
 	AdapterCode       string
 	Identifier        string
+	ParameterSchema   json.RawMessage
 	DefaultParameters json.RawMessage
 	Snapshot          json.RawMessage
 }
@@ -149,6 +150,9 @@ func (s *Server) createGenerationJob(c fiber.Ctx) error {
 		baseParameters = mergeJSON(baseParameters, preset.Parameters)
 	}
 	parameters := mergeJSON(baseParameters, req.Parameters)
+	if err := validateParameterObject(target.ParameterSchema, parameters); err != nil {
+		return fmt.Errorf("%w: %v", service.ErrInvalidInput, err)
+	}
 	if req.TargetAssetGroupID != nil {
 		targetGroup, groupErr := s.store.GetAssetGroup(c.Context(), *req.TargetAssetGroupID)
 		if groupErr != nil {
@@ -284,7 +288,8 @@ func (s *Server) resolveGenerationTarget(c fiber.Ctx, req generationRequest) (re
 		}
 		return resolvedGenerationTarget{
 			Kind: "model", ModelID: req.ModelID, Capability: model.Capability, InputModalities: model.InputModalities, Features: model.Features,
-			ProviderCode: model.ProviderCode, AdapterCode: provider.AdapterCode, Identifier: model.ModelID, DefaultParameters: model.DefaultParameters,
+			ProviderCode: model.ProviderCode, AdapterCode: provider.AdapterCode, Identifier: model.ModelID,
+			ParameterSchema: model.ParameterSchema, DefaultParameters: model.DefaultParameters,
 			Snapshot: db.JSON(map[string]any{"kind": "model", "id": model.ModelID, "capability": model.Capability}),
 		}, nil
 	case "workflow":
@@ -314,7 +319,7 @@ func (s *Server) resolveGenerationTarget(c fiber.Ctx, req generationRequest) (re
 			Kind: "workflow", ProviderID: req.ProviderID, WorkflowID: req.WorkflowTemplateID,
 			Capability: workflow.Capability, InputModalities: workflow.InputModalities,
 			ProviderCode: provider.Code, AdapterCode: provider.AdapterCode, Identifier: fmt.Sprintf("%s@%d", workflow.Code, workflow.Version),
-			DefaultParameters: workflow.DefaultParameters, Snapshot: service.WorkflowTargetSpec(workflow),
+			ParameterSchema: workflow.ParameterSchema, DefaultParameters: workflow.DefaultParameters, Snapshot: service.WorkflowTargetSpec(workflow),
 		}, nil
 	default:
 		return resolvedGenerationTarget{}, fmt.Errorf("%w: target_kind must be model or workflow", service.ErrInvalidInput)

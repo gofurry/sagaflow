@@ -102,6 +102,7 @@ func validateParameterProperty(name string, property map[string]any) error {
 	allowed := map[string]bool{
 		"type": true, "enum": true, "minimum": true, "maximum": true, "multipleOf": true,
 		"title": true, "description": true, "format": true, "readOnly": true, "default": true, "items": true,
+		"examples": true, "pattern": true,
 	}
 	for key := range property {
 		if !allowed[key] {
@@ -123,6 +124,15 @@ func validateParameterProperty(name string, property map[string]any) error {
 	}
 	if format, ok := property["format"]; ok && format != "textarea" {
 		return fmt.Errorf("parameter %q only supports format textarea", name)
+	}
+	if pattern, ok := property["pattern"]; ok {
+		value, valid := pattern.(string)
+		if !valid || typeName != "string" {
+			return fmt.Errorf("parameter %q pattern requires a string type", name)
+		}
+		if _, err := regexp.Compile(value); err != nil {
+			return fmt.Errorf("parameter %q pattern is invalid: %v", name, err)
+		}
 	}
 	if readOnly, ok := property["readOnly"]; ok {
 		if _, valid := readOnly.(bool); !valid {
@@ -162,6 +172,17 @@ func validateParameterProperty(name string, property map[string]any) error {
 			}
 		}
 	}
+	if examples, ok := property["examples"]; ok {
+		values, valid := examples.([]any)
+		if !valid || len(values) == 0 {
+			return fmt.Errorf("parameter %q examples must be a non-empty array", name)
+		}
+		for _, value := range values {
+			if err := validateValueType(name, value, typeName); err != nil {
+				return fmt.Errorf("example %w", err)
+			}
+		}
+	}
 	if typeName == "array" {
 		if items, ok := property["items"]; ok {
 			itemSchema, valid := items.(map[string]any)
@@ -198,6 +219,17 @@ func validateParameterValue(name string, value any, property map[string]any) err
 		if maximum, exists := numberValue(property["maximum"]); exists && number > maximum {
 			return fmt.Errorf("parameter %q must be at most %v", name, maximum)
 		}
+		if multiple, exists := numberValue(property["multipleOf"]); exists {
+			ratio := number / multiple
+			if math.Abs(ratio-math.Round(ratio)) > 1e-9 {
+				return fmt.Errorf("parameter %q must be a multiple of %v", name, multiple)
+			}
+		}
+	}
+	if pattern, ok := property["pattern"].(string); ok {
+		if !regexp.MustCompile(pattern).MatchString(value.(string)) {
+			return fmt.Errorf("parameter %q does not match the required format", name)
+		}
 	}
 	if rawEnum, ok := property["enum"]; ok {
 		matched := false
@@ -209,6 +241,32 @@ func validateParameterValue(name string, value any, property map[string]any) err
 		}
 		if !matched {
 			return fmt.Errorf("parameter %q is not one of the declared enum values", name)
+		}
+	}
+	return nil
+}
+
+func validateParameterObject(schemaRaw, parametersRaw json.RawMessage) error {
+	schema, err := decodeJSONObject(schemaRaw)
+	if err != nil {
+		return fmt.Errorf("parameter_schema %w", err)
+	}
+	parameters, err := decodeJSONObject(parametersRaw)
+	if err != nil {
+		return fmt.Errorf("parameters %w", err)
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	for name, value := range parameters {
+		rawProperty, ok := properties[name]
+		if !ok {
+			return fmt.Errorf("parameter %q is not declared by the selected model", name)
+		}
+		property, ok := rawProperty.(map[string]any)
+		if !ok {
+			return fmt.Errorf("parameter %q has an invalid schema", name)
+		}
+		if err := validateParameterValue(name, value, property); err != nil {
+			return err
 		}
 	}
 	return nil

@@ -18,16 +18,40 @@ func TestValidateModelRequestAcceptsSupportedParameterControls(t *testing.T) {
 				"temperature":{"type":"number","title":"温度","minimum":0,"maximum":2,"multipleOf":0.1},
 				"max_tokens":{"type":"integer","minimum":1,"maximum":32768},
 				"response_format":{"type":"string","enum":["text","json_object"]},
+				"size":{"type":"string","pattern":"^[0-9]+x[0-9]+$","examples":["1024x1024","1280x720"]},
 				"stream":{"type":"boolean"},
 				"stop":{"type":"array","items":{"type":"string"}},
 				"metadata":{"type":"object"},
 				"notes":{"type":"string","format":"textarea","readOnly":true}
 			}
 		}`),
-		DefaultParameters: json.RawMessage(`{"temperature":0.7,"max_tokens":4096,"response_format":"text","stream":false,"stop":[],"metadata":{}}`),
+		DefaultParameters: json.RawMessage(`{"temperature":0.7,"max_tokens":4096,"response_format":"text","size":"1024x1024","stream":false,"stop":[],"metadata":{}}`),
 	}
 	if err := validateModelRequest(req); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestValidateParameterObjectUsesSchemaConstraints(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object","properties":{"size":{"type":"string","pattern":"^[0-9]+x[0-9]+$","examples":["1024x1024"]},"count":{"type":"integer","minimum":1,"maximum":4}}}`)
+	if err := validateParameterObject(schema, json.RawMessage(`{"size":"1536x1024","count":2}`)); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name       string
+		parameters string
+		want       string
+	}{
+		{name: "invalid pattern", parameters: `{"size":"2K","count":2}`, want: "required format"},
+		{name: "unknown parameter", parameters: `{"size":"1024x1024","extra":true}`, want: "not declared"},
+		{name: "outside range", parameters: `{"size":"1024x1024","count":5}`, want: "at most"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateParameterObject(schema, json.RawMessage(test.parameters))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want substring %q", err, test.want)
+			}
+		})
 	}
 }
 
